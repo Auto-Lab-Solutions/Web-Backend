@@ -33,10 +33,13 @@ exports.onExecutePostLogin = async (event, api) => {
       return;
     }
 
-    api.idToken.setCustomClaim('staff_roles', roles);
     api.idToken.setCustomClaim('is_staff', true);
-    api.accessToken.setCustomClaim('staff_roles', roles);
+    api.idToken.setCustomClaim('staff_roles', roles);
+    
     api.accessToken.setCustomClaim('is_staff', true);
+    api.accessToken.setCustomClaim('staff_roles', roles);
+    api.accessToken.setCustomClaim('email', userEmail);
+    api.accessToken.setCustomClaim('email_verified', emailVerified);
 
   } catch (err) {
     console.error('Lambda request error:', err);
