@@ -1,7 +1,6 @@
 import auth_utils as auth
 
 def lambda_handler(event, context):
-    # Extract the resource ARN from the event (commonly event['methodArn'])
     resource = event.get('methodArn', '*')
 
     # Extract the token
@@ -20,6 +19,7 @@ def lambda_handler(event, context):
         email = decoded.get('email')
         email_verified = decoded.get('email_verified', False)
         is_staff = decoded.get('is_staff', False)
+        staff_roles = decoded.get('staff_roles', [])
 
         # Check email and verification
         if not email or not email_verified:
@@ -29,6 +29,7 @@ def lambda_handler(event, context):
                 resource=resource,
                 context={'errorMessage': 'Unverified email'}
             )
+        
         # Check if staff
         if not is_staff:
             return auth.generate_policy(
@@ -38,6 +39,15 @@ def lambda_handler(event, context):
                 context={'errorMessage': 'Not a staff member'}
             )
 
+        # Check if staff has staff roles
+        if not staff_roles:
+            return auth.generate_policy(
+                principal_id='unauthorized',
+                effect='Deny',
+                resource=resource,
+                context={'errorMessage': 'Staff does not have any staff roles'}
+            )
+
         # Allow access
         return auth.generate_policy(
             principal_id=decoded['sub'],
@@ -45,7 +55,8 @@ def lambda_handler(event, context):
             resource=resource,
             context={
                 'email': email,
-                'is_staff': is_staff
+                'is_staff': is_staff,
+                'staff_roles': ','.join(staff_roles)
             }
         )
 
