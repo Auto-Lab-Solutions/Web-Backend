@@ -1,9 +1,8 @@
-import boto3
-import os
+import boto3, os, json
 from botocore.exceptions import ClientError
 
 # Environment variables
-WS_ENDPOINT_URL = os.environ['WEBSOCKET_ENDPOINT_URL']
+WS_ENDPOINT_URL = os.environ.get('WEBSOCKET_ENDPOINT_URL')
 
 def get_apigateway_client(domain=None, stage=None):
     try:

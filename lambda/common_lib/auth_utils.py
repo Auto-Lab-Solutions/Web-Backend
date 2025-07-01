@@ -2,8 +2,8 @@ import json, jwt, os
 import urllib.request
 from jwt import PyJWKClient
 
-AUTH0_DOMAIN = os.environ['AUTH0_DOMAIN']
-AUTH0_AUDIENCE = os.environ['AUTH0_AUDIENCE']
+AUTH0_DOMAIN = os.environ.get('AUTH0_DOMAIN')
+AUTH0_AUDIENCE = os.environ.get('AUTH0_AUDIENCE')
 AUTH0_ISSUER = f'https://{AUTH0_DOMAIN}/'
 JWKS_URL = f'{AUTH0_ISSUER}.well-known/jwks.json'
 

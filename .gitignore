@@ -194,7 +194,7 @@ cython_debug/
 .cursorindexingignore
 
 # authorizer temp
-lambda/staff-authorizer/tmp/
+lambda/tmp/
 
 # .DS_Store
 .DS_Store

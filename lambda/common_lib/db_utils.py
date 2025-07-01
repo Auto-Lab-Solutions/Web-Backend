@@ -1,6 +1,4 @@
-import boto3
-import os
-import time
+import boto3, os, time
 from botocore.exceptions import ClientError
 from boto3.dynamodb.types import TypeDeserializer
 
@@ -9,9 +7,9 @@ dynamodb = boto3.client('dynamodb')
 deserializer = TypeDeserializer()
 
 # Environment variables
-USERS_TABLE = os.environ['USERS_TABLE']
-STAFF_TABLE = os.environ['STAFF_TABLE']
-CONNECTIONS_TABLE = os.environ['CONNECTIONS_TABLE']
+USERS_TABLE = os.environ.get('USERS_TABLE')
+STAFF_TABLE = os.environ.get('STAFF_TABLE')
+CONNECTIONS_TABLE = os.environ.get('CONNECTIONS_TABLE')
 
 # ------------------  Staff Table Functions ------------------
 
@@ -23,7 +21,7 @@ def get_staff_record(email):
             ExpressionAttributeValues={':email': {'S': email}}
         )
         if result.get('Count', 0) > 0:
-            return {k: deserializer.deserialize(v) for k, v in result['Items'][0].items()}
+            return deserialize_item(result['Items'][0])
         return None
     except ClientError as e:
         print(f"Error querying staff record: {e.response['Error']['Message']}")
@@ -39,7 +37,7 @@ def get_connection(connection_id):
             ExpressionAttributeValues={':connectionId': {'S': connection_id}}
         )
         if result.get('Count', 0) > 0:
-            return {k: deserializer.deserialize(v) for k, v in result['Items'][0].items()}
+            return deserialize_item(result['Items'][0])
         return None
     except ClientError as e:
         print(f"Error querying connectionId {connection_id}: {e}")
@@ -54,7 +52,7 @@ def get_connection_by_user_id(user_id):
             ExpressionAttributeValues={':uid': {'S': user_id}}
         )
         if result.get('Count', 0) > 0:
-            return {k: deserializer.deserialize(v) for k, v in result['Items'][0].items()}
+            return deserialize_item(result['Items'][0])
         return None
     except ClientError as e:
         print(f"Error querying userId {user_id}: {e}")
@@ -67,7 +65,7 @@ def get_all_staff_connections():
             FilterExpression='staff = :staff',
             ExpressionAttributeValues={':staff': {'BOOL': True}}
         )
-        return [deserializer.deserialize(item) for item in result.get('Items', [])]
+        return [deserialize_item(item) for item in result.get('Items', [])]
     except ClientError as e:
         print(f"Error querying all staff connections: {e}")
         return []
@@ -87,7 +85,7 @@ def get_assigned_or_all_staff_connections(assigned_to=None):
                 FilterExpression='staff = :staff',
                 ExpressionAttributeValues={':staff': {'BOOL': True}}
             )
-        return [deserializer.deserialize(item) for item in result.get('Items', [])]
+        return [deserialize_item(item) for item in result.get('Items', [])]
     except ClientError as e:
         print(f"Error querying assigned or all staff connections: {e}")
         return []
@@ -174,21 +172,19 @@ def get_user_record(user_id):
             Key={'userId': {'S': user_id}}
         )
         if 'Item' in result:
-            return {k: deserializer.deserialize(v) for k, v in result['Item'].items()}
+            return deserialize_item(result['Item'])
         return None
     except ClientError as e:
         print(f"Error getting user record for userId {user_id}: {e}")
         return None
 
 def build_user_record(user_id, user_record, user_email=None, user_name=None, user_device=None, user_location=None, assigned_to=None):
-    user_email = user_email or user_record.get('userEmail', '')
-    user_name = user_name or user_record.get('userName', '')
-    user_device = user_device or user_record.get('userDevice', '')
-    user_location = user_location or user_record.get('userLocation', '')
-
+    user_email = user_email if user_email else user_record.get('userEmail', '') if user_record else ''
+    user_name = user_name if user_name else user_record.get('userName', '') if user_record else ''
+    user_device = user_device if user_device else user_record.get('userDevice', '') if user_record else ''
+    user_location = user_location if user_location else user_record.get('userLocation', '') if user_record else ''
     new_user_record = {
-        'userId': {'S': user_id},
-        'staff': {'BOOL': False}
+        'userId': {'S': user_id}
     }
     optional_fields = {
         'assignedTo': assigned_to,
@@ -212,5 +208,10 @@ def create_or_update_user_record(user_data):
         return True
     except ClientError as e:
         print(f"Error creating or updating user record: {e}")
+
+# ------------------  Utility Functions ------------------
+
+def deserialize_item(item):
+    return {k: deserializer.deserialize(v) for k, v in item.items()} if item else None
 
 # -------------------------------------------------------------
