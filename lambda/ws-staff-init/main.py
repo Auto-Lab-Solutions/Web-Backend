@@ -1,4 +1,3 @@
-import json
 import db_utils as db
 import auth_utils as auth
 import wsgw_utils as wsgw

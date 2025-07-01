@@ -1,5 +1,6 @@
 import boto3
 import os
+import time
 from botocore.exceptions import ClientError
 from boto3.dynamodb.types import TypeDeserializer
 
@@ -70,6 +71,50 @@ def get_all_staff_connections():
     except ClientError as e:
         print(f"Error querying all staff connections: {e}")
         return []
+
+def get_assigned_or_all_staff_connections(assigned_to=None):
+    try:
+        if assigned_to:
+            result = dynamodb.query(
+                TableName=CONNECTIONS_TABLE,
+                IndexName='userId-index',
+                KeyConditionExpression='userId = :uid',
+                ExpressionAttributeValues={':uid': {'S': assigned_to}}
+            )
+        else:
+            result = dynamodb.scan(
+                TableName=CONNECTIONS_TABLE,
+                FilterExpression='staff = :staff',
+                ExpressionAttributeValues={':staff': {'BOOL': True}}
+            )
+        return [deserializer.deserialize(item) for item in result.get('Items', [])]
+    except ClientError as e:
+        print(f"Error querying assigned or all staff connections: {e}")
+        return []
+
+def create_connection(connection_id):
+    try:
+        dynamodb.put_item(
+            TableName=CONNECTIONS_TABLE,
+            Item={
+                'connectionId': {'S': connection_id},
+                'createdAt': {'N': str(int(time.time()))}
+            }
+        )
+        print(f"Connection {connection_id} created successfully.")
+        return True
+    except ClientError as e:
+        print(f"Error creating connection {connection_id}: {e}")
+
+def delete_connection(connection_id):
+    try:
+        dynamodb.delete_item(
+            TableName=CONNECTIONS_TABLE,
+            Key={'connectionId': {'S': connection_id}}
+        )
+        print(f"Connection {connection_id} deleted successfully.")
+    except ClientError as e:
+        print(f"Error deleting connection {connection_id}: {e}")
 
 def delete_old_connections(user_id):
     try:
@@ -167,6 +212,5 @@ def create_or_update_user_record(user_data):
         return True
     except ClientError as e:
         print(f"Error creating or updating user record: {e}")
-        return False
 
 # -------------------------------------------------------------

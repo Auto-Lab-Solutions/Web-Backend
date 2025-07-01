@@ -30,7 +30,7 @@ def lambda_handler(event, context):
                 assigned_to = user_record.get('assignedTo')
         else:
             print(f"No user record found for userId: {user_id}")
-            sent_success = wsgw_client.send_notification(
+            sent_success = wsgw.send_notification(
                 wsgw_client,
                 connection_id,
                 {
@@ -58,7 +58,7 @@ def lambda_handler(event, context):
     update_success = db.update_connection(connection_id, connection_data)
     if not update_success:
         print(f"Failed to update connection {connection_id} with userId {user_id}")
-        sent_success = wsgw_client.send_notification(
+        sent_success = wsgw.send_notification(
             wsgw_client,
             connection_id,
             {
@@ -84,7 +84,7 @@ def lambda_handler(event, context):
     create_or_update_success = db.create_or_update_user_record(new_user_record)
     if not create_or_update_success:
         print(f"Failed to create or update user record for userId {user_id}")
-        sent_success = wsgw_client.send_notification(
+        sent_success = wsgw.send_notification(
             wsgw_client,
             connection_id,
             {
@@ -112,13 +112,13 @@ def lambda_handler(event, context):
     if receivers:
         for staff_conn in receivers:
             staff_conn_id = staff_conn.get('connectionId')
-            sent_success = wsgw_client.send_notification(
+            sent_success = wsgw.send_notification(
                 wsgw_client,
                 staff_conn_id,
                 message_body
             )
     
-    sent_success = wsgw_client.send_notification(
+    sent_success = wsgw.send_notification(
         wsgw_client,
         connection_id,
         {
