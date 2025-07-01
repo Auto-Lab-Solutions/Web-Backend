@@ -1,135 +1,49 @@
-import json
-import boto3
-import os
-import time
-from botocore.exceptions import ClientError
+import db_utils as db
+import wsgw_utils as wsgw
+import response_utils as resp
+import request_utils as req
 
-dynamodb = boto3.client('dynamodb')
-
-apigateway = boto3.client(
-    'apigatewaymanagementapi',
-    endpoint_url=os.environ['WEBSOCKET_ENDPOINT_URL']
-)
+wsgw_client = wsgw.get_apigateway_client()
 
 def lambda_handler(event, context):
-    request_body = json.loads(event.get('body'))
-    admin_id = request_body.get('adminId')
-    client_id = request_body.get('clientId')
+    staff_email = req.get_staff_user_email(event)
+    client_id = req.get_body_param(event, 'clientId')
 
-    if not admin_id or not client_id:
-        return error_response("adminId and clientId are required.")
+    if not client_id:
+        return resp.error_response("clientId is required.")
 
-    admin_record = get_admin_record_by_id(admin_id)
-    if not admin_record:
-        return error_response(f"No admin found for adminId: {admin_id}.")
-    
-    client_user_record = get_user_record(client_id)
+    staff_user_record = db.get_staff_record(staff_email)
+    if not staff_user_record:
+        return resp.error_response(f"No staff record found for email: {staff_email}.")
+    staff_user_id = staff_user_record.get('userId')
+
+    client_user_record = db.get_user_record(client_id)
     if not client_user_record:
-        return error_response(f"User has not initialized the connection with userId: {client_id}.")
+        return resp.error_response(f"User with clientId {client_id} does not exist.")
     elif 'assignedTo' in client_user_record:
-        if client_user_record['assignedTo']['S'] != admin_id:
-            return error_response(f"User {client_id} is already assigned to a different admin: {client_user_record['assignedTo']['S']}.")
+        if client_user_record.get('assignedTo') != staff_user_id:
+            return resp.error_response(f"User {client_id} is already assigned to a different staff user: {client_user_record.get('assignedTo')}.")
         else:
-            return error_response(f"You have already taken the user with clientId: {client_id}.")
+            return resp.error_response(f"You have already taken the user with clientId: {client_id}.")
 
-    try:
-        dynamodb.update_item(
-            TableName=os.environ['USERS_TABLE'],
-            Key={'userId': {'S': client_id}},
-            UpdateExpression='SET assignedTo = :adminId',
-            ExpressionAttributeValues={':adminId': {'S': admin_id}}
-        )
-        print(f"User {client_id} record updated with assignedTo: {admin_id}")
-    except ClientError as e:
-        return error_response(f"Failed to assign user: {str(e)}")
+    assignment_success = db.assign_client_to_staff_user(client_id, staff_user_id)
 
-    notify_all_admins_of_assignment(client_id, admin_id)
-    return success_response(f"User {client_id} has been successfully assigned to admin {admin_id}.")
+    if not assignment_success:
+        return resp.error_response(f"Failed to assign user {client_id} to staff user {staff_user_id}. Please try again later.")
 
-
-
-def get_admin_record_by_id(user_id):
-    try:
-        response = dynamodb.query(
-            TableName=os.environ['ADMINS_TABLE'],
-            IndexName='userId-index',
-            KeyConditionExpression=f'userId = :uid',
-            ExpressionAttributeValues={':uid': {'S': user_id}}
-        )
-        return response['Items'][0] if response.get('Count', 0) > 0 else None
-    except ClientError as e:
-        print(f"Error querying admin by userId {user_id}: {str(e)}")
-        return None
+    notification = {
+        "type": "notification",
+        "subtype": "take-user",
+        "success": assignment_success,
+        "userId": client_id,
+        "staffUserId": staff_user_id,
+    }
+    staff_connections = db.get_all_staff_connections_except_user(staff_user_id)
+    for connection in staff_connections:
+        connection_id = connection.get('connectionId')
+        if connection_id:
+            wsgw.send_notification(wsgw_client, connection_id, notification)
     
-def get_user_record(userId):
-    try:
-        result = dynamodb.query(
-            TableName=os.environ['USERS_TABLE'],
-            KeyConditionExpression='userId = :userId',
-            ExpressionAttributeValues={':userId': {'S': userId}}
-        )
-        return result['Items'][0] if result.get('Count', 0) > 0 else None
-    except ClientError as e:
-        print(f"Error querying user record for userId {userId}: {e}")
-        return None
-
-def notify_all_admins_of_assignment(client_id, admin_id):
-    try:
-        response = dynamodb.scan(
-            TableName=os.environ['CONNECTIONS_TABLE'],
-            FilterExpression='admin = :admin',
-            ExpressionAttributeValues={':admin': {'BOOL': True}}
-        )
-        connections = filter(
-            lambda x: 'connectionId' in x and 'userId' in x and x['userId']['S'] != admin_id,
-            response.get('Items', [])
-        )
-        for item in connections:
-            connection_id = item['connectionId']['S']
-            notification = {
-                "type": "notification",
-                "subtype": "take-user",
-                "success": True,
-                "userId": client_id,
-                "adminId": admin_id
-            }
-            send_notification(connection_id, notification)
-    except ClientError as e:
-        print(f"Failed to notify admins: {str(e)}")
-
-def send_notification(connection_id, data):
-    try:
-        apigateway.post_to_connection(
-            Data=json.dumps(data),
-            ConnectionId=connection_id
-        )
-    except ClientError as e:
-        print(f"Error sending notification to {connection_id}: {str(e)}")
-
-def error_response(message):
-    print(message)
-    return {
-        "statusCode": 400,
-        "headers": { 
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*"
-        },
-        "body": json.dumps({
-            "success": False,
-            "message": message
-        })
-    }
-
-def success_response(message):
-    print(message)
-    return {
-        "statusCode": 200,
-        "headers": { 
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*"
-        },
-        "body": json.dumps({
-            "success": True,
-            "message": message
-        })
-    }
+    return resp.success_response({
+        "message": f"User {client_id} has been successfully assigned to staff user {staff_user_id}.",
+    })

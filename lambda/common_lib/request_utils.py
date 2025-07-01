@@ -21,3 +21,20 @@ def get_body(event, default=None):
 def get_body_param(event, key, default=None):
     body = get_body(event, {})
     return body.get(key, default)
+
+def get_authorizer_context(event):
+    return event.get('requestContext', {}).get('authorizer', {})
+
+def get_staff_user_email(event):
+    context = get_authorizer_context(event)
+    if context:
+        return context.get('email', None)
+    return None
+
+def get_staff_user_roles(event):
+    context = get_authorizer_context(event)
+    if context:
+        roles_text = context.get('staff_roles', None)
+        if roles_text:
+            return roles_text.split(',')
+    return []

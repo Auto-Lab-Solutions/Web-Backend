@@ -90,6 +90,21 @@ def get_assigned_or_all_staff_connections(assigned_to=None):
         print(f"Error querying assigned or all staff connections: {e}")
         return []
 
+def get_all_staff_connections_except_user(user_id):
+    try:
+        result = dynamodb.scan(
+            TableName=CONNECTIONS_TABLE,
+            FilterExpression='staff = :staff AND userId <> :userId',
+            ExpressionAttributeValues={
+                ':staff': {'BOOL': True},
+                ':userId': {'S': user_id}
+            }
+        )
+        return [deserialize_item(item) for item in result.get('Items', [])]
+    except ClientError as e:
+        print(f"Error querying all staff connections except user {user_id}: {e}")
+        return []
+
 def create_connection(connection_id):
     try:
         dynamodb.put_item(
@@ -208,6 +223,19 @@ def create_or_update_user_record(user_data):
         return True
     except ClientError as e:
         print(f"Error creating or updating user record: {e}")
+
+def assign_client_to_staff_user(client_id, staff_user_id):
+    try:
+        dynamodb.update_item(
+            TableName=USERS_TABLE,
+            Key={'userId': {'S': client_id}},
+            UpdateExpression='SET assignedTo = :staffUserId',
+            ExpressionAttributeValues={':staffUserId': {'S': staff_user_id}}
+        )
+        print(f"User {client_id} record updated with assignedTo: {staff_user_id}")
+        return True
+    except ClientError as e:
+        print(f"Failed to assign user: {str(e)}")
 
 # ------------------  Utility Functions ------------------
 
