@@ -1,7 +1,7 @@
 import os
-import common_lib.db_utils as db
-import common_lib.response_utils as resp
-import common_lib.request_utils as req
+import db_utils as db
+import response_utils as resp
+import request_utils as req
 
 SHARED_KEY = os.environ.get("SHARED_KEY")
 

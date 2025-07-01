@@ -48,6 +48,32 @@ def generate_policy(principal_id, effect, resource, context=None):
         }
     }
     if context:
-        policy['context'] = context   
+        policy['context'] = context
     return policy
 
+def get_user_email(token):
+    if not token:
+        print("No token provided.")
+        return None
+    
+    jwks_client = PyJWKClient(JWKS_URL)
+    
+    try:
+        key = jwks_client.get_signing_key_from_jwt(token)
+        decoded = jwt.decode(
+            token,
+            key.key,
+            algorithms=['RS256'],
+            audience=AUTH0_AUDIENCE,
+            issuer=AUTH0_ISSUER
+        )
+        return decoded.get('email')
+    except jwt.ExpiredSignatureError:
+        print("Token has expired.")
+        return None
+    except jwt.InvalidTokenError as e:
+        print(f"Invalid token: {str(e)}")
+        return None
+    except Exception as e:
+        print(f"Error decoding token: {str(e)}")
+        return None
