@@ -21,6 +21,10 @@ def lambda_handler(event, context):
     if not wsgw_client:
         print(f"Failed to get API Gateway client for domain: {domain}, stage: {stage}")
         return {}
+    
+    if not db.get_connection(connection_id):
+        print(f"Connection not found for connectionId: {connection_id}")
+        return {}
 
     if user_id:
         db.delete_old_connections(user_id)
@@ -29,7 +33,6 @@ def lambda_handler(event, context):
             if 'assignedTo' in user_record:
                 assigned_to = user_record.get('assignedTo')
         else:
-            print(f"No user record found for userId: {user_id}")
             sent_success = wsgw.send_notification(
                 wsgw_client,
                 connection_id,
@@ -37,15 +40,10 @@ def lambda_handler(event, context):
                     "type": "connection",
                     "subtype": "init",
                     "success": False,
-                    "cause": "INVALID_USER_ID"
+                    "error": "INVALID_USER_ID"
                 }
             )
             return {}
-
-    existing_connection = db.get_connection(connection_id)
-    if not existing_connection:
-        print(f"Connection not found for connectionId: {connection_id}")
-        return {}
 
     user_id = user_id or str(uuid.uuid4())
 
@@ -65,7 +63,7 @@ def lambda_handler(event, context):
                 "type": "connection",
                 "subtype": "init",
                 "success": False,
-                "cause": "UPDATE_CONNECTION_FAILED"
+                "error": "UPDATE_CONNECTION_FAILED"
             }
         )
         return {}
@@ -91,7 +89,7 @@ def lambda_handler(event, context):
                 "type": "connection",
                 "subtype": "init",
                 "success": False,
-                "cause": "UPDATE_USER_RECORD_FAILED"
+                "error": "UPDATE_USER_RECORD_FAILED"
             }
         )
         return {}
@@ -108,7 +106,7 @@ def lambda_handler(event, context):
         "userLocation": user_location,
         "assignedTo": assigned_to
     }
-    receivers = [db.get_connection_by_user_id(assigned_to)] if assigned_to else db.get_all_staff_connections()
+    receivers = db.get_assigned_or_all_staff_connections(assigned_to=assigned_to)
     if receivers:
         for staff_conn in receivers:
             staff_conn_id = staff_conn.get('connectionId')
