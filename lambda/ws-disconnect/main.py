@@ -26,8 +26,9 @@ def lambda_handler(event, context):
         "success": True,
         "userId": user_id
     }
-
-    assigned_to = connection_item.get('assignedTo')
+    
+    user_record = db.get_user_record(user_id)
+    assigned_to = user_record.get('assignedTo') if user_record else ''
     staff_connections = db.get_assigned_or_all_staff_connections(assigned_to)
     for connection in staff_connections:
         staff_conn_id = connection.get('connectionId')
