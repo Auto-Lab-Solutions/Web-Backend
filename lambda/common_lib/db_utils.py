@@ -185,14 +185,14 @@ def get_all_active_connections():
     try:
         response = dynamodb.scan(
             TableName=CONNECTIONS_TABLE,
-            FilterExpression='attribute_exists(userId)',
-            ExpressionAttributeValues={':userId': {'S': ''}}  # This is just a placeholder to ensure the filter works
+            FilterExpression='attribute_exists(userId)'
         )
         connections = response.get('Items', [])
         return [deserialize_item(item) for item in connections]
     except ClientError as e:
         print(f"Error retrieving active connections: {e}")
         return []
+
 
 def create_connection(connection_id):
     try:
