@@ -3,6 +3,8 @@ import wsgw_utils as wsgw
 import response_utils as resp
 import request_utils as req
 
+PERMITTED_ROLE = 'CUSTOMER_SUPPORT'
+
 wsgw_client = wsgw.get_apigateway_client()
 
 def lambda_handler(event, context):
@@ -15,7 +17,15 @@ def lambda_handler(event, context):
     staff_user_record = db.get_staff_record(staff_email)
     if not staff_user_record:
         return resp.error_response(f"No staff record found for email: {staff_email}.")
+    
     staff_user_id = staff_user_record.get('userId')
+    staff_roles = staff_user_record.get('roles', [])
+    
+    if not staff_user_id or not staff_roles:
+        return resp.error_response("Unauthorized: Invalid staff user record.")
+
+    if PERMITTED_ROLE not in staff_roles:
+        return resp.error_response("Unauthorized: Insufficient permissions.")
 
     client_user_record = db.get_user_record(client_id)
     if not client_user_record:

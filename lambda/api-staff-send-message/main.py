@@ -3,6 +3,8 @@ import wsgw_utils as wsgw
 import response_utils as resp
 import request_utils as req
 
+PERMITTED_ROLE = 'CUSTOMER_SUPPORT'
+
 wsgw_client = wsgw.get_apigateway_client()
 
 def lambda_handler(event, context):
@@ -17,13 +19,22 @@ def lambda_handler(event, context):
     staff_user_record = db.get_staff_record(staff_user_email)
     if not staff_user_record:
         return resp.error_response(f"No staff record found for email: {staff_user_email}.")
+
+    staff_user_id = staff_user_record.get('userId')
+    staff_roles = staff_user_record.get('roles', [])
+    
+    if not staff_user_id or not staff_roles:
+        return resp.error_response("Unauthorized: Invalid staff user record.")
+
+    if PERMITTED_ROLE not in staff_roles:
+        return resp.error_response("Unauthorized: Insufficient permissions.")
     
     client_user_record = db.get_user_record(client_id)
     if not client_user_record:
         return resp.error_response(f"User with receiverId {client_id} does not exist.")
     elif 'assignedTo' not in client_user_record:
         return resp.error_response(f"User with receiverId {client_id} is not assigned to any staff user.")
-    elif client_user_record.get('assignedTo') != staff_user_record.get('userId'):
+    elif client_user_record.get('assignedTo') != staff_user_id:
         return resp.error_response(f"User with receiverId: {client_id} is assigned to a different staff user: {client_user_record.get('assignedTo')}. You cannot send messages to this user.")
     
     notification_data = {
@@ -32,7 +43,7 @@ def lambda_handler(event, context):
         "success": True,
         "messageId": message_id,
         "message": message,
-        "senderId": staff_user_record.get('userId'),
+        "senderId": staff_user_id,
     }
     client_conn = db.get_connection_by_user_id(client_id)
     if client_conn:
@@ -41,7 +52,7 @@ def lambda_handler(event, context):
     new_message_data = db.build_message_data(
         message_id=message_id,
         message=message,
-        sender_id=staff_user_record.get('userId'),
+        sender_id=staff_user_id,
         receiver_id=client_id
     )
     success = db.create_message(new_message_data)
