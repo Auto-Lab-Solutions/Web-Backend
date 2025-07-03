@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal
 
 response_headers = {
     "Content-Type": "application/json",
@@ -25,3 +26,12 @@ def success_response(data, success=True, status_code=200):
             **data
         })
     }
+
+def convert_decimal(obj):
+    if isinstance(obj, list):
+        return [convert_decimal(i) for i in obj]
+    elif isinstance(obj, dict):
+        return {k: convert_decimal(v) for k, v in obj.items()}
+    elif isinstance(obj, Decimal):
+        return float(obj)
+    return obj
