@@ -88,10 +88,11 @@ def lambda_handler(event, context):
 
     if status in ['MESSAGE_RECEIVED', 'MESSAGE_VIEWED']:
         if msg_receiver_id == 'ALL':
-            return resp.success_response(
-                { "message": "Cannot send notifications for staff unassigned messages. Skipping." },
-                success=False
-            )
+            msg_receiver_id = action_sender_id
+            # return resp.success_response(
+            #     { "message": "Cannot send notifications for staff unassigned messages. Skipping." },
+            #     success=False
+            # )
         if msg_receiver_id != action_sender_id:
             return resp.error_response("You are not authorized to send RECEIVED/VIEWED notifications for this message.")
         

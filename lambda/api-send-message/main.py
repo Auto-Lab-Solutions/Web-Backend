@@ -43,5 +43,5 @@ def lambda_handler(event, context):
         return resp.error_response(f"Failed to store message with ID: {message_id}. Please try again later.")
 
     return resp.success_response({
-        "message": f"Message with ID: {message_id} sent successfully to userId: {client_id}.",
+        "message": f"Message with ID: {message_id} sent successfully from user {client_id}.",
     })  
