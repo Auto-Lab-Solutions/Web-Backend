@@ -27,12 +27,13 @@ def lambda_handler(event, context):
         "userId": user_id
     }
     
-    user_record = db.get_user_record(user_id)
-    assigned_to = user_record.get('assignedTo') if user_record else ''
-    staff_connections = db.get_assigned_or_all_staff_connections(assigned_to)
-    for connection in staff_connections:
-        staff_conn_id = connection.get('connectionId')
-        wsgw.send_notification(wsgw_client, staff_conn_id, message_body)
+    if not connection_item.get('staff'):
+        user_record = db.get_user_record(user_id)
+        assigned_to = user_record.get('assignedTo') if user_record else ''
+        staff_connections = db.get_assigned_or_all_staff_connections(assigned_to)
+        for connection in staff_connections:
+            staff_conn_id = connection.get('connectionId')
+            wsgw.send_notification(wsgw_client, staff_conn_id, message_body)
 
     print(f"Connection closed for connectionId: {connection_id} with userId: {user_id}")
     return {}
