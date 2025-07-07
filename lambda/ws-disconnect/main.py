@@ -28,6 +28,7 @@ def lambda_handler(event, context):
     }
     
     if not connection_item.get('staff'):
+        db.update_user_disconnected_time(user_id)
         user_record = db.get_user_record(user_id)
         assigned_to = user_record.get('assignedTo') if user_record else ''
         staff_connections = db.get_assigned_or_all_staff_connections(assigned_to)

@@ -82,6 +82,20 @@ def create_or_update_user_record(user_data):
     except ClientError as e:
         print(f"Error creating or updating user record: {e}")
 
+def update_user_disconnected_time(user_id):
+    try:
+        dynamodb.update_item(
+            TableName=USERS_TABLE,
+            Key={'userId': {'S': user_id}},
+            UpdateExpression='SET lastSeen = :lastSeen',
+            ExpressionAttributeValues={':lastSeen': {'N': str(int(time.time()))}}
+        )
+        print(f"User {user_id} lastSeen updated successfully.")
+        return True
+    except ClientError as e:
+        print(f"Error updating lastSeen for user {user_id}: {e}")
+        return False
+
 def assign_client_to_staff_user(client_id, staff_user_id):
     try:
         dynamodb.update_item(
