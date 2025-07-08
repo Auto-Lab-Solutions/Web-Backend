@@ -18,6 +18,6 @@ def lambda_handler(event, context):
     customer_users = db.get_all_users()
     staff_users = db.get_all_staff_records()
     return resp.success_response({
-        "customerUsers": customer_users,
-        "staffUsers": staff_users
+        "customerUsers": resp.convert_decimal(customer_users),
+        "staffUsers": resp.convert_decimal(staff_users)
     })
