@@ -3,7 +3,23 @@ import db_utils as db
 import response_utils as resp
 import request_utils as req
 
+PERMITTED_ROLE = 'ADMIN'
+
 def lambda_handler(event, context):
+    # Get staff user information
+    staff_user_email = req.get_staff_user_email(event)
+    if not staff_user_email:
+        return resp.error_response("Unauthorized: Staff authentication required", 401)
+        
+    staff_user_record = db.get_staff_record(staff_user_email)
+    if not staff_user_record:
+        return resp.error_response(f"No staff record found for email: {staff_user_email}", 404)
+    
+    staff_roles = staff_user_record.get('roles', [])
+    if PERMITTED_ROLE not in staff_roles:
+        return resp.error_response("Unauthorized: Insufficient permissions", 403)
+    
+    # Get date and operation from query parameters or body
     date = req.get_query_param(event, 'date') or req.get_body_param(event, 'date')
     operation = req.get_body_param(event, 'operation') or 'get'
     time_slots = req.get_body_param(event, 'timeSlots')

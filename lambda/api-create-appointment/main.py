@@ -26,6 +26,9 @@ def lambda_handler(event, context):
     else:
         if not user_id:
             return resp.error_response("userId is required for non-staff users.")
+        user_record = db.get_user_record(user_id)
+        if not user_record:
+            return resp.error_response(f"No user record found for userId: {user_id}.")
 
     # Validate appointment data
     valid, msg = validate_appointment_data(appointment_data, staff_user=bool(staff_user_email))
