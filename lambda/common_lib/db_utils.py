@@ -619,7 +619,7 @@ def build_appointment_data(appointment_id, service_id, plan_id, is_buyer, buyer_
         'paymentCompleted': {'BOOL': False},
         'assignedMechanicId': {'S': ''},
         'scheduledTimeSlot': {'M': {}},
-        'scheduledDate': {'S': ''},  # Will be updated when appointment is scheduled
+        'scheduledDate': {'S': ''},
         'postNotes': {'S': ''},
         'reports': {'L': []},
         'createdAt': {'N': str(current_time)},

@@ -61,9 +61,27 @@ def lambda_handler(event, context):
                 if appointment.get('createdUserId') != user_id:
                     return resp.error_response("Unauthorized: You can only view appointments you created", 403)
                 
-                return resp.success_response({
+                # Get assigned mechanic details if available
+                mechanic_details = None
+                assigned_mechanic_id = appointment.get('assignedMechanicId')
+                if assigned_mechanic_id:
+                    mechanic_record = db.get_staff_record_by_user_id(assigned_mechanic_id)
+                    if mechanic_record:
+                        mechanic_details = {
+                            "userName": mechanic_record.get('userName', ''),
+                            "userEmail": mechanic_record.get('userEmail', ''),
+                            "contactNumber": mechanic_record.get('contactNumber', '')
+                        }
+                
+                response_data = {
                     "appointment": resp.convert_decimal(appointment)
-                })
+                }
+                
+                # Add mechanic details if available
+                if mechanic_details:
+                    response_data["assignedMechanic"] = mechanic_details
+                
+                return resp.success_response(response_data)
             else:
                 # Get all appointments created by this user
                 appointments = db.get_appointments_by_created_user(user_id)
