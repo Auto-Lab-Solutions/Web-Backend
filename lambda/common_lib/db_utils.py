@@ -512,6 +512,34 @@ def get_all_appointments():
         print(f"Error scanning all appointments: {e}")
         return []
 
+def get_appointments_by_created_user(user_id):
+    """Get appointments created by a specific user"""
+    try:
+        result = dynamodb.query(
+            TableName=APPOINTMENTS_TABLE,
+            IndexName='createdUserId-index',
+            KeyConditionExpression='createdUserId = :userId',
+            ExpressionAttributeValues={':userId': {'S': user_id}}
+        )
+        return [deserialize_item(item) for item in result.get('Items', [])]
+    except ClientError as e:
+        print(f"Error getting appointments for created user {user_id}: {e}")
+        return []
+
+def get_appointments_by_assigned_mechanic(mechanic_id):
+    """Get appointments assigned to a specific mechanic"""
+    try:
+        result = dynamodb.query(
+            TableName=APPOINTMENTS_TABLE,
+            IndexName='assignedMechanicId-index',
+            KeyConditionExpression='assignedMechanicId = :mechanicId',
+            ExpressionAttributeValues={':mechanicId': {'S': mechanic_id}}
+        )
+        return [deserialize_item(item) for item in result.get('Items', [])]
+    except ClientError as e:
+        print(f"Error getting appointments for assigned mechanic {mechanic_id}: {e}")
+        return []
+
 def build_update_expression_for_appointment(data):
     """Build update expression for appointment updates"""
     update_parts = []
@@ -589,14 +617,15 @@ def build_appointment_data(appointment_id, service_id, plan_id, is_buyer, buyer_
 def get_daily_unpaid_appointments_count(user_id, today):
     """Get count of unpaid appointments for a user on a specific day"""
     try:
+        today_str = today.strftime('%Y-%m-%d') if hasattr(today, 'strftime') else str(today)
         result = dynamodb.query(
             TableName=APPOINTMENTS_TABLE,
-            IndexName='userId-index',
-            KeyConditionExpression='userId = :uid',
+            IndexName='createdUserId-index',
+            KeyConditionExpression='createdUserId = :uid',
             FilterExpression='createdDate = :date AND paymentCompleted = :paid',
             ExpressionAttributeValues={
                 ':uid': {'S': user_id},
-                ':date': {'S': today},
+                ':date': {'S': today_str},
                 ':paid': {'BOOL': False}
             }
         )
