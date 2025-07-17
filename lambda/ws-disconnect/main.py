@@ -1,5 +1,6 @@
 import db_utils as db
 import wsgw_utils as wsgw
+import time
 
 def lambda_handler(event, context):
     connection_id = event['requestContext']['connectionId']
@@ -24,7 +25,8 @@ def lambda_handler(event, context):
         "type": "notification",
         "subtype": "user-disconnected",
         "success": True,
-        "userId": user_id
+        "userId": user_id,
+        "lastSeen": str(int(time.time()))
     }
     
     if not connection_item.get('staff'):

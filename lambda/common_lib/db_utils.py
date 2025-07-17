@@ -1,4 +1,5 @@
 import boto3, os, time
+from datetime import datetime
 from botocore.exceptions import ClientError
 from boto3.dynamodb.types import TypeDeserializer
 
@@ -11,6 +12,9 @@ STAFF_TABLE = os.environ.get('STAFF_TABLE')
 USERS_TABLE = os.environ.get('USERS_TABLE')
 CONNECTIONS_TABLE = os.environ.get('CONNECTIONS_TABLE')
 MESSAGES_TABLE = os.environ.get('MESSAGES_TABLE')
+UNAVAILABLE_SLOTS_TABLE = os.environ.get('UNAVAILABLE_SLOTS_TABLE')
+APPOINTMENTS_TABLE = os.environ.get('APPOINTMENTS_TABLE')
+SERVICE_PRICES_TABLE = os.environ.get('SERVICE_PRICES_TABLE')
 
 # ------------------  Staff Table Functions ------------------
 
@@ -28,6 +32,18 @@ def get_staff_record(email):
         print(f"Error querying staff record: {e.response['Error']['Message']}")
         return None
 
+def get_all_mechanic_records():
+    try:
+        result = dynamodb.scan(
+            TableName=STAFF_TABLE,
+            FilterExpression='contains(roles, :role)',
+            ExpressionAttributeValues={':role': {'S': 'MECHANIC'}}
+        )
+        return [deserialize_item(item) for item in result.get('Items', [])]
+    except ClientError as e:
+        print(f"Error scanning mechanic records: {e.response['Error']['Message']}")
+        return []
+
 def get_all_staff_records():
     try:
         result = dynamodb.scan(TableName=STAFF_TABLE)
@@ -35,6 +51,22 @@ def get_all_staff_records():
     except ClientError as e:
         print(f"Error scanning staff records: {e.response['Error']['Message']}")
         return []
+
+def get_staff_record_by_user_id(user_id):
+    """Get staff record by user ID"""
+    try:
+        result = dynamodb.query(
+            TableName=STAFF_TABLE,
+            IndexName='userId-index',
+            KeyConditionExpression='userId = :uid',
+            ExpressionAttributeValues={':uid': {'S': user_id}}
+        )
+        if result.get('Count', 0) > 0:
+            return deserialize_item(result['Items'][0])
+        return None
+    except ClientError as e:
+        print(f"Error querying staff record by user ID: {e.response['Error']['Message']}")
+        return None
 
 # ------------------  User Table Functions ------------------
 
@@ -378,9 +410,248 @@ def delete_message(message_id):
         print(f"Error deleting message {message_id}: {e}")
         return False
 
+# ------------------  Unavailable Slots Table Functions ------------------
+
+def get_unavailable_slots(date):
+    """Get unavailable slots for a specific date"""
+    try:
+        result = dynamodb.get_item(
+            TableName=UNAVAILABLE_SLOTS_TABLE,
+            Key={'date': {'S': date}}
+        )
+        if 'Item' in result:
+            return deserialize_item(result['Item'])
+        return None
+    except ClientError as e:
+        print(f"Error getting unavailable slots for date {date}: {e}")
+        return None
+
+def update_unavailable_slots(date, time_slots):
+    """Update unavailable slots for a specific date"""
+    try:
+        # Build time slots list for DynamoDB
+        time_slots_list = []
+        for slot in time_slots:
+            time_slots_list.append({
+                'M': {
+                    'startTime': {'S': slot['startTime']},
+                    'endTime': {'S': slot['endTime']}
+                }
+            })
+        
+        dynamodb.put_item(
+            TableName=UNAVAILABLE_SLOTS_TABLE,
+            Item={
+                'date': {'S': date},
+                'timeSlots': {'L': time_slots_list},
+                'updatedAt': {'N': str(int(time.time()))}
+            }
+        )
+        print(f"Unavailable slots updated for date {date}")
+        return True
+    except ClientError as e:
+        print(f"Error updating unavailable slots for date {date}: {e}")
+        return False
+
+
+# ------------------  Appointments Table Functions ------------------
+
+def create_appointment(appointment_data):
+    """Create a new appointment"""
+    try:
+        dynamodb.put_item(
+            TableName=APPOINTMENTS_TABLE,
+            Item=appointment_data
+        )
+        print(f"Appointment {appointment_data['appointmentId']['S']} created successfully")
+        return True
+    except ClientError as e:
+        print(f"Error creating appointment: {e}")
+        return False
+
+def get_appointment(appointment_id):
+    """Get an appointment by ID"""
+    try:
+        result = dynamodb.get_item(
+            TableName=APPOINTMENTS_TABLE,
+            Key={'appointmentId': {'S': appointment_id}}
+        )
+        if 'Item' in result:
+            return deserialize_item(result['Item'])
+        return None
+    except ClientError as e:
+        print(f"Error getting appointment {appointment_id}: {e}")
+        return None
+
+def update_appointment(appointment_id, update_data):
+    """Update an existing appointment"""
+    try:
+        update_expression, expression_values = build_update_expression_for_appointment(update_data)
+        if update_expression:
+            dynamodb.update_item(
+                TableName=APPOINTMENTS_TABLE,
+                Key={'appointmentId': {'S': appointment_id}},
+                UpdateExpression=update_expression,
+                ExpressionAttributeValues=expression_values
+            )
+            print(f"Appointment {appointment_id} updated successfully")
+            return True
+        else:
+            print("No valid update data provided")
+            return False
+    except ClientError as e:
+        print(f"Error updating appointment {appointment_id}: {e}")
+        return False
+
+def get_all_appointments():
+    """Get all appointments"""
+    try:
+        result = dynamodb.scan(TableName=APPOINTMENTS_TABLE)
+        return [deserialize_item(item) for item in result.get('Items', [])]
+    except ClientError as e:
+        print(f"Error scanning all appointments: {e}")
+        return []
+
+def build_update_expression_for_appointment(data):
+    """Build update expression for appointment updates"""
+    update_parts = []
+    expression_values = {}
+    
+    for key, value in data.items():
+        if value is not None:
+            update_parts.append(f'{key} = :{key}')
+            # Handle different data types for DynamoDB
+            if isinstance(value, str):
+                expression_values[f':{key}'] = {'S': value}
+            elif isinstance(value, int):
+                expression_values[f':{key}'] = {'N': str(value)}
+            elif isinstance(value, bool):
+                expression_values[f':{key}'] = {'BOOL': value}
+            elif isinstance(value, dict):
+                expression_values[f':{key}'] = {'M': convert_to_dynamodb_format(value)}
+            elif isinstance(value, list):
+                expression_values[f':{key}'] = {'L': [convert_to_dynamodb_format(item) for item in value]}
+    
+    if update_parts:
+        update_expression = 'SET ' + ', '.join(update_parts)
+        return update_expression, expression_values
+    return None, None
+
+def build_appointment_data(appointment_id, service_id, plan_id, is_buyer, buyer_data, car_data, seller_data, notes, selected_slots, created_user_id, price):
+    """Build appointment data in DynamoDB format"""
+    current_time = int(time.time())
+    current_date = datetime.now().strftime('%Y-%m-%d')
+    
+    # Convert selected slots to DynamoDB format
+    slots_list = []
+    for slot in selected_slots:
+        slots_list.append({
+            'M': {
+                'date': {'S': slot['date']},
+                'start': {'S': slot['start']},
+                'end': {'S': slot['end']},
+                'priority': {'N': str(slot['priority'])}
+            }
+        })
+    
+    appointment_data = {
+        'appointmentId': {'S': appointment_id},
+        'serviceId': {'N': str(service_id)},
+        'planId': {'N': str(plan_id)},
+        'isBuyer': {'BOOL': is_buyer},
+        'buyerName': {'S': buyer_data.get('name', '')},
+        'buyerEmail': {'S': buyer_data.get('email', '')},
+        'buyerPhone': {'S': buyer_data.get('phoneNumber', '')},
+        'carMake': {'S': car_data.get('make', '')},
+        'carModel': {'S': car_data.get('model', '')},
+        'carYear': {'S': str(car_data.get('year', ''))},
+        'carLocation': {'S': car_data.get('location', '')},
+        'sellerName': {'S': seller_data.get('name', '')},
+        'sellerEmail': {'S': seller_data.get('email', '')},
+        'sellerPhone': {'S': seller_data.get('phoneNumber', '')},
+        'notes': {'S': notes},
+        'selectedSlots': {'L': slots_list},
+        'createdUserId': {'S': created_user_id},
+        'status': {'S': 'PENDING'},
+        'price': {'N': str(price)},
+        'paymentCompleted': {'BOOL': False},
+        'assignedMechanicId': {'S': ''},
+        'scheduledTimeSlot': {'M': {}},
+        'postNotes': {'S': ''},
+        'reports': {'L': []},
+        'createdAt': {'N': str(current_time)},
+        'createdDate': {'S': current_date},
+        'updatedAt': {'N': str(current_time)}
+    }
+    
+    return appointment_data
+
+def get_daily_unpaid_appointments_count(user_id, today):
+    """Get count of unpaid appointments for a user on a specific day"""
+    try:
+        result = dynamodb.query(
+            TableName=APPOINTMENTS_TABLE,
+            IndexName='userId-index',
+            KeyConditionExpression='userId = :uid',
+            FilterExpression='createdDate = :date AND paymentCompleted = :paid',
+            ExpressionAttributeValues={
+                ':uid': {'S': user_id},
+                ':date': {'S': today},
+                ':paid': {'BOOL': False}
+            }
+        )
+        return result.get('Count', 0)
+    except ClientError as e:
+        print(f"Error getting daily unpaid appointments count for user {user_id}: {e}")
+        return 0
+
+
+# ------------------  Service Pricing Table Functions ------------------
+
+def get_service_pricing(service_id, plan_id):
+    """Get service pricing by service_id and plan_id"""
+    try:
+        result = dynamodb.get_item(
+            TableName=SERVICE_PRICES_TABLE,
+            Key={
+                'serviceId': {'N': str(service_id)},
+                'planId': {'N': str(plan_id)}
+            }
+        )
+        if 'Item' in result:
+            return deserialize_item(result['Item'])
+        return None
+    except ClientError as e:
+        print(f"Error getting service pricing for service {service_id} and plan {plan_id}: {e}")
+        return None
+
+def get_all_service_prices():
+    """Get all service pricing records"""
+    try:
+        result = dynamodb.scan(TableName=SERVICE_PRICES_TABLE)
+        return [deserialize_item(item) for item in result.get('Items', [])]
+    except ClientError as e:
+        print(f"Error scanning service pricing records: {e}")
+        return []
+
 # ------------------  Utility Functions ------------------
 
 def deserialize_item(item):
     return {k: deserializer.deserialize(v) for k, v in item.items()} if item else None
+
+def convert_to_dynamodb_format(obj):
+    """Convert Python objects to DynamoDB format"""
+    if isinstance(obj, str):
+        return {'S': obj}
+    elif isinstance(obj, int):
+        return {'N': str(obj)}
+    elif isinstance(obj, bool):
+        return {'BOOL': obj}
+    elif isinstance(obj, dict):
+        return {'M': {k: convert_to_dynamodb_format(v) for k, v in obj.items()}}
+    elif isinstance(obj, list):
+        return {'L': [convert_to_dynamodb_format(item) for item in obj]}
+    else:
+        return {'S': str(obj)}
 
 # -------------------------------------------------------------
