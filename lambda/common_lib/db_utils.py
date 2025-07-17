@@ -540,6 +540,20 @@ def get_appointments_by_assigned_mechanic(mechanic_id):
         print(f"Error getting appointments for assigned mechanic {mechanic_id}: {e}")
         return []
 
+def get_appointments_by_scheduled_date(scheduled_date):
+    """Get appointments scheduled for a specific date"""
+    try:
+        result = dynamodb.query(
+            TableName=APPOINTMENTS_TABLE,
+            IndexName='scheduledDate-index',
+            KeyConditionExpression='scheduledDate = :date',
+            ExpressionAttributeValues={':date': {'S': scheduled_date}}
+        )
+        return [deserialize_item(item) for item in result.get('Items', [])]
+    except ClientError as e:
+        print(f"Error getting appointments for scheduled date {scheduled_date}: {e}")
+        return []
+
 def build_update_expression_for_appointment(data):
     """Build update expression for appointment updates"""
     update_parts = []
@@ -605,6 +619,7 @@ def build_appointment_data(appointment_id, service_id, plan_id, is_buyer, buyer_
         'paymentCompleted': {'BOOL': False},
         'assignedMechanicId': {'S': ''},
         'scheduledTimeSlot': {'M': {}},
+        'scheduledDate': {'S': ''},  # Will be updated when appointment is scheduled
         'postNotes': {'S': ''},
         'reports': {'L': []},
         'createdAt': {'N': str(current_time)},

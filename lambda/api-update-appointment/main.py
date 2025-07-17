@@ -250,6 +250,8 @@ def process_scheduling_updates(body, existing_appointment):
                     'end': {'S': scheduled_slot.get('end', '')}
                 }
             }
+            # Also update scheduledDate for indexing
+            update_data['scheduledDate'] = scheduled_slot.get('date', '')
     
     if 'assignedMechanicId' in body:
         mechanic_id = body['assignedMechanicId']
