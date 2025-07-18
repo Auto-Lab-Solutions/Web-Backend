@@ -15,6 +15,8 @@ MESSAGES_TABLE = os.environ.get('MESSAGES_TABLE')
 UNAVAILABLE_SLOTS_TABLE = os.environ.get('UNAVAILABLE_SLOTS_TABLE')
 APPOINTMENTS_TABLE = os.environ.get('APPOINTMENTS_TABLE')
 SERVICE_PRICES_TABLE = os.environ.get('SERVICE_PRICES_TABLE')
+ORDERS_TABLE = os.environ.get('ORDERS_TABLE')
+ITEM_PRICES_TABLE = os.environ.get('ITEM_PRICES_TABLE')
 
 # ------------------  Staff Table Functions ------------------
 
@@ -676,6 +678,202 @@ def get_all_service_prices():
         return [deserialize_item(item) for item in result.get('Items', [])]
     except ClientError as e:
         print(f"Error scanning service pricing records: {e}")
+        return []
+
+# ------------------  Orders Table Functions ------------------
+
+def create_order(order_data):
+    """Create a new order"""
+    try:
+        dynamodb.put_item(
+            TableName=ORDERS_TABLE,
+            Item=order_data
+        )
+        print(f"Order {order_data['orderId']['S']} created successfully")
+        return True
+    except ClientError as e:
+        print(f"Error creating order: {e}")
+        return False
+
+def get_order(order_id):
+    """Get an order by ID"""
+    try:
+        result = dynamodb.get_item(
+            TableName=ORDERS_TABLE,
+            Key={'orderId': {'S': order_id}}
+        )
+        if 'Item' in result:
+            return deserialize_item(result['Item'])
+        return None
+    except ClientError as e:
+        print(f"Error getting order {order_id}: {e}")
+        return None
+
+def update_order(order_id, update_data):
+    """Update an existing order"""
+    try:
+        update_expression, expression_values = build_update_expression_for_order(update_data)
+        if update_expression:
+            dynamodb.update_item(
+                TableName=ORDERS_TABLE,
+                Key={'orderId': {'S': order_id}},
+                UpdateExpression=update_expression,
+                ExpressionAttributeValues=expression_values
+            )
+            print(f"Order {order_id} updated successfully")
+            return True
+        else:
+            print("No valid update data provided")
+            return False
+    except ClientError as e:
+        print(f"Error updating order {order_id}: {e}")
+        return False
+
+def get_all_orders():
+    """Get all orders"""
+    try:
+        result = dynamodb.scan(TableName=ORDERS_TABLE)
+        return [deserialize_item(item) for item in result.get('Items', [])]
+    except ClientError as e:
+        print(f"Error scanning all orders: {e}")
+        return []
+
+def get_orders_by_created_user(user_id):
+    """Get orders created by a specific user"""
+    try:
+        result = dynamodb.query(
+            TableName=ORDERS_TABLE,
+            IndexName='createdUserId-index',
+            KeyConditionExpression='createdUserId = :userId',
+            ExpressionAttributeValues={':userId': {'S': user_id}}
+        )
+        return [deserialize_item(item) for item in result.get('Items', [])]
+    except ClientError as e:
+        print(f"Error getting orders for created user {user_id}: {e}")
+        return []
+
+def get_orders_by_assigned_mechanic(mechanic_id):
+    """Get orders assigned to a specific mechanic"""
+    try:
+        result = dynamodb.query(
+            TableName=ORDERS_TABLE,
+            IndexName='assignedMechanicId-index',
+            KeyConditionExpression='assignedMechanicId = :mechanicId',
+            ExpressionAttributeValues={':mechanicId': {'S': mechanic_id}}
+        )
+        return [deserialize_item(item) for item in result.get('Items', [])]
+    except ClientError as e:
+        print(f"Error getting orders for assigned mechanic {mechanic_id}: {e}")
+        return []
+
+def get_daily_unpaid_orders_count(user_id, today):
+    """Get count of unpaid orders for a user on a specific day"""
+    try:
+        today_str = today.strftime('%Y-%m-%d') if hasattr(today, 'strftime') else str(today)
+        result = dynamodb.query(
+            TableName=ORDERS_TABLE,
+            IndexName='createdUserId-index',
+            KeyConditionExpression='createdUserId = :uid',
+            FilterExpression='createdDate = :date AND paymentCompleted = :paid',
+            ExpressionAttributeValues={
+                ':uid': {'S': user_id},
+                ':date': {'S': today_str},
+                ':paid': {'BOOL': False}
+            }
+        )
+        return result.get('Count', 0)
+    except ClientError as e:
+        print(f"Error getting daily unpaid orders count for user {user_id}: {e}")
+        return 0
+
+def build_update_expression_for_order(data):
+    """Build update expression for order updates"""
+    update_parts = []
+    expression_values = {}
+    
+    for key, value in data.items():
+        if value is not None:
+            update_parts.append(f'{key} = :{key}')
+            # Handle different data types for DynamoDB
+            if isinstance(value, str):
+                expression_values[f':{key}'] = {'S': value}
+            elif isinstance(value, int):
+                expression_values[f':{key}'] = {'N': str(value)}
+            elif isinstance(value, float):
+                expression_values[f':{key}'] = {'N': str(value)}
+            elif isinstance(value, bool):
+                expression_values[f':{key}'] = {'BOOL': value}
+            elif isinstance(value, dict):
+                expression_values[f':{key}'] = {'M': convert_to_dynamodb_format(value)}
+            elif isinstance(value, list):
+                expression_values[f':{key}'] = {'L': [convert_to_dynamodb_format(item) for item in value]}
+    
+    if update_parts:
+        update_expression = 'SET ' + ', '.join(update_parts)
+        return update_expression, expression_values
+    return None, None
+
+def build_order_data(order_id, category_id, item_id, quantity, customer_data, car_data, notes, created_user_id, price):
+    """Build order data in DynamoDB format"""
+    current_time = int(time.time())
+    current_date = datetime.now().strftime('%Y-%m-%d')
+    
+    order_data = {
+        'orderId': {'S': order_id},
+        'categoryId': {'N': str(category_id)},
+        'itemId': {'N': str(item_id)},
+        'quantity': {'N': str(quantity)},
+        'customerName': {'S': customer_data.get('name', '')},
+        'customerEmail': {'S': customer_data.get('email', '')},
+        'customerPhone': {'S': customer_data.get('phoneNumber', '')},
+        'customerAddress': {'S': customer_data.get('address', '')},
+        'carMake': {'S': car_data.get('make', '')},
+        'carModel': {'S': car_data.get('model', '')},
+        'carYear': {'S': str(car_data.get('year', ''))},
+        'carLocation': {'S': car_data.get('location', '')},
+        'notes': {'S': notes},
+        'createdUserId': {'S': created_user_id},
+        'status': {'S': 'PENDING'},
+        'price': {'N': str(price)},
+        'totalPrice': {'N': str(price * quantity)},
+        'paymentCompleted': {'BOOL': False},
+        'assignedMechanicId': {'S': ''},
+        'scheduledDate': {'S': ''},
+        'postNotes': {'S': ''},
+        'createdAt': {'N': str(current_time)},
+        'createdDate': {'S': current_date},
+        'updatedAt': {'N': str(current_time)}
+    }
+    
+    return order_data
+
+
+# ------------------  Item Prices Table Functions ------------------
+
+def get_item_pricing(category_id, item_id):
+    """Get item pricing by category_id and item_id"""
+    try:
+        result = dynamodb.get_item(
+            TableName=ITEM_PRICES_TABLE,
+            Key={
+                'categoryId': {'N': str(category_id)},
+                'itemId': {'N': str(item_id)}
+            }
+        )
+        if 'Item' in result:
+            return deserialize_item(result['Item'])
+        return None
+    except ClientError as e:
+        print(f"Error getting item pricing for category {category_id} and item {item_id}: {e}")
+        return None
+
+def get_all_item_prices():
+    """Get all item pricing records"""
+    try:
+        result = dynamodb.scan(TableName=ITEM_PRICES_TABLE)
+        return [deserialize_item(item) for item in result.get('Items', [])]
+    except ClientError as e:
+        print(f"Error scanning item pricing records: {e}")
         return []
 
 # ------------------  Utility Functions ------------------
