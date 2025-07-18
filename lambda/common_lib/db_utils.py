@@ -17,6 +17,7 @@ APPOINTMENTS_TABLE = os.environ.get('APPOINTMENTS_TABLE')
 SERVICE_PRICES_TABLE = os.environ.get('SERVICE_PRICES_TABLE')
 ORDERS_TABLE = os.environ.get('ORDERS_TABLE')
 ITEM_PRICES_TABLE = os.environ.get('ITEM_PRICES_TABLE')
+INQUIRIES_TABLE = os.environ.get('INQUIRIES_TABLE')
 
 # ------------------  Staff Table Functions ------------------
 
@@ -875,6 +876,62 @@ def get_all_item_prices():
     except ClientError as e:
         print(f"Error scanning item pricing records: {e}")
         return []
+
+# ------------------  Inquiries Table Functions ------------------
+
+def create_inquiry(inquiry_data):
+    """Create a new inquiry"""
+    try:
+        dynamodb.put_item(
+            TableName=INQUIRIES_TABLE,
+            Item=inquiry_data
+        )
+        print(f"Inquiry {inquiry_data['inquiryId']['S']} created successfully")
+        return True
+    except ClientError as e:
+        print(f"Error creating inquiry: {e}")
+        return False
+
+def get_inquiry(inquiry_id):
+    """Get an inquiry by ID"""
+    try:
+        result = dynamodb.get_item(
+            TableName=INQUIRIES_TABLE,
+            Key={'inquiryId': {'S': inquiry_id}}
+        )
+        if 'Item' in result:
+            return deserialize_item(result['Item'])
+        return None
+    except ClientError as e:
+        print(f"Error getting inquiry {inquiry_id}: {e}")
+        return None
+
+def get_all_inquiries():
+    """Get all inquiries"""
+    try:
+        result = dynamodb.scan(TableName=INQUIRIES_TABLE)
+        return [deserialize_item(item) for item in result.get('Items', [])]
+    except ClientError as e:
+        print(f"Error scanning all inquiries: {e}")
+        return []
+
+def build_inquiry_data(inquiry_id, first_name, last_name, email, message, user_id):
+    """Build inquiry data in DynamoDB format"""
+    current_time = int(time.time())
+    current_date = datetime.now().strftime('%Y-%m-%d')
+    
+    inquiry_data = {
+        'inquiryId': {'S': inquiry_id},
+        'firstName': {'S': first_name},
+        'lastName': {'S': last_name},
+        'email': {'S': email},
+        'message': {'S': message},
+        'userId': {'S': user_id},
+        'createdAt': {'N': str(current_time)},
+        'createdDate': {'S': current_date}
+    }
+    
+    return inquiry_data
 
 # ------------------  Utility Functions ------------------
 
