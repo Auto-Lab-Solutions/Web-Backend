@@ -285,6 +285,22 @@ def delete_old_connections(user_id):
     except ClientError as e:
         print(f"Error deleting old connections: {e}")
 
+def delete_all_uninitialized_connections():
+    try:
+        result = dynamodb.scan(
+            TableName=CONNECTIONS_TABLE,
+            FilterExpression='attribute_not_exists(userId)'
+        )
+        for item in result.get('Items', []):
+            conn_id = item['connectionId']['S']
+            dynamodb.delete_item(
+                TableName=CONNECTIONS_TABLE,
+                Key={'connectionId': {'S': conn_id}}
+            )
+            print(f"Deleted uninitialized connection: {conn_id}")
+    except ClientError as e:
+        print(f"Error deleting uninitialized connections: {e}")
+
 def build_update_expression_for_connection(data):
     update_parts = []
     expression_values = {}

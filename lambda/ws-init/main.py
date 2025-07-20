@@ -123,7 +123,12 @@ def lambda_handler(event, context):
             "type": "connection",
             "subtype": "init",
             "success": True,
-            "userId": user_id
+            "userId": user_id,
+            "userEmail": user_email,
+            "userName": user_name,
+            "userDevice": user_device,
+            "userLocation": user_location,
+            "assignedTo": assigned_to
         }
     )
 

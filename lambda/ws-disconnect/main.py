@@ -28,6 +28,9 @@ def lambda_handler(event, context):
         "userId": user_id,
         "lastSeen": str(int(time.time()))
     }
+
+    # delete all uninitialized connections
+    db.delete_all_uninitialized_connections()
     
     if not connection_item.get('staff'):
         db.update_user_disconnected_time(user_id)
