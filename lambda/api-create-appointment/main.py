@@ -31,7 +31,7 @@ def lambda_handler(event, context):
             return resp.error_response(f"No user record found for userId: {user_id}.")
 
     # Validate appointment data
-    valid, msg = validate_appointment_data(appointment_data, staff_user=bool(staff_user_email))
+    valid, msg = req.validate_appointment_data(appointment_data, staff_user=bool(staff_user_email))
     if not valid:
         return resp.error_response(msg)
     

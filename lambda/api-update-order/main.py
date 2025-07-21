@@ -250,7 +250,7 @@ def process_scheduling_updates(body, existing_order):
     
     if 'assignedMechanicId' in body:
         mechanic_id = body['assignedMechanicId']
-        # Validate mechanic exists
+        # Validate mechanic exists if not empty
         if mechanic_id:
             mechanic_record = db.get_staff_record_by_user_id(mechanic_id)
             if not mechanic_record or 'MECHANIC' not in mechanic_record.get('roles', []):

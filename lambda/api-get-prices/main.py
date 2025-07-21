@@ -15,7 +15,7 @@ def lambda_handler(event, context):
 
         # Get price data from the database
         item_prices = db.get_all_item_prices()
-        service_prices = db.get_service_prices()
+        service_prices = db.get_all_service_prices()
         return resp.success_response({
             "itemPrices": resp.convert_decimal(item_prices),
             "servicePrices": resp.convert_decimal(service_prices),

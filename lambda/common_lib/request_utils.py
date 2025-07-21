@@ -90,9 +90,11 @@ def validate_field(field_name, field_value, required=True):
     elif field_name == 'isBuyer' and not isinstance(field_value, bool):
         return False, "isBuyer must be a boolean"
     
-    elif field_name in ['buyerData', 'carData', 'sellerData'] and not isinstance(field_value, dict):
-        return False, f"{field_name} must be a dictionary"
-        required_keys = [], optional_keys = []
+    elif field_name in ['buyerData', 'carData', 'sellerData']:
+        if not isinstance(field_value, dict):
+            return False, f"{field_name} must be a dictionary"
+        required_keys = []
+        optional_keys = []
         if field_name == 'buyerData' or field_name == 'sellerData':
             required_keys = ['name', 'email', 'phoneNumber']
         elif field_name == 'carData':

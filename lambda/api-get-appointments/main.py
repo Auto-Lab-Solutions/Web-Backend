@@ -7,7 +7,7 @@ def lambda_handler(event, context):
     try:
         staff_user_email = req.get_staff_user_email(event)
         appointment_id = req.get_path_param(event, 'appointmentId')
-        user_id = req.get_body_param(event, 'userId')
+        user_id = req.get_query_param(event, 'userId')
         
         # Determine if this is a staff user or customer user
         if staff_user_email:

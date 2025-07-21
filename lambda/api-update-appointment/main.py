@@ -62,7 +62,7 @@ def lambda_handler(event, context):
             new_status = body.get('status')
             if not validate_status_transition(current_status, new_status, staff_roles, staff_user_id, assigned_mechanic_id):
                 return resp.error_response(f"Invalid status transition from {current_status} to {new_status}")
-            if current_status == 'PENDING' and new_status == 'SCHEDULED' and all(existing_appointment.get(key) for key in ['scheduledTimeSlot', 'assignedMechanicId']):
+            if current_status == 'PENDING' and new_status == 'SCHEDULED' and not (existing_appointment.get('scheduledTimeSlot') and existing_appointment.get('assignedMechanicId')):
                 return resp.error_response("Cannot schedule appointment without a time slot and assigned mechanic")
             update_data['status'] = new_status
             
@@ -242,7 +242,7 @@ def process_scheduling_updates(body, existing_appointment):
     
     if 'scheduledTimeSlot' in body:
         scheduled_slot = body['scheduledTimeSlot']
-        if isinstance(scheduled_slot, dict):
+        if isinstance(scheduled_slot, dict) and scheduled_slot:
             update_data['scheduledTimeSlot'] = {
                 'M': {
                     'date': {'S': scheduled_slot.get('date', '')},
@@ -252,10 +252,14 @@ def process_scheduling_updates(body, existing_appointment):
             }
             # Also update scheduledDate for indexing
             update_data['scheduledDate'] = scheduled_slot.get('date', '')
+        else:
+            # Clear the scheduled time slot and date if empty
+            update_data['scheduledTimeSlot'] = {}
+            update_data['scheduledDate'] = ''
     
     if 'assignedMechanicId' in body:
         mechanic_id = body['assignedMechanicId']
-        # Validate mechanic exists
+        # Validate mechanic exists if not empty
         if mechanic_id:
             mechanic_record = db.get_staff_record_by_user_id(mechanic_id)
             if not mechanic_record or 'MECHANIC' not in mechanic_record.get('roles', []):

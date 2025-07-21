@@ -576,25 +576,40 @@ def get_appointments_by_scheduled_date(scheduled_date):
 def build_update_expression_for_appointment(data):
     """Build update expression for appointment updates"""
     update_parts = []
+    remove_parts = []
     expression_values = {}
     
     for key, value in data.items():
         if value is not None:
-            update_parts.append(f'{key} = :{key}')
-            # Handle different data types for DynamoDB
-            if isinstance(value, str):
-                expression_values[f':{key}'] = {'S': value}
-            elif isinstance(value, int):
-                expression_values[f':{key}'] = {'N': str(value)}
-            elif isinstance(value, bool):
-                expression_values[f':{key}'] = {'BOOL': value}
-            elif isinstance(value, dict):
-                expression_values[f':{key}'] = {'M': convert_to_dynamodb_format(value)}
-            elif isinstance(value, list):
-                expression_values[f':{key}'] = {'L': [convert_to_dynamodb_format(item) for item in value]}
+            # Handle secondary index fields with empty values
+            if key in ['assignedMechanicId', 'scheduledDate'] and (value == '' or value == {}):
+                # Remove the attribute if it's empty to avoid secondary index issues
+                remove_parts.append(key)
+            elif key == 'scheduledTimeSlot' and (not value or value == {}):
+                # Remove scheduledTimeSlot if it's empty
+                remove_parts.append(key)
+            else:
+                update_parts.append(f'{key} = :{key}')
+                # Handle different data types for DynamoDB
+                if isinstance(value, str):
+                    expression_values[f':{key}'] = {'S': value}
+                elif isinstance(value, int):
+                    expression_values[f':{key}'] = {'N': str(value)}
+                elif isinstance(value, bool):
+                    expression_values[f':{key}'] = {'BOOL': value}
+                elif isinstance(value, dict):
+                    expression_values[f':{key}'] = {'M': convert_to_dynamodb_format(value)}
+                elif isinstance(value, list):
+                    expression_values[f':{key}'] = {'L': [convert_to_dynamodb_format(item) for item in value]}
     
+    update_expression_parts = []
     if update_parts:
-        update_expression = 'SET ' + ', '.join(update_parts)
+        update_expression_parts.append('SET ' + ', '.join(update_parts))
+    if remove_parts:
+        update_expression_parts.append('REMOVE ' + ', '.join(remove_parts))
+    
+    if update_expression_parts:
+        update_expression = ' '.join(update_expression_parts)
         return update_expression, expression_values
     return None, None
 
@@ -636,9 +651,6 @@ def build_appointment_data(appointment_id, service_id, plan_id, is_buyer, buyer_
         'status': {'S': 'PENDING'},
         'price': {'N': str(price)},
         'paymentCompleted': {'BOOL': False},
-        'assignedMechanicId': {'S': ''},
-        'scheduledTimeSlot': {'M': {}},
-        'scheduledDate': {'S': ''},
         'postNotes': {'S': ''},
         'reports': {'L': []},
         'createdAt': {'N': str(current_time)},
@@ -672,7 +684,7 @@ def get_daily_unpaid_appointments_count(user_id, today):
 # ------------------  Service Pricing Table Functions ------------------
 
 def get_service_pricing(service_id, plan_id):
-    """Get service pricing by service_id and plan_id"""
+    """Get service pricing by service_id and plan_id, return only the price field"""
     try:
         result = dynamodb.get_item(
             TableName=SERVICE_PRICES_TABLE,
@@ -682,7 +694,8 @@ def get_service_pricing(service_id, plan_id):
             }
         )
         if 'Item' in result:
-            return deserialize_item(result['Item'])
+            item = deserialize_item(result['Item'])
+            return item.get('price')
         return None
     except ClientError as e:
         print(f"Error getting service pricing for service {service_id} and plan {plan_id}: {e}")
@@ -806,27 +819,39 @@ def get_daily_unpaid_orders_count(user_id, today):
 def build_update_expression_for_order(data):
     """Build update expression for order updates"""
     update_parts = []
+    remove_parts = []
     expression_values = {}
     
     for key, value in data.items():
         if value is not None:
-            update_parts.append(f'{key} = :{key}')
-            # Handle different data types for DynamoDB
-            if isinstance(value, str):
-                expression_values[f':{key}'] = {'S': value}
-            elif isinstance(value, int):
-                expression_values[f':{key}'] = {'N': str(value)}
-            elif isinstance(value, float):
-                expression_values[f':{key}'] = {'N': str(value)}
-            elif isinstance(value, bool):
-                expression_values[f':{key}'] = {'BOOL': value}
-            elif isinstance(value, dict):
-                expression_values[f':{key}'] = {'M': convert_to_dynamodb_format(value)}
-            elif isinstance(value, list):
-                expression_values[f':{key}'] = {'L': [convert_to_dynamodb_format(item) for item in value]}
+            # Handle secondary index fields with empty values
+            if key == 'assignedMechanicId' and value == '':
+                # Remove the attribute if it's empty to avoid secondary index issues
+                remove_parts.append(key)
+            else:
+                update_parts.append(f'{key} = :{key}')
+                # Handle different data types for DynamoDB
+                if isinstance(value, str):
+                    expression_values[f':{key}'] = {'S': value}
+                elif isinstance(value, int):
+                    expression_values[f':{key}'] = {'N': str(value)}
+                elif isinstance(value, float):
+                    expression_values[f':{key}'] = {'N': str(value)}
+                elif isinstance(value, bool):
+                    expression_values[f':{key}'] = {'BOOL': value}
+                elif isinstance(value, dict):
+                    expression_values[f':{key}'] = {'M': convert_to_dynamodb_format(value)}
+                elif isinstance(value, list):
+                    expression_values[f':{key}'] = {'L': [convert_to_dynamodb_format(item) for item in value]}
     
+    update_expression_parts = []
     if update_parts:
-        update_expression = 'SET ' + ', '.join(update_parts)
+        update_expression_parts.append('SET ' + ', '.join(update_parts))
+    if remove_parts:
+        update_expression_parts.append('REMOVE ' + ', '.join(remove_parts))
+    
+    if update_expression_parts:
+        update_expression = ' '.join(update_expression_parts)
         return update_expression, expression_values
     return None, None
 
@@ -854,8 +879,6 @@ def build_order_data(order_id, category_id, item_id, quantity, customer_data, ca
         'price': {'N': str(price)},
         'totalPrice': {'N': str(price * quantity)},
         'paymentCompleted': {'BOOL': False},
-        'assignedMechanicId': {'S': ''},
-        'scheduledDate': {'S': ''},
         'postNotes': {'S': ''},
         'createdAt': {'N': str(current_time)},
         'createdDate': {'S': current_date},
@@ -868,7 +891,7 @@ def build_order_data(order_id, category_id, item_id, quantity, customer_data, ca
 # ------------------  Item Prices Table Functions ------------------
 
 def get_item_pricing(category_id, item_id):
-    """Get item pricing by category_id and item_id"""
+    """Get item pricing by category_id and item_id, return only the price field"""
     try:
         result = dynamodb.get_item(
             TableName=ITEM_PRICES_TABLE,
@@ -878,7 +901,8 @@ def get_item_pricing(category_id, item_id):
             }
         )
         if 'Item' in result:
-            return deserialize_item(result['Item'])
+            item = deserialize_item(result['Item'])
+            return item.get('price')
         return None
     except ClientError as e:
         print(f"Error getting item pricing for category {category_id} and item {item_id}: {e}")
