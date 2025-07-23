@@ -1,4 +1,5 @@
 import boto3, os, time
+from decimal import Decimal
 from datetime import datetime
 from botocore.exceptions import ClientError
 from boto3.dynamodb.types import TypeDeserializer
@@ -439,7 +440,7 @@ def get_unavailable_slots(date):
             Key={'date': {'S': date}}
         )
         if 'Item' in result:
-            return deserialize_item(result['Item'])
+            return deserialize_item_json_safe(result['Item'])
         return None
     except ClientError as e:
         print(f"Error getting unavailable slots for date {date}: {e}")
@@ -496,7 +497,7 @@ def get_appointment(appointment_id):
             Key={'appointmentId': {'S': appointment_id}}
         )
         if 'Item' in result:
-            return deserialize_item(result['Item'])
+            return deserialize_item_json_safe(result['Item'])
         return None
     except ClientError as e:
         print(f"Error getting appointment {appointment_id}: {e}")
@@ -505,14 +506,20 @@ def get_appointment(appointment_id):
 def update_appointment(appointment_id, update_data):
     """Update an existing appointment"""
     try:
-        update_expression, expression_values = build_update_expression_for_appointment(update_data)
+        update_expression, expression_values, expression_names = build_update_expression_for_appointment(update_data)
         if update_expression:
-            dynamodb.update_item(
-                TableName=APPOINTMENTS_TABLE,
-                Key={'appointmentId': {'S': appointment_id}},
-                UpdateExpression=update_expression,
-                ExpressionAttributeValues=expression_values
-            )
+            update_params = {
+                'TableName': APPOINTMENTS_TABLE,
+                'Key': {'appointmentId': {'S': appointment_id}},
+                'UpdateExpression': update_expression,
+                'ExpressionAttributeValues': expression_values
+            }
+            
+            # Add expression attribute names if they exist
+            if expression_names:
+                update_params['ExpressionAttributeNames'] = expression_names
+            
+            dynamodb.update_item(**update_params)
             print(f"Appointment {appointment_id} updated successfully")
             return True
         else:
@@ -526,7 +533,7 @@ def get_all_appointments():
     """Get all appointments"""
     try:
         result = dynamodb.scan(TableName=APPOINTMENTS_TABLE)
-        return [deserialize_item(item) for item in result.get('Items', [])]
+        return [deserialize_item_json_safe(item) for item in result.get('Items', [])]
     except ClientError as e:
         print(f"Error scanning all appointments: {e}")
         return []
@@ -540,7 +547,7 @@ def get_appointments_by_created_user(user_id):
             KeyConditionExpression='createdUserId = :userId',
             ExpressionAttributeValues={':userId': {'S': user_id}}
         )
-        return [deserialize_item(item) for item in result.get('Items', [])]
+        return [deserialize_item_json_safe(item) for item in result.get('Items', [])]
     except ClientError as e:
         print(f"Error getting appointments for created user {user_id}: {e}")
         return []
@@ -554,7 +561,7 @@ def get_appointments_by_assigned_mechanic(mechanic_id):
             KeyConditionExpression='assignedMechanicId = :mechanicId',
             ExpressionAttributeValues={':mechanicId': {'S': mechanic_id}}
         )
-        return [deserialize_item(item) for item in result.get('Items', [])]
+        return [deserialize_item_json_safe(item) for item in result.get('Items', [])]
     except ClientError as e:
         print(f"Error getting appointments for assigned mechanic {mechanic_id}: {e}")
         return []
@@ -568,7 +575,7 @@ def get_appointments_by_scheduled_date(scheduled_date):
             KeyConditionExpression='scheduledDate = :date',
             ExpressionAttributeValues={':date': {'S': scheduled_date}}
         )
-        return [deserialize_item(item) for item in result.get('Items', [])]
+        return [deserialize_item_json_safe(item) for item in result.get('Items', [])]
     except ClientError as e:
         print(f"Error getting appointments for scheduled date {scheduled_date}: {e}")
         return []
@@ -578,6 +585,13 @@ def build_update_expression_for_appointment(data):
     update_parts = []
     remove_parts = []
     expression_values = {}
+    expression_names = {}
+    
+    # DynamoDB reserved keywords that need expression attribute names
+    reserved_keywords = {
+        'status', 'name', 'type', 'value', 'size', 'order', 'date', 
+        'time', 'user', 'group', 'role', 'data', 'count', 'index'
+    }
     
     for key, value in data.items():
         if value is not None:
@@ -589,7 +603,14 @@ def build_update_expression_for_appointment(data):
                 # Remove scheduledTimeSlot if it's empty
                 remove_parts.append(key)
             else:
-                update_parts.append(f'{key} = :{key}')
+                # Use expression attribute names for reserved keywords
+                if key.lower() in reserved_keywords:
+                    attr_name = f'#{key}'
+                    expression_names[attr_name] = key
+                    update_parts.append(f'{attr_name} = :{key}')
+                else:
+                    update_parts.append(f'{key} = :{key}')
+                
                 # Handle different data types for DynamoDB
                 if isinstance(value, str):
                     expression_values[f':{key}'] = {'S': value}
@@ -598,9 +619,17 @@ def build_update_expression_for_appointment(data):
                 elif isinstance(value, bool):
                     expression_values[f':{key}'] = {'BOOL': value}
                 elif isinstance(value, dict):
-                    expression_values[f':{key}'] = {'M': convert_to_dynamodb_format(value)}
+                    # Check if it's already in DynamoDB format
+                    if is_dynamodb_format(value):
+                        expression_values[f':{key}'] = value
+                    else:
+                        expression_values[f':{key}'] = convert_to_dynamodb_format(value)
                 elif isinstance(value, list):
-                    expression_values[f':{key}'] = {'L': [convert_to_dynamodb_format(item) for item in value]}
+                    # Check if it's already in DynamoDB format
+                    if value and is_dynamodb_format(value[0]) if value else False:
+                        expression_values[f':{key}'] = {'L': value}
+                    else:
+                        expression_values[f':{key}'] = convert_to_dynamodb_format(value)
     
     update_expression_parts = []
     if update_parts:
@@ -610,8 +639,8 @@ def build_update_expression_for_appointment(data):
     
     if update_expression_parts:
         update_expression = ' '.join(update_expression_parts)
-        return update_expression, expression_values
-    return None, None
+        return update_expression, expression_values, expression_names
+    return None, None, None
 
 def build_appointment_data(appointment_id, service_id, plan_id, is_buyer, buyer_data, car_data, seller_data, notes, selected_slots, created_user_id, price):
     """Build appointment data in DynamoDB format"""
@@ -742,14 +771,20 @@ def get_order(order_id):
 def update_order(order_id, update_data):
     """Update an existing order"""
     try:
-        update_expression, expression_values = build_update_expression_for_order(update_data)
+        update_expression, expression_values, expression_names = build_update_expression_for_order(update_data)
         if update_expression:
-            dynamodb.update_item(
-                TableName=ORDERS_TABLE,
-                Key={'orderId': {'S': order_id}},
-                UpdateExpression=update_expression,
-                ExpressionAttributeValues=expression_values
-            )
+            update_params = {
+                'TableName': ORDERS_TABLE,
+                'Key': {'orderId': {'S': order_id}},
+                'UpdateExpression': update_expression,
+                'ExpressionAttributeValues': expression_values
+            }
+            
+            # Add expression attribute names if they exist
+            if expression_names:
+                update_params['ExpressionAttributeNames'] = expression_names
+            
+            dynamodb.update_item(**update_params)
             print(f"Order {order_id} updated successfully")
             return True
         else:
@@ -821,6 +856,13 @@ def build_update_expression_for_order(data):
     update_parts = []
     remove_parts = []
     expression_values = {}
+    expression_names = {}
+    
+    # DynamoDB reserved keywords that need expression attribute names
+    reserved_keywords = {
+        'status', 'name', 'type', 'value', 'size', 'order', 'date', 
+        'time', 'user', 'group', 'role', 'data', 'count', 'index'
+    }
     
     for key, value in data.items():
         if value is not None:
@@ -829,7 +871,14 @@ def build_update_expression_for_order(data):
                 # Remove the attribute if it's empty to avoid secondary index issues
                 remove_parts.append(key)
             else:
-                update_parts.append(f'{key} = :{key}')
+                # Use expression attribute names for reserved keywords
+                if key.lower() in reserved_keywords:
+                    attr_name = f'#{key}'
+                    expression_names[attr_name] = key
+                    update_parts.append(f'{attr_name} = :{key}')
+                else:
+                    update_parts.append(f'{key} = :{key}')
+                
                 # Handle different data types for DynamoDB
                 if isinstance(value, str):
                     expression_values[f':{key}'] = {'S': value}
@@ -840,9 +889,17 @@ def build_update_expression_for_order(data):
                 elif isinstance(value, bool):
                     expression_values[f':{key}'] = {'BOOL': value}
                 elif isinstance(value, dict):
-                    expression_values[f':{key}'] = {'M': convert_to_dynamodb_format(value)}
+                    # Check if it's already in DynamoDB format
+                    if is_dynamodb_format(value):
+                        expression_values[f':{key}'] = value
+                    else:
+                        expression_values[f':{key}'] = convert_to_dynamodb_format(value)
                 elif isinstance(value, list):
-                    expression_values[f':{key}'] = {'L': [convert_to_dynamodb_format(item) for item in value]}
+                    # Check if it's already in DynamoDB format
+                    if value and is_dynamodb_format(value[0]) if value else False:
+                        expression_values[f':{key}'] = {'L': value}
+                    else:
+                        expression_values[f':{key}'] = convert_to_dynamodb_format(value)
     
     update_expression_parts = []
     if update_parts:
@@ -852,8 +909,8 @@ def build_update_expression_for_order(data):
     
     if update_expression_parts:
         update_expression = ' '.join(update_expression_parts)
-        return update_expression, expression_values
-    return None, None
+        return update_expression, expression_values, expression_names
+    return None, None, None
 
 def build_order_data(order_id, category_id, item_id, quantity, customer_data, car_data, notes, created_user_id, price):
     """Build order data in DynamoDB format"""
@@ -978,6 +1035,30 @@ def build_inquiry_data(inquiry_id, first_name, last_name, email, message, user_i
 def deserialize_item(item):
     return {k: deserializer.deserialize(v) for k, v in item.items()} if item else None
 
+def deserialize_item_json_safe(item):
+    """Deserialize DynamoDB item and convert Decimal objects to JSON-safe types"""
+    if not item:
+        return None
+    
+    deserialized = {k: deserializer.deserialize(v) for k, v in item.items()}
+    
+    # Convert Decimal objects to int or float for JSON serialization
+    def convert_decimals(obj):
+        if isinstance(obj, Decimal):
+            # Convert to int if it's a whole number, otherwise float
+            if obj % 1 == 0:
+                return int(obj)
+            else:
+                return float(obj)
+        elif isinstance(obj, dict):
+            return {k: convert_decimals(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [convert_decimals(item) for item in obj]
+        else:
+            return obj
+    
+    return convert_decimals(deserialized)
+
 def convert_to_dynamodb_format(obj):
     """Convert Python objects to DynamoDB format"""
     if isinstance(obj, str):
@@ -992,5 +1073,27 @@ def convert_to_dynamodb_format(obj):
         return {'L': [convert_to_dynamodb_format(item) for item in obj]}
     else:
         return {'S': str(obj)}
+
+def is_dynamodb_format(obj):
+    """Check if an object is already in DynamoDB format"""
+    if not isinstance(obj, dict):
+        return False
+    
+    # Check if it has DynamoDB type descriptors
+    dynamodb_types = {'S', 'N', 'B', 'SS', 'NS', 'BS', 'M', 'L', 'NULL', 'BOOL'}
+    
+    # If it's a single type descriptor (like {'S': 'value'})
+    if len(obj) == 1 and list(obj.keys())[0] in dynamodb_types:
+        return True
+    
+    # If it's a map, check if all values are DynamoDB format
+    if 'M' in obj and isinstance(obj['M'], dict):
+        return True
+    
+    # If it's a list, check if it has the L type
+    if 'L' in obj and isinstance(obj['L'], list):
+        return True
+    
+    return False
 
 # -------------------------------------------------------------

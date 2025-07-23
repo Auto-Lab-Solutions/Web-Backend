@@ -6,6 +6,8 @@ PERMITTED_ROLE = 'CUSTOMER_SUPPORT'
 
 def lambda_handler(event, context):
     staff_user_email = req.get_staff_user_email(event)
+    if not staff_user_email:
+        return resp.error_response("Unauthorized: Staff authentication required", 401)
     
     staff_user_record = db.get_staff_record(staff_user_email)
     if not staff_user_record:

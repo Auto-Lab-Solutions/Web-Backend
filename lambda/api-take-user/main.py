@@ -11,6 +11,9 @@ def lambda_handler(event, context):
     staff_email = req.get_staff_user_email(event)
     client_id = req.get_body_param(event, 'clientId')
 
+    if not staff_email:
+        return resp.error_response("Unauthorized: Staff authentication required", 401)
+
     if not client_id:
         return resp.error_response("clientId is required.")
 

@@ -61,20 +61,22 @@ def lambda_handler(event, context):
             # Scenario 3: Update status
             new_status = body.get('status')
             if not validate_status_transition(current_status, new_status, staff_roles, staff_user_id, assigned_mechanic_id):
-                return resp.error_response(f"Invalid status transition from {current_status} to {new_status}")
+                return resp.error_response(f"Invalid status transition from {current_status} to {new_status}", 400)
             if current_status == 'PENDING' and new_status == 'SCHEDULED' and not (existing_appointment.get('scheduledTimeSlot') and existing_appointment.get('assignedMechanicId')):
-                return resp.error_response("Cannot schedule appointment without a time slot and assigned mechanic")
+                return resp.error_response("Cannot schedule appointment without scheduled time slot and assigned mechanic", 400)
             update_data['status'] = new_status
             
         elif scenario == 'reports':
             # Scenario 4: Update reports and post notes
             update_data = process_reports_updates(body, existing_appointment)
         
-        # Add updated timestamp
-        update_data['updatedAt'] = int(time.time())
-        
         if not update_data:
             return resp.error_response("No valid update data provided")
+        elif update_data.get('statusCode') == 400:
+            return update_data
+        
+        # Add updated timestamp
+        update_data['updatedAt'] = int(time.time())
         
         # Update appointment in database
         success = db.update_appointment(appointment_id, update_data)
@@ -85,7 +87,7 @@ def lambda_handler(event, context):
         updated_appointment = db.get_appointment(appointment_id)
         
         # Send notifications to relevant staff
-        send_update_notifications(appointment_id, scenario, update_data, updated_appointment, staff_user_id)
+        send_update_notifications(appointment_id, scenario, update_data, updated_appointment)
         
         return resp.success_response({
             "message": "Appointment updated successfully",
@@ -156,7 +158,7 @@ def validate_status_transition(current_status, new_status, staff_roles, staff_us
     # Mechanic allowed transitions (must be assigned)
     mechanic_transitions = {
         'SCHEDULED': ['ONGOING'],
-        'ONGOING': ['COMPLETED'],
+        'ONGOING': ['COMPLETED', 'SCHEDULED'],
         'COMPLETED': ['ONGOING']
     }
     
@@ -182,7 +184,7 @@ def process_basic_info_updates(body, existing_appointment):
         plan_id = body.get('planId', existing_appointment.get('planId'))
         price = db.get_service_pricing(body['serviceId'], plan_id)
         if price is None:
-            raise ValueError("Invalid service or plan. Please check the serviceId and planId provided.")
+            return resp.error_response("Invalid service or plan. Please check the serviceId and planId provided.")
         update_data['price'] = price
     
     if 'planId' in body:
@@ -191,7 +193,7 @@ def process_basic_info_updates(body, existing_appointment):
         service_id = body.get('serviceId', existing_appointment.get('serviceId'))
         price = db.get_service_pricing(service_id, body['planId'])
         if price is None:
-            raise ValueError("Invalid service or plan. Please check the serviceId and planId provided.")
+            return resp.error_response("Invalid service or plan. Please check the serviceId and planId provided.")
         update_data['price'] = price
     
     if 'isBuyer' in body:
@@ -243,12 +245,11 @@ def process_scheduling_updates(body, existing_appointment):
     if 'scheduledTimeSlot' in body:
         scheduled_slot = body['scheduledTimeSlot']
         if isinstance(scheduled_slot, dict) and scheduled_slot:
+            # Pass the raw data, let db_utils handle DynamoDB formatting
             update_data['scheduledTimeSlot'] = {
-                'M': {
-                    'date': {'S': scheduled_slot.get('date', '')},
-                    'start': {'S': scheduled_slot.get('start', '')},
-                    'end': {'S': scheduled_slot.get('end', '')}
-                }
+                'date': scheduled_slot.get('date', ''),
+                'start': scheduled_slot.get('start', ''),
+                'end': scheduled_slot.get('end', '')
             }
             # Also update scheduledDate for indexing
             update_data['scheduledDate'] = scheduled_slot.get('date', '')
@@ -263,7 +264,7 @@ def process_scheduling_updates(body, existing_appointment):
         if mechanic_id:
             mechanic_record = db.get_staff_record_by_user_id(mechanic_id)
             if not mechanic_record or 'MECHANIC' not in mechanic_record.get('roles', []):
-                raise ValueError("Invalid mechanic ID")
+                return resp.error_response("Invalid mechanic ID")
         update_data['assignedMechanicId'] = mechanic_id
     
     return update_data
@@ -279,20 +280,8 @@ def process_reports_updates(body, existing_appointment):
     if 'reports' in body:
         reports = body['reports']
         if isinstance(reports, list):
-            # Convert reports to DynamoDB format
-            reports_list = []
-            for report in reports:
-                if isinstance(report, dict):
-                    report_item = {'M': {}}
-                    for key, value in report.items():
-                        if isinstance(value, str):
-                            report_item['M'][key] = {'S': value}
-                        elif isinstance(value, (int, float)):
-                            report_item['M'][key] = {'N': str(value)}
-                        elif isinstance(value, bool):
-                            report_item['M'][key] = {'BOOL': value}
-                    reports_list.append(report_item)
-            update_data['reports'] = reports_list
+            # Pass the raw data, let db_utils handle DynamoDB formatting
+            update_data['reports'] = reports
     
     return update_data
 
