@@ -51,10 +51,10 @@ def lambda_handler(event, context):
             category_id=order_data.get('categoryId'),
             item_id=order_data.get('itemId')
         )
-        if not item_pricing:
+        if item_pricing is None:
             return resp.error_response("Invalid category or item. Please check the categoryId and itemId provided")
 
-        price = item_pricing.get('price', 0)
+        price = float(item_pricing)
         quantity = order_data.get('quantity', 1)
 
         # Build order data

@@ -33,6 +33,7 @@ def lambda_handler(event, context):
         
         current_status = existing_appointment.get('status', '')
         assigned_mechanic_id = existing_appointment.get('assignedMechanicId', '')
+        payment_completed = existing_appointment.get('paymentCompleted', False)
         
         # Get request body
         body = req.get_body(event)
@@ -44,7 +45,7 @@ def lambda_handler(event, context):
         scenario = determine_update_scenario(body)
         
         # Validate permissions based on scenario
-        permission_result = validate_permissions(scenario, staff_roles, current_status, staff_user_id, assigned_mechanic_id)
+        permission_result = validate_permissions(scenario, staff_roles, current_status, staff_user_id, assigned_mechanic_id, payment_completed)
         if not permission_result['allowed']:
             return resp.error_response(permission_result['message'], 403)
         
@@ -111,7 +112,7 @@ def determine_update_scenario(body):
         return 'basic_info'
 
 
-def validate_permissions(scenario, staff_roles, current_status, staff_user_id, assigned_mechanic_id):
+def validate_permissions(scenario, staff_roles, current_status, staff_user_id, assigned_mechanic_id, payment_completed):
     """Validate if the user has permission for this update scenario"""
     
     if scenario == 'basic_info':
@@ -120,6 +121,8 @@ def validate_permissions(scenario, staff_roles, current_status, staff_user_id, a
             return {'allowed': False, 'message': 'Unauthorized: CUSTOMER_SUPPORT role required'}
         if current_status not in ['PENDING', 'SCHEDULED', 'ONGOING']:
             return {'allowed': False, 'message': f'Cannot update basic info when status is {current_status}'}
+        if payment_completed:
+            return {'allowed': False, 'message': 'Cannot update basic info when payment is completed'}
             
     elif scenario == 'scheduling':
         # Scenario 2: Scheduling updates

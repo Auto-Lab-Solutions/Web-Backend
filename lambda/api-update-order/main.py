@@ -18,6 +18,9 @@ def lambda_handler(event, context):
         if not staff_user_record:
             return resp.error_response(f"No staff record found for email: {staff_user_email}", 404)
         
+        # Convert decimals to handle DynamoDB Decimal objects
+        staff_user_record = resp.convert_decimal(staff_user_record)
+        
         staff_roles = staff_user_record.get('roles', [])
         staff_user_id = staff_user_record.get('userId')
         
@@ -31,8 +34,12 @@ def lambda_handler(event, context):
         if not existing_order:
             return resp.error_response("Order not found", 404)
         
+        # Convert decimals to handle DynamoDB Decimal objects
+        existing_order = resp.convert_decimal(existing_order)
+        
         current_status = existing_order.get('status', '')
         assigned_mechanic_id = existing_order.get('assignedMechanicId', '')
+        payment_completed = existing_order.get('paymentCompleted', False)
         
         # Get request body
         body = req.get_body(event)
@@ -44,7 +51,7 @@ def lambda_handler(event, context):
         scenario = determine_update_scenario(body)
         
         # Validate permissions based on scenario
-        permission_result = validate_permissions(scenario, staff_roles, current_status, staff_user_id, assigned_mechanic_id)
+        permission_result = validate_permissions(scenario, staff_roles, current_status, staff_user_id, assigned_mechanic_id, payment_completed)
         if not permission_result['allowed']:
             return resp.error_response(permission_result['message'], 403)
         
@@ -62,6 +69,8 @@ def lambda_handler(event, context):
             new_status = body.get('status')
             if not validate_status_transition(current_status, new_status, staff_roles, staff_user_id, assigned_mechanic_id):
                 return resp.error_response(f"Invalid status transition from {current_status} to {new_status}")
+            if current_status == 'PENDING' and new_status == 'SCHEDULED' and not (existing_order.get('scheduledDate') and existing_order.get('assignedMechanicId')):
+                return resp.error_response("Cannot schedule appointment without a scheduled date and assigned mechanic")
             update_data['status'] = new_status
             
         elif scenario == 'notes':
@@ -81,13 +90,14 @@ def lambda_handler(event, context):
         
         # Get updated order for response
         updated_order = db.get_order(order_id)
+        updated_order = resp.convert_decimal(updated_order)
         
         # Send notifications to relevant users
         send_update_notifications(order_id, scenario, update_data, updated_order, staff_user_id)
         
         return resp.success_response({
             "message": "Order updated successfully",
-            "order": resp.convert_decimal(updated_order)
+            "order": updated_order
         })
         
     except Exception as e:
@@ -107,15 +117,17 @@ def determine_update_scenario(body):
         return 'basic_info'
 
 
-def validate_permissions(scenario, staff_roles, current_status, staff_user_id, assigned_mechanic_id):
+def validate_permissions(scenario, staff_roles, current_status, staff_user_id, assigned_mechanic_id, payment_completed):
     """Validate if the user has permission for this update scenario"""
     
     if scenario == 'basic_info':
         # Scenario 1: Basic info updates
         if 'CUSTOMER_SUPPORT' not in staff_roles:
             return {'allowed': False, 'message': 'Unauthorized: CUSTOMER_SUPPORT role required'}
-        if current_status not in ['PENDING']:
+        if current_status not in ['PENDING', 'SCHEDULED']:
             return {'allowed': False, 'message': f'Cannot update basic info when status is {current_status}'}
+        if payment_completed:
+            return {'allowed': False, 'message': 'Cannot update basic info when payment is completed'}
             
     elif scenario == 'scheduling':
         # Scenario 2: Scheduling updates
@@ -148,12 +160,13 @@ def validate_status_transition(current_status, new_status, staff_roles, staff_us
         'PENDING': ['SCHEDULED', 'CANCELLED'],
         'SCHEDULED': ['PENDING', 'CANCELLED'],
         'CANCELLED': ['PENDING', 'SCHEDULED'],
-        'DELIVERED': ['SCHEDULED', 'CANCELLED']
+        'DELIVERED': ['SCHEDULED']
     }
     
     # Mechanic allowed transitions (must be assigned)
     mechanic_transitions = {
-        'SCHEDULED': ['DELIVERED']
+        'SCHEDULED': ['DELIVERED'],
+        'DELIVERED': ['SCHEDULED']
     }
     
     if 'CUSTOMER_SUPPORT' in staff_roles and new_status in cs_transitions.get(current_status, []):
@@ -179,7 +192,8 @@ def process_basic_info_updates(body, existing_order):
         item_pricing = db.get_item_pricing(body['categoryId'], item_id)
         if not item_pricing:
             raise ValueError("Invalid category or item. Please check the categoryId and itemId provided.")
-        price = item_pricing.get('price', 0)
+        # item_pricing is just the price value, not a dict
+        price = float(item_pricing) if item_pricing else 0
         quantity = existing_order.get('quantity', 1)
         update_data['price'] = price
         update_data['totalPrice'] = price * quantity
@@ -191,7 +205,8 @@ def process_basic_info_updates(body, existing_order):
         item_pricing = db.get_item_pricing(category_id, body['itemId'])
         if not item_pricing:
             raise ValueError("Invalid category or item. Please check the categoryId and itemId provided.")
-        price = item_pricing.get('price', 0)
+        # item_pricing is just the price value, not a dict
+        price = float(item_pricing) if item_pricing else 0
         quantity = existing_order.get('quantity', 1)
         update_data['price'] = price
         update_data['totalPrice'] = price * quantity
@@ -253,6 +268,8 @@ def process_scheduling_updates(body, existing_order):
         # Validate mechanic exists if not empty
         if mechanic_id:
             mechanic_record = db.get_staff_record_by_user_id(mechanic_id)
+            if mechanic_record:
+                mechanic_record = resp.convert_decimal(mechanic_record)
             if not mechanic_record or 'MECHANIC' not in mechanic_record.get('roles', []):
                 raise ValueError("Invalid mechanic ID")
         update_data['assignedMechanicId'] = mechanic_id
@@ -283,6 +300,7 @@ def send_update_notifications(order_id, scenario, update_data, updated_order, st
     # Get connections of customer user and send notification
     customer_user_connection = db.get_connection_by_user_id(updated_order.get('createdUserId'))
     if customer_user_connection:
+        customer_user_connection = resp.convert_decimal(customer_user_connection)
         wsgw.send_notification(
             wsgw_client,
             customer_user_connection.get('connectionId'),
