@@ -1,0 +1,322 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'DynamoDB Tables for Auto Lab Solutions'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: production
+    Description: Environment name
+
+Resources:
+  # Staff Table
+  StaffTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Staff
+      AttributeDefinitions:
+        - AttributeName: userEmail
+          AttributeType: S
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userEmail
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: userId-index
+          KeySchema:
+            - AttributeName: userId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Users Table
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Users
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Connections Table
+  ConnectionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Connections
+      AttributeDefinitions:
+        - AttributeName: connectionId
+          AttributeType: S
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: connectionId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: userId-index
+          KeySchema:
+            - AttributeName: userId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Messages Table
+  MessagesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Messages
+      AttributeDefinitions:
+        - AttributeName: messageId
+          AttributeType: S
+        - AttributeName: receiverId
+          AttributeType: S
+        - AttributeName: senderId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: messageId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: receiverId-index
+          KeySchema:
+            - AttributeName: receiverId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: senderId-index
+          KeySchema:
+            - AttributeName: senderId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  # UnavailableSlots Table
+  UnavailableSlotsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: UnavailableSlots
+      AttributeDefinitions:
+        - AttributeName: date
+          AttributeType: S
+      KeySchema:
+        - AttributeName: date
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Appointments Table
+  AppointmentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Appointments
+      AttributeDefinitions:
+        - AttributeName: appointmentId
+          AttributeType: S
+        - AttributeName: assignedMechanicId
+          AttributeType: S
+        - AttributeName: createdUserId
+          AttributeType: S
+        - AttributeName: scheduledDate
+          AttributeType: S
+      KeySchema:
+        - AttributeName: appointmentId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: assignedMechanicId-index
+          KeySchema:
+            - AttributeName: assignedMechanicId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: createdUserId-index
+          KeySchema:
+            - AttributeName: createdUserId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: scheduledDate-index
+          KeySchema:
+            - AttributeName: scheduledDate
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ServicePrices Table
+  ServicePricesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ServicePrices
+      AttributeDefinitions:
+        - AttributeName: serviceId
+          AttributeType: N
+        - AttributeName: planId
+          AttributeType: N
+      KeySchema:
+        - AttributeName: serviceId
+          KeyType: HASH
+        - AttributeName: planId
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Orders Table
+  OrdersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Orders
+      AttributeDefinitions:
+        - AttributeName: orderId
+          AttributeType: S
+        - AttributeName: assignedMechanicId
+          AttributeType: S
+        - AttributeName: createdUserId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: orderId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: assignedMechanicId-index
+          KeySchema:
+            - AttributeName: assignedMechanicId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: createdUserId-index
+          KeySchema:
+            - AttributeName: createdUserId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ItemPrices Table
+  ItemPricesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ItemPrices
+      AttributeDefinitions:
+        - AttributeName: categoryId
+          AttributeType: N
+        - AttributeName: itemId
+          AttributeType: N
+      KeySchema:
+        - AttributeName: categoryId
+          KeyType: HASH
+        - AttributeName: itemId
+          KeyType: RANGE
+      BillingMode: PAY_PER_REQUEST
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Inquiries Table
+  InquiriesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Inquiries
+      AttributeDefinitions:
+        - AttributeName: inquiryId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: inquiryId
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  StaffTable:
+    Description: Staff Table Name
+    Value: !Ref StaffTable
+    Export:
+      Name: !Sub '${AWS::StackName}-StaffTable'
+
+  UsersTable:
+    Description: Users Table Name
+    Value: !Ref UsersTable
+    Export:
+      Name: !Sub '${AWS::StackName}-UsersTable'
+
+  ConnectionsTable:
+    Description: Connections Table Name
+    Value: !Ref ConnectionsTable
+    Export:
+      Name: !Sub '${AWS::StackName}-ConnectionsTable'
+
+  MessagesTable:
+    Description: Messages Table Name
+    Value: !Ref MessagesTable
+    Export:
+      Name: !Sub '${AWS::StackName}-MessagesTable'
+
+  UnavailableSlotsTable:
+    Description: UnavailableSlots Table Name
+    Value: !Ref UnavailableSlotsTable
+    Export:
+      Name: !Sub '${AWS::StackName}-UnavailableSlotsTable'
+
+  AppointmentsTable:
+    Description: Appointments Table Name
+    Value: !Ref AppointmentsTable
+    Export:
+      Name: !Sub '${AWS::StackName}-AppointmentsTable'
+
+  ServicePricesTable:
+    Description: ServicePrices Table Name
+    Value: !Ref ServicePricesTable
+    Export:
+      Name: !Sub '${AWS::StackName}-ServicePricesTable'
+
+  OrdersTable:
+    Description: Orders Table Name
+    Value: !Ref OrdersTable
+    Export:
+      Name: !Sub '${AWS::StackName}-OrdersTable'
+
+  ItemPricesTable:
+    Description: ItemPrices Table Name
+    Value: !Ref ItemPricesTable
+    Export:
+      Name: !Sub '${AWS::StackName}-ItemPricesTable'
+
+  InquiriesTable:
+    Description: Inquiries Table Name
+    Value: !Ref InquiriesTable
+    Export:
+      Name: !Sub '${AWS::StackName}-InquiriesTable'
