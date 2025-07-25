@@ -1,0 +1,140 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Auto Lab Solutions - Complete Backend Infrastructure'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: production
+    Description: Environment name
+  
+  S3BucketName:
+    Type: String
+    Default: auto-lab-reports
+    Description: S3 bucket name for reports
+  
+  CloudFormationBucket:
+    Type: String
+    Default: auto-lab-cloudformation-templates
+    Description: S3 bucket containing CloudFormation templates and Lambda packages
+
+Resources:
+  # DynamoDB Tables
+  DynamoDBStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/dynamodb-tables.yaml'
+      Parameters:
+        Environment: !Ref Environment
+
+  # Lambda Functions
+  LambdaStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: DynamoDBStack
+    Properties:
+      TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/lambda-functions.yaml'
+      Parameters:
+        Environment: !Ref Environment
+        CloudFormationBucket: !Ref CloudFormationBucket
+        StaffTable: !GetAtt DynamoDBStack.Outputs.StaffTable
+        UsersTable: !GetAtt DynamoDBStack.Outputs.UsersTable
+        ConnectionsTable: !GetAtt DynamoDBStack.Outputs.ConnectionsTable
+        MessagesTable: !GetAtt DynamoDBStack.Outputs.MessagesTable
+        UnavailableSlotsTable: !GetAtt DynamoDBStack.Outputs.UnavailableSlotsTable
+        AppointmentsTable: !GetAtt DynamoDBStack.Outputs.AppointmentsTable
+        ServicePricesTable: !GetAtt DynamoDBStack.Outputs.ServicePricesTable
+        OrdersTable: !GetAtt DynamoDBStack.Outputs.OrdersTable
+        ItemPricesTable: !GetAtt DynamoDBStack.Outputs.ItemPricesTable
+        InquiriesTable: !GetAtt DynamoDBStack.Outputs.InquiriesTable
+
+  # API Gateway
+  ApiGatewayStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: LambdaStack
+    Properties:
+      TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/api-gateway.yaml'
+      Parameters:
+        Environment: !Ref Environment
+        StaffAuthorizerArn: !GetAtt LambdaStack.Outputs.StaffAuthorizerArn
+        StaffAuthorizerOptionalArn: !GetAtt LambdaStack.Outputs.StaffAuthorizerOptionalArn
+        GetPricesArn: !GetAtt LambdaStack.Outputs.GetPricesArn
+        GetUsersArn: !GetAtt LambdaStack.Outputs.GetUsersArn
+        GetAppointmentsArn: !GetAtt LambdaStack.Outputs.GetAppointmentsArn
+        CreateAppointmentArn: !GetAtt LambdaStack.Outputs.CreateAppointmentArn
+        UpdateAppointmentArn: !GetAtt LambdaStack.Outputs.UpdateAppointmentArn
+        GetUnavailableSlotsArn: !GetAtt LambdaStack.Outputs.GetUnavailableSlotsArn
+        UpdateUnavailableSlotsArn: !GetAtt LambdaStack.Outputs.UpdateUnavailableSlotsArn
+        GetOrdersArn: !GetAtt LambdaStack.Outputs.GetOrdersArn
+        CreateOrderArn: !GetAtt LambdaStack.Outputs.CreateOrderArn
+        UpdateOrderArn: !GetAtt LambdaStack.Outputs.UpdateOrderArn
+        ConfirmPaymentArn: !GetAtt LambdaStack.Outputs.ConfirmPaymentArn
+        GetInquiriesArn: !GetAtt LambdaStack.Outputs.GetInquiriesArn
+        CreateInquiryArn: !GetAtt LambdaStack.Outputs.CreateInquiryArn
+        GetReportUploadUrlArn: !GetAtt LambdaStack.Outputs.GetReportUploadUrlArn
+        GetAnalyticsArn: !GetAtt LambdaStack.Outputs.GetAnalyticsArn
+        GetStaffRolesArn: !GetAtt LambdaStack.Outputs.GetStaffRolesArn
+        NotifyArn: !GetAtt LambdaStack.Outputs.NotifyArn
+        TakeUserArn: !GetAtt LambdaStack.Outputs.TakeUserArn
+        GetConnectionsArn: !GetAtt LambdaStack.Outputs.GetConnectionsArn
+        GetMessagesArn: !GetAtt LambdaStack.Outputs.GetMessagesArn
+        GetLastMessagesArn: !GetAtt LambdaStack.Outputs.GetLastMessagesArn
+        SendMessageArn: !GetAtt LambdaStack.Outputs.SendMessageArn
+
+  # WebSocket API
+  WebSocketStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: LambdaStack
+    Properties:
+      TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/websocket-api.yaml'
+      Parameters:
+        Environment: !Ref Environment
+        WsConnectArn: !GetAtt LambdaStack.Outputs.WsConnectArn
+        WsDisconnectArn: !GetAtt LambdaStack.Outputs.WsDisconnectArn
+        WsInitArn: !GetAtt LambdaStack.Outputs.WsInitArn
+        WsPingArn: !GetAtt LambdaStack.Outputs.WsPingArn
+        WsStaffInitArn: !GetAtt LambdaStack.Outputs.WsStaffInitArn
+
+  # S3 and CloudFront
+  S3CloudFrontStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/s3-cloudfront.yaml'
+      Parameters:
+        Environment: !Ref Environment
+        S3BucketName: !Ref S3BucketName
+
+Outputs:
+  RestApiId:
+    Description: REST API ID
+    Value: !GetAtt ApiGatewayStack.Outputs.RestApiId
+    Export:
+      Name: !Sub '${AWS::StackName}-RestApiId'
+
+  RestApiEndpoint:
+    Description: REST API Endpoint
+    Value: !GetAtt ApiGatewayStack.Outputs.RestApiEndpoint
+    Export:
+      Name: !Sub '${AWS::StackName}-RestApiEndpoint'
+
+  WebSocketApiId:
+    Description: WebSocket API ID
+    Value: !GetAtt WebSocketStack.Outputs.WebSocketApiId
+    Export:
+      Name: !Sub '${AWS::StackName}-WebSocketApiId'
+
+  WebSocketApiEndpoint:
+    Description: WebSocket API Endpoint
+    Value: !GetAtt WebSocketStack.Outputs.WebSocketApiEndpoint
+    Export:
+      Name: !Sub '${AWS::StackName}-WebSocketApiEndpoint'
+
+  CloudFrontDistributionId:
+    Description: CloudFront Distribution ID
+    Value: !GetAtt S3CloudFrontStack.Outputs.CloudFrontDistributionId
+    Export:
+      Name: !Sub '${AWS::StackName}-CloudFrontDistributionId'
+
+  CloudFrontDomainName:
+    Description: CloudFront Domain Name
+    Value: !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName
+    Export:
+      Name: !Sub '${AWS::StackName}-CloudFrontDomainName'

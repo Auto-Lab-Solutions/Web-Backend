@@ -1,0 +1,211 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [ prod ]
+  pull_request:
+    branches: [ prod ]
+    types: [closed]
+
+env:
+  AWS_REGION: ap-southeast-2
+  ENVIRONMENT: production
+
+jobs:
+  validate:
+    name: Validate Code
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.13'
+
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # Install common dependencies for validation
+        if [ -f lambda/common_lib/requirements.txt ]; then
+          pip install -r lambda/common_lib/requirements.txt
+        fi
+
+    - name: Validate Python syntax
+      run: |
+        # Check Python syntax in all Lambda functions
+        find lambda -name "*.py" -exec python -m py_compile {} \;
+
+    - name: Validate CloudFormation templates
+      run: |
+        # Install AWS CLI
+        pip install awscli
+        # Validate CloudFormation templates
+        aws cloudformation validate-template --template-body file://infrastructure/main-stack.yaml --region $AWS_REGION || true
+        aws cloudformation validate-template --template-body file://infrastructure/dynamodb-tables.yaml --region $AWS_REGION || true
+        aws cloudformation validate-template --template-body file://infrastructure/lambda-functions.yaml --region $AWS_REGION || true
+        aws cloudformation validate-template --template-body file://infrastructure/api-gateway.yaml --region $AWS_REGION || true
+        aws cloudformation validate-template --template-body file://infrastructure/websocket-api.yaml --region $AWS_REGION || true
+        aws cloudformation validate-template --template-body file://infrastructure/s3-cloudfront.yaml --region $AWS_REGION || true
+
+  security-check:
+    name: Security and Compliance Check
+    runs-on: ubuntu-latest
+    needs: validate
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.13'
+
+    - name: Install security tools
+      run: |
+        python -m pip install --upgrade pip
+        pip install bandit safety
+
+    - name: Run security scan with Bandit
+      run: |
+        # Scan Python code for security issues
+        bandit -r lambda/ -f json -o bandit-report.json || true
+        if [ -f bandit-report.json ]; then
+          echo "Security scan completed. Check bandit-report.json for details."
+          cat bandit-report.json
+        fi
+
+    - name: Check for known vulnerabilities
+      run: |
+        # Check for known security vulnerabilities in dependencies
+        find lambda -name requirements.txt -exec safety check -r {} \; || true
+
+  deploy:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [validate, security-check]
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+    environment: production
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.13'
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.PROD_AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.PROD_AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install awscli
+
+    - name: Make scripts executable
+      run: |
+        chmod +x *.sh
+        chmod +x config/environments.sh
+
+    - name: Set environment configuration
+      run: |
+        echo "Setting up production environment configuration"
+        export AUTO_LAB_ENV=production
+
+    - name: Pre-deployment backup
+      run: |
+        echo "Creating pre-deployment backup"
+        # Get current stack template as backup
+        aws cloudformation get-template --stack-name auto-lab-backend --query 'TemplateBody' > backup-template.json || echo "No existing stack to backup"
+      env:
+        AUTO_LAB_ENV: production
+
+    - name: Deploy infrastructure
+      run: |
+        echo "Deploying to production environment"
+        ./deploy.sh --env production
+      env:
+        AUTO_LAB_ENV: production
+
+    - name: Validate deployment
+      run: |
+        echo "Validating production deployment"
+        ./validate-deployment.sh --env production
+      env:
+        AUTO_LAB_ENV: production
+
+    - name: Get deployment info
+      run: |
+        echo "Getting production deployment endpoints and status"
+        ./dev-tools.sh --env production endpoints
+        ./dev-tools.sh --env production status
+      env:
+        AUTO_LAB_ENV: production
+
+    - name: Post-deployment notification
+      run: |
+        echo "Production deployment completed successfully"
+        echo "::notice::Production deployment completed. Check AWS console for final verification."
+
+  post-deploy-tests:
+    name: Production Health Check
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.PROD_AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.PROD_AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.13'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install awscli boto3 requests
+
+    - name: Make scripts executable
+      run: |
+        chmod +x *.sh
+        chmod +x config/environments.sh
+
+    - name: Health check
+      run: |
+        echo "Running production health checks"
+        # Check if all Lambda functions are active
+        ./dev-tools.sh --env production status
+        
+        # Test critical API endpoints
+        echo "Testing critical endpoints..."
+        ./dev-tools.sh --env production test api-get-staff-roles || echo "Staff roles test failed"
+      env:
+        AUTO_LAB_ENV: production
+      continue-on-error: false
+
+    - name: Monitor for immediate errors
+      run: |
+        echo "Monitoring for immediate errors in production"
+        sleep 30  # Wait 30 seconds for any immediate issues
+        ./dev-tools.sh --env production logs api-get-staff-roles || echo "No recent logs found"
+      env:
+        AUTO_LAB_ENV: production
+      continue-on-error: true

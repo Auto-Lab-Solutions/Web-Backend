@@ -1,0 +1,57 @@
+# Pre-commit hooks for Auto Lab Solutions Backend
+# Install: pip install pre-commit
+# Setup: pre-commit install
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-executables-have-shebangs
+
+  - repo: https://github.com/psf/black
+    rev: 23.7.0
+    hooks:
+      - id: black
+        language_version: python3
+        files: ^lambda/.*\.py$
+
+  - repo: https://github.com/pycqa/flake8
+    rev: 6.0.0
+    hooks:
+      - id: flake8
+        files: ^lambda/.*\.py$
+        args: [--max-line-length=88, --extend-ignore=E203,W503]
+
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.5
+    hooks:
+      - id: bandit
+        files: ^lambda/.*\.py$
+        args: [-ll, --skip=B101]
+
+  - repo: local
+    hooks:
+      - id: validate-cloudformation
+        name: Validate CloudFormation Templates
+        entry: bash -c
+        args:
+          - |
+            for template in infrastructure/*.yaml; do
+              echo "Validating $template"
+              aws cloudformation validate-template --template-body file://$template --region ap-southeast-2 || exit 1
+            done
+        language: system
+        files: ^infrastructure/.*\.yaml$
+        pass_filenames: false
+
+      - id: python-syntax-check
+        name: Python Syntax Check
+        entry: python -m py_compile
+        language: system
+        files: ^lambda/.*\.py$

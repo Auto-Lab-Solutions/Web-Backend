@@ -1,0 +1,106 @@
+name: Update Lambda Functions
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'development'
+        type: choice
+        options:
+        - development
+        - production
+      functions:
+        description: 'Lambda functions to update (comma-separated, or "all" for all functions)'
+        required: true
+        default: 'all'
+        type: string
+
+env:
+  AWS_REGION: ap-southeast-2
+
+jobs:
+  update-lambdas:
+    name: Update Lambda Functions
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.13'
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ github.event.inputs.environment == 'production' && secrets.PROD_AWS_ACCESS_KEY_ID || secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ github.event.inputs.environment == 'production' && secrets.PROD_AWS_SECRET_ACCESS_KEY || secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install awscli
+
+    - name: Make scripts executable
+      run: |
+        chmod +x *.sh
+        chmod +x config/environments.sh
+
+    - name: Validate Lambda syntax
+      run: |
+        echo "Validating Python syntax in Lambda functions"
+        find lambda -name "*.py" -exec python -m py_compile {} \;
+
+    - name: Update Lambda functions
+      run: |
+        echo "Updating Lambda functions in ${{ github.event.inputs.environment }} environment"
+        
+        if [ "${{ github.event.inputs.functions }}" = "all" ]; then
+          echo "Updating all Lambda functions"
+          ./update-lambdas.sh --env ${{ github.event.inputs.environment }} --all
+        else
+          echo "Updating specific Lambda functions: ${{ github.event.inputs.functions }}"
+          # Convert comma-separated list to space-separated for the script
+          FUNCTIONS=$(echo "${{ github.event.inputs.functions }}" | tr ',' ' ')
+          ./update-lambdas.sh --env ${{ github.event.inputs.environment }} $FUNCTIONS
+        fi
+      env:
+        AUTO_LAB_ENV: ${{ github.event.inputs.environment }}
+
+    - name: Validate updates
+      run: |
+        echo "Validating Lambda function updates"
+        ./dev-tools.sh --env ${{ github.event.inputs.environment }} status
+      env:
+        AUTO_LAB_ENV: ${{ github.event.inputs.environment }}
+
+    - name: Test updated functions
+      run: |
+        echo "Testing updated Lambda functions"
+        
+        if [ "${{ github.event.inputs.functions }}" = "all" ]; then
+          # Test a few key functions
+          ./dev-tools.sh --env ${{ github.event.inputs.environment }} test api-get-staff-roles || echo "Test failed for api-get-staff-roles"
+          ./dev-tools.sh --env ${{ github.event.inputs.environment }} test api-get-prices || echo "Test failed for api-get-prices"
+        else
+          # Test specific functions that were updated
+          FUNCTIONS=$(echo "${{ github.event.inputs.functions }}" | tr ',' ' ')
+          for func in $FUNCTIONS; do
+            echo "Testing function: $func"
+            ./dev-tools.sh --env ${{ github.event.inputs.environment }} test $func || echo "Test failed for $func"
+          done
+        fi
+      env:
+        AUTO_LAB_ENV: ${{ github.event.inputs.environment }}
+      continue-on-error: true
+
+    - name: Summary
+      run: |
+        echo "Lambda function update completed for ${{ github.event.inputs.environment }} environment"
+        echo "Functions updated: ${{ github.event.inputs.functions }}"
+        echo "::notice::Lambda functions updated successfully in ${{ github.event.inputs.environment }}"

@@ -1,0 +1,774 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Lambda Functions for Auto Lab Solutions'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: production
+    Description: Environment name
+  
+  CloudFormationBucket:
+    Type: String
+    Description: S3 bucket containing Lambda packages
+  
+  StaffTable:
+    Type: String
+    Description: Staff Table Name
+  
+  UsersTable:
+    Type: String
+    Description: Users Table Name
+  
+  ConnectionsTable:
+    Type: String
+    Description: Connections Table Name
+  
+  MessagesTable:
+    Type: String
+    Description: Messages Table Name
+  
+  UnavailableSlotsTable:
+    Type: String
+    Description: UnavailableSlots Table Name
+  
+  AppointmentsTable:
+    Type: String
+    Description: Appointments Table Name
+  
+  ServicePricesTable:
+    Type: String
+    Description: ServicePrices Table Name
+  
+  OrdersTable:
+    Type: String
+    Description: Orders Table Name
+  
+  ItemPricesTable:
+    Type: String
+    Description: ItemPrices Table Name
+  
+  InquiriesTable:
+    Type: String
+    Description: Inquiries Table Name
+
+Resources:
+  # Lambda Execution Role
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'auto-lab-lambda-execution-role-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${StaffTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${StaffTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UsersTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UsersTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ConnectionsTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ConnectionsTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${MessagesTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${MessagesTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UnavailableSlotsTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UnavailableSlotsTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AppointmentsTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AppointmentsTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ServicePricesTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ServicePricesTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${OrdersTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${OrdersTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ItemPricesTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ItemPricesTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InquiriesTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InquiriesTable}/index/*'
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:GetObjectUrl
+                Resource: '*'
+        - PolicyName: ApiGatewayAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - execute-api:ManageConnections
+                Resource: '*'
+
+  # Staff Authorizer Lambda
+  StaffAuthorizer:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'staff-authorizer-${Environment}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/staff-authorizer.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          ENVIRONMENT: !Ref Environment
+          LOG_LEVEL: !If [IsProduction, 'INFO', 'DEBUG']
+      Timeout: !If [IsProduction, 60, 30]
+      MemorySize: !If [IsProduction, 512, 256]
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Staff Authorizer Optional Lambda
+  StaffAuthorizerOptional:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: staff-authorizer-optional
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/staff-authorizer-optional.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  # API Lambda Functions
+  ApiGetPrices:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: api-get-prices
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-get-prices.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiGetUsers:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: api-get-users
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-get-users.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiGetAppointments:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: api-get-appointments
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-get-appointments.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiCreateAppointment:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: api-create-appointment
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-create-appointment.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          USERS_TABLE: !Ref UsersTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiUpdateAppointment:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: api-update-appointment
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-update-appointment.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiGetUnavailableSlots:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: api-get-unavailable-slots
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-get-unavailable-slots.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiUpdateUnavailableSlots:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: api-update-unavailable-slots
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-update-unavailable-slots.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiGetOrders:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: api-get-orders
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-get-orders.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          ORDERS_TABLE: !Ref OrdersTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiCreateOrder:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: api-create-order
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-create-order.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          ORDERS_TABLE: !Ref OrdersTable
+          USERS_TABLE: !Ref UsersTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiUpdateOrder:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: api-update-order
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-update-order.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          ORDERS_TABLE: !Ref OrdersTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiConfirmPayment:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: api-confirm-payment
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-confirm-payment.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          ORDERS_TABLE: !Ref OrdersTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiGetInquiries:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: api-get-inquiries
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-get-inquiries.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiCreateInquiry:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: api-create-inquiry
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-create-inquiry.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          USERS_TABLE: !Ref UsersTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiGetReportUploadUrl:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: api-get-report-upload-url
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-get-report-upload-url.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiGetAnalytics:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: api-get-analytics
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-get-analytics.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          ORDERS_TABLE: !Ref OrdersTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiGetStaffRoles:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: api-get-staff-roles
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-get-staff-roles.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiNotify:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: api-notify
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-notify.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiTakeUser:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: api-take-user
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-take-user.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiGetConnections:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: api-get-connections
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-get-connections.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiGetMessages:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: api-get-messages
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-get-messages.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          MESSAGES_TABLE: !Ref MessagesTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiGetLastMessages:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: api-get-last-messages
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-get-last-messages.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          MESSAGES_TABLE: !Ref MessagesTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiSendMessage:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: api-send-message
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-send-message.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  # WebSocket Lambda Functions
+  WsConnect:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ws-connect
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/ws-connect.zip
+      Environment:
+        Variables:
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  WsDisconnect:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ws-disconnect
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/ws-disconnect.zip
+      Environment:
+        Variables:
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  WsInit:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ws-init
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/ws-init.zip
+      Environment:
+        Variables:
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          USERS_TABLE: !Ref UsersTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  WsPing:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ws-ping
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/ws-ping.zip
+      Environment:
+        Variables:
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  WsStaffInit:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ws-staff-init
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/ws-staff-init.zip
+      Environment:
+        Variables:
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          STAFF_TABLE: !Ref StaffTable
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  StaffAuthorizerArn:
+    Description: Staff Authorizer Lambda ARN
+    Value: !GetAtt StaffAuthorizer.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-StaffAuthorizerArn'
+
+  StaffAuthorizerOptionalArn:
+    Description: Staff Authorizer Optional Lambda ARN
+    Value: !GetAtt StaffAuthorizerOptional.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-StaffAuthorizerOptionalArn'
+
+  GetPricesArn:
+    Description: Get Prices Lambda ARN
+    Value: !GetAtt ApiGetPrices.Arn
+
+  GetUsersArn:
+    Description: Get Users Lambda ARN
+    Value: !GetAtt ApiGetUsers.Arn
+
+  GetAppointmentsArn:
+    Description: Get Appointments Lambda ARN
+    Value: !GetAtt ApiGetAppointments.Arn
+
+  CreateAppointmentArn:
+    Description: Create Appointment Lambda ARN
+    Value: !GetAtt ApiCreateAppointment.Arn
+
+  UpdateAppointmentArn:
+    Description: Update Appointment Lambda ARN
+    Value: !GetAtt ApiUpdateAppointment.Arn
+
+  GetUnavailableSlotsArn:
+    Description: Get Unavailable Slots Lambda ARN
+    Value: !GetAtt ApiGetUnavailableSlots.Arn
+
+  UpdateUnavailableSlotsArn:
+    Description: Update Unavailable Slots Lambda ARN
+    Value: !GetAtt ApiUpdateUnavailableSlots.Arn
+
+  GetOrdersArn:
+    Description: Get Orders Lambda ARN
+    Value: !GetAtt ApiGetOrders.Arn
+
+  CreateOrderArn:
+    Description: Create Order Lambda ARN
+    Value: !GetAtt ApiCreateOrder.Arn
+
+  UpdateOrderArn:
+    Description: Update Order Lambda ARN
+    Value: !GetAtt ApiUpdateOrder.Arn
+
+  ConfirmPaymentArn:
+    Description: Confirm Payment Lambda ARN
+    Value: !GetAtt ApiConfirmPayment.Arn
+
+  GetInquiriesArn:
+    Description: Get Inquiries Lambda ARN
+    Value: !GetAtt ApiGetInquiries.Arn
+
+  CreateInquiryArn:
+    Description: Create Inquiry Lambda ARN
+    Value: !GetAtt ApiCreateInquiry.Arn
+
+  GetReportUploadUrlArn:
+    Description: Get Report Upload URL Lambda ARN
+    Value: !GetAtt ApiGetReportUploadUrl.Arn
+
+  GetAnalyticsArn:
+    Description: Get Analytics Lambda ARN
+    Value: !GetAtt ApiGetAnalytics.Arn
+
+  GetStaffRolesArn:
+    Description: Get Staff Roles Lambda ARN
+    Value: !GetAtt ApiGetStaffRoles.Arn
+
+  NotifyArn:
+    Description: Notify Lambda ARN
+    Value: !GetAtt ApiNotify.Arn
+
+  TakeUserArn:
+    Description: Take User Lambda ARN
+    Value: !GetAtt ApiTakeUser.Arn
+
+  GetConnectionsArn:
+    Description: Get Connections Lambda ARN
+    Value: !GetAtt ApiGetConnections.Arn
+
+  GetMessagesArn:
+    Description: Get Messages Lambda ARN
+    Value: !GetAtt ApiGetMessages.Arn
+
+  GetLastMessagesArn:
+    Description: Get Last Messages Lambda ARN
+    Value: !GetAtt ApiGetLastMessages.Arn
+
+  SendMessageArn:
+    Description: Send Message Lambda ARN
+    Value: !GetAtt ApiSendMessage.Arn
+
+  WsConnectArn:
+    Description: WebSocket Connect Lambda ARN
+    Value: !GetAtt WsConnect.Arn
+
+  WsDisconnectArn:
+    Description: WebSocket Disconnect Lambda ARN
+    Value: !GetAtt WsDisconnect.Arn
+
+  WsInitArn:
+    Description: WebSocket Init Lambda ARN
+    Value: !GetAtt WsInit.Arn
+
+  WsPingArn:
+    Description: WebSocket Ping Lambda ARN
+    Value: !GetAtt WsPing.Arn
+
+  WsStaffInitArn:
+    Description: WebSocket Staff Init Lambda ARN
+    Value: !GetAtt WsStaffInit.Arn

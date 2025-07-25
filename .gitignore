@@ -198,3 +198,19 @@ lambda/tmp/
 
 # .DS_Store
 .DS_Store
+
+# temp
+tables/
+s3-and-cloudfront/
+api-gateways/
+
+# CI/CD and deployment artifacts
+backup-template.json
+stack-resources-backup.json
+bandit-report.json
+safety-report.txt
+outputs.json
+stack-outputs.json
+
+# GitHub Actions logs
+.github/workflows/*.log

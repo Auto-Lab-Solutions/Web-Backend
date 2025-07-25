@@ -1,0 +1,119 @@
+name: Cleanup Environment
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to cleanup'
+        required: true
+        type: choice
+        options:
+        - development
+        - production
+      confirm:
+        description: 'Type "DELETE" to confirm cleanup'
+        required: true
+        type: string
+
+env:
+  AWS_REGION: ap-southeast-2
+
+jobs:
+  cleanup:
+    name: Cleanup Environment
+    runs-on: ubuntu-latest
+    if: github.event.inputs.confirm == 'DELETE'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.13'
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ github.event.inputs.environment == 'production' && secrets.PROD_AWS_ACCESS_KEY_ID || secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ github.event.inputs.environment == 'production' && secrets.PROD_AWS_SECRET_ACCESS_KEY || secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install awscli
+
+    - name: Make scripts executable
+      run: |
+        chmod +x *.sh
+        chmod +x config/environments.sh
+
+    - name: Confirm cleanup
+      run: |
+        echo "::warning::About to cleanup ${{ github.event.inputs.environment }} environment"
+        echo "This will DELETE all resources in the ${{ github.event.inputs.environment }} environment"
+
+    - name: Backup current state
+      run: |
+        echo "Creating backup of current state"
+        mkdir -p backups
+        
+        # Backup CloudFormation stack template
+        aws cloudformation get-template \
+          --stack-name auto-lab-backend$([ "${{ github.event.inputs.environment }}" = "development" ] && echo "-dev" || echo "") \
+          --query 'TemplateBody' > backups/stack-template-backup.json || echo "No stack to backup"
+        
+        # List current resources
+        aws cloudformation describe-stack-resources \
+          --stack-name auto-lab-backend$([ "${{ github.event.inputs.environment }}" = "development" ] && echo "-dev" || echo "") \
+          > backups/stack-resources-backup.json || echo "No resources to backup"
+      env:
+        AUTO_LAB_ENV: ${{ github.event.inputs.environment }}
+      continue-on-error: true
+
+    - name: Run cleanup
+      run: |
+        echo "Running cleanup for ${{ github.event.inputs.environment }} environment"
+        # Use yes to automatically confirm the cleanup prompt
+        echo "y" | ./cleanup.sh --env ${{ github.event.inputs.environment }}
+      env:
+        AUTO_LAB_ENV: ${{ github.event.inputs.environment }}
+
+    - name: Verify cleanup
+      run: |
+        echo "Verifying cleanup completion"
+        
+        # Check if stack still exists
+        STACK_NAME="auto-lab-backend$([ "${{ github.event.inputs.environment }}" = "development" ] && echo "-dev" || echo "")"
+        
+        if aws cloudformation describe-stacks --stack-name "$STACK_NAME" 2>/dev/null; then
+          echo "::warning::Stack $STACK_NAME still exists. Cleanup may be in progress."
+        else
+          echo "::notice::Stack $STACK_NAME has been successfully deleted."
+        fi
+      env:
+        AUTO_LAB_ENV: ${{ github.event.inputs.environment }}
+      continue-on-error: true
+
+    - name: Upload backup artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: cleanup-backup-${{ github.event.inputs.environment }}-${{ github.run_number }}
+        path: backups/
+        retention-days: 30
+      if: always()
+
+  cleanup-failed:
+    name: Cleanup Confirmation Failed
+    runs-on: ubuntu-latest
+    if: github.event.inputs.confirm != 'DELETE'
+    
+    steps:
+    - name: Invalid confirmation
+      run: |
+        echo "::error::Cleanup cancelled. You must type 'DELETE' exactly to confirm cleanup."
+        echo "You typed: '${{ github.event.inputs.confirm }}'"
+        echo "Required: 'DELETE'"
+        exit 1

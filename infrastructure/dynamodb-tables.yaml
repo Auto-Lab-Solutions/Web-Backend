@@ -12,7 +12,7 @@ Resources:
   StaffTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: Staff
+      TableName: !Sub 'Staff-${Environment}'
       AttributeDefinitions:
         - AttributeName: userEmail
           AttributeType: S
@@ -39,7 +39,7 @@ Resources:
   UsersTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: Users
+      TableName: !Sub 'Users-${Environment}'
       AttributeDefinitions:
         - AttributeName: userId
           AttributeType: S
@@ -57,7 +57,7 @@ Resources:
   ConnectionsTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: Connections
+      TableName: !Sub 'Connections-${Environment}'
       AttributeDefinitions:
         - AttributeName: connectionId
           AttributeType: S
@@ -85,7 +85,7 @@ Resources:
   MessagesTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: Messages
+      TableName: !Sub 'Messages-${Environment}'
       AttributeDefinitions:
         - AttributeName: messageId
           AttributeType: S
@@ -118,7 +118,7 @@ Resources:
   UnavailableSlotsTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: UnavailableSlots
+      TableName: !Sub 'UnavailableSlots-${Environment}'
       AttributeDefinitions:
         - AttributeName: date
           AttributeType: S
@@ -134,7 +134,7 @@ Resources:
   AppointmentsTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: Appointments
+      TableName: !Sub 'Appointments-${Environment}'
       AttributeDefinitions:
         - AttributeName: appointmentId
           AttributeType: S
@@ -175,7 +175,7 @@ Resources:
   ServicePricesTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: ServicePrices
+      TableName: !Sub 'ServicePrices-${Environment}'
       AttributeDefinitions:
         - AttributeName: serviceId
           AttributeType: N
@@ -195,7 +195,7 @@ Resources:
   OrdersTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: Orders
+      TableName: !Sub 'Orders-${Environment}'
       AttributeDefinitions:
         - AttributeName: orderId
           AttributeType: S
@@ -228,7 +228,7 @@ Resources:
   ItemPricesTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: ItemPrices
+      TableName: !Sub 'ItemPrices-${Environment}'
       AttributeDefinitions:
         - AttributeName: categoryId
           AttributeType: N
@@ -248,7 +248,7 @@ Resources:
   InquiriesTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: Inquiries
+      TableName: !Sub 'Inquiries-${Environment}'
       AttributeDefinitions:
         - AttributeName: inquiryId
           AttributeType: S
