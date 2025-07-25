@@ -912,16 +912,28 @@ def build_update_expression_for_order(data):
         return update_expression, expression_values, expression_names
     return None, None, None
 
-def build_order_data(order_id, category_id, item_id, quantity, customer_data, car_data, notes, created_user_id, price):
-    """Build order data in DynamoDB format"""
+def build_order_data(order_id, items, customer_data, car_data, notes, created_user_id, total_price):
+    """Build order data in DynamoDB format with support for multiple items"""
     current_time = int(time.time())
     current_date = datetime.now().strftime('%Y-%m-%d')
     
+    # Convert items list to DynamoDB format
+    items_list = []
+    for item in items:
+        item_data = {
+            'M': {
+                'categoryId': {'N': str(item['categoryId'])},
+                'itemId': {'N': str(item['itemId'])},
+                'quantity': {'N': str(item['quantity'])},
+                'price': {'N': str(item['price'])},
+                'totalPrice': {'N': str(item['totalPrice'])}
+            }
+        }
+        items_list.append(item_data)
+    
     order_data = {
         'orderId': {'S': order_id},
-        'categoryId': {'N': str(category_id)},
-        'itemId': {'N': str(item_id)},
-        'quantity': {'N': str(quantity)},
+        'items': {'L': items_list},
         'customerName': {'S': customer_data.get('name', '')},
         'customerEmail': {'S': customer_data.get('email', '')},
         'customerPhone': {'S': customer_data.get('phoneNumber', '')},
@@ -933,8 +945,7 @@ def build_order_data(order_id, category_id, item_id, quantity, customer_data, ca
         'notes': {'S': notes},
         'createdUserId': {'S': created_user_id},
         'status': {'S': 'PENDING'},
-        'price': {'N': str(price)},
-        'totalPrice': {'N': str(price * quantity)},
+        'totalPrice': {'N': str(total_price)},
         'paymentCompleted': {'BOOL': False},
         'postNotes': {'S': ''},
         'createdAt': {'N': str(current_time)},

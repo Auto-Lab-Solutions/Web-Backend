@@ -142,7 +142,7 @@ def apply_query_filters(orders, event):
             category_id_int = int(category_id)
             filtered_orders = [
                 order for order in filtered_orders 
-                if order.get('categoryId') == category_id_int
+                if any(item.get('categoryId') == category_id_int for item in order.get('items', []))
             ]
         except ValueError:
             pass  # Invalid category ID format, skip filter
@@ -153,7 +153,7 @@ def apply_query_filters(orders, event):
             item_id_int = int(item_id)
             filtered_orders = [
                 order for order in filtered_orders 
-                if order.get('itemId') == item_id_int
+                if any(item.get('itemId') == item_id_int for item in order.get('items', []))
             ]
         except ValueError:
             pass  # Invalid item ID format, skip filter

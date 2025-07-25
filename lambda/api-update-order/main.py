@@ -184,40 +184,78 @@ def process_basic_info_updates(body, existing_order):
     """Process basic order information updates"""
     update_data = {}
     
-    # Category and item updates
-    if 'categoryId' in body:
-        update_data['categoryId'] = body['categoryId']
-        # Update price if category or item changed
-        item_id = body.get('itemId', existing_order.get('itemId'))
-        item_pricing = db.get_item_pricing(body['categoryId'], item_id)
-        if not item_pricing:
-            raise ValueError("Invalid category or item. Please check the categoryId and itemId provided.")
-        # item_pricing is just the price value, not a dict
-        price = float(item_pricing) if item_pricing else 0
-        quantity = existing_order.get('quantity', 1)
-        update_data['price'] = price
-        update_data['totalPrice'] = price * quantity
-    
-    if 'itemId' in body:
-        update_data['itemId'] = body['itemId']
-        # Update price if category or item changed
-        category_id = body.get('categoryId', existing_order.get('categoryId'))
-        item_pricing = db.get_item_pricing(category_id, body['itemId'])
-        if not item_pricing:
-            raise ValueError("Invalid category or item. Please check the categoryId and itemId provided.")
-        # item_pricing is just the price value, not a dict
-        price = float(item_pricing) if item_pricing else 0
-        quantity = existing_order.get('quantity', 1)
-        update_data['price'] = price
-        update_data['totalPrice'] = price * quantity
-    
-    if 'quantity' in body:
-        quantity = int(body['quantity'])
-        if quantity <= 0:
-            raise ValueError("Quantity must be a positive integer")
-        update_data['quantity'] = quantity
-        price = existing_order.get('price', 0)
-        update_data['totalPrice'] = price * quantity
+    # Items updates
+    if 'items' in body:
+        items = body['items']
+        if not isinstance(items, list) or len(items) == 0:
+            raise ValueError("items must be a non-empty array")
+        
+        if len(items) > 10:
+            raise ValueError("Maximum 10 items allowed per order")
+
+        # Validate and process each item
+        processed_items = []
+        total_price = 0
+        
+        for i, item in enumerate(items):
+            if not isinstance(item, dict):
+                raise ValueError(f"Item {i+1} must be an object")
+            
+            # Required item fields
+            required_fields = ['categoryId', 'itemId', 'quantity']
+            for field in required_fields:
+                if field not in item:
+                    raise ValueError(f"Item {i+1}: {field} is required")
+            
+            try:
+                category_id = int(item['categoryId'])
+                item_id = int(item['itemId'])
+                quantity = int(item['quantity'])
+                
+                if category_id <= 0 or item_id <= 0 or quantity <= 0:
+                    raise ValueError(f"Item {i+1}: categoryId, itemId, and quantity must be positive integers")
+                
+                if quantity > 30:
+                    raise ValueError(f"Item {i+1}: Maximum quantity per item is 30")
+
+                # Get item pricing
+                item_pricing = db.get_item_pricing(category_id, item_id)
+                if not item_pricing:
+                    raise ValueError(f"Item {i+1}: Invalid category or item. Please check categoryId {category_id} and itemId {item_id}")
+                
+                price = float(item_pricing)
+                item_total = price * quantity
+                total_price += item_total
+                
+                processed_items.append({
+                    'categoryId': category_id,
+                    'itemId': item_id,
+                    'quantity': quantity,
+                    'price': price,
+                    'totalPrice': item_total
+                })
+                
+            except (ValueError, TypeError) as e:
+                if "Invalid category or item" in str(e):
+                    raise e
+                raise ValueError(f"Item {i+1}: categoryId, itemId, and quantity must be valid integers")
+        
+        # Convert to DynamoDB format
+        items_list = []
+        for item in processed_items:
+            item_data = {
+                'M': {
+                    'categoryId': {'N': str(item['categoryId'])},
+                    'itemId': {'N': str(item['itemId'])},
+                    'quantity': {'N': str(item['quantity'])},
+                    'price': {'N': str(item['price'])},
+                    'totalPrice': {'N': str(item['totalPrice'])}
+                }
+            }
+            items_list.append(item_data)
+        
+        update_data['items'] = {'L': items_list}
+        update_data['totalPrice'] = total_price
     
     # Customer data updates
     if 'customerData' in body:

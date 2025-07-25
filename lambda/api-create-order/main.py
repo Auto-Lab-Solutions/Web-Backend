@@ -46,28 +46,41 @@ def lambda_handler(event, context):
         # Generate unique order ID
         order_id = str(uuid.uuid4())
 
-        # Get price by category and item
-        item_pricing = db.get_item_pricing(
-            category_id=order_data.get('categoryId'),
-            item_id=order_data.get('itemId')
-        )
-        if item_pricing is None:
-            return resp.error_response("Invalid category or item. Please check the categoryId and itemId provided")
+        # Process and validate items, calculate total price
+        processed_items = []
+        total_price = 0
+        
+        for item in order_data.get('items', []):
+            category_id = item.get('categoryId')
+            item_id = item.get('itemId')
+            quantity = item.get('quantity', 1)
+            
+            # Get price by category and item
+            item_pricing = db.get_item_pricing(category_id=category_id, item_id=item_id)
+            if item_pricing is None:
+                return resp.error_response(f"Invalid category or item. Please check categoryId {category_id} and itemId {item_id}")
 
-        price = float(item_pricing)
-        quantity = order_data.get('quantity', 1)
+            price = float(item_pricing)
+            item_total = price * quantity
+            total_price += item_total
+            
+            processed_items.append({
+                'categoryId': category_id,
+                'itemId': item_id,
+                'quantity': quantity,
+                'price': price,
+                'totalPrice': item_total
+            })
 
         # Build order data
         order_data_db = db.build_order_data(
             order_id=order_id,
-            category_id=order_data.get('categoryId'),
-            item_id=order_data.get('itemId'),
-            quantity=quantity,
+            items=processed_items,
             customer_data=order_data.get('customerData', {}),
             car_data=order_data.get('carData', {}),
             notes=order_data.get('notes', ''),
             created_user_id=user_id,
-            price=price
+            total_price=total_price
         )
 
         # Create order in database
@@ -92,7 +105,8 @@ def lambda_handler(event, context):
         return resp.success_response({
             "message": "Order created successfully",
             "orderId": order_id,
-            "totalPrice": price * quantity
+            "totalPrice": total_price,
+            "itemCount": len(processed_items)
         })
         
     except Exception as e:
@@ -106,22 +120,44 @@ def validate_order_data(order_data, staff_user=False):
         return False, "Order data is required"
     
     # Required fields
-    required_fields = ['categoryId', 'itemId', 'quantity', 'customerData', 'carData']
+    required_fields = ['items', 'customerData', 'carData']
     for field in required_fields:
         if field not in order_data:
             return False, f"{field} is required"
     
-    # Validate category and item IDs
-    try:
-        category_id = int(order_data['categoryId'])
-        item_id = int(order_data['itemId'])
-        quantity = int(order_data['quantity'])
+    # Validate items array
+    items = order_data.get('items', [])
+    if not isinstance(items, list) or len(items) == 0:
+        return False, "items must be a non-empty array"
+    
+    if len(items) > 10:  # Reasonable limit for items per order
+        return False, "Maximum 10 items allowed per order"
+    
+    # Validate each item
+    for i, item in enumerate(items):
+        if not isinstance(item, dict):
+            return False, f"Item {i+1} must be an object"
         
-        if category_id <= 0 or item_id <= 0 or quantity <= 0:
-            return False, "categoryId, itemId, and quantity must be positive integers"
+        # Required item fields
+        required_item_fields = ['categoryId', 'itemId', 'quantity']
+        for field in required_item_fields:
+            if field not in item:
+                return False, f"Item {i+1}: {field} is required"
+        
+        # Validate item values
+        try:
+            category_id = int(item['categoryId'])
+            item_id = int(item['itemId'])
+            quantity = int(item['quantity'])
             
-    except (ValueError, TypeError):
-        return False, "categoryId, itemId, and quantity must be valid integers"
+            if category_id <= 0 or item_id <= 0 or quantity <= 0:
+                return False, f"Item {i+1}: categoryId, itemId, and quantity must be positive integers"
+                
+            if quantity > 30:  # Reasonable limit per item
+                return False, f"Item {i+1}: Maximum quantity per item is 30"
+
+        except (ValueError, TypeError):
+            return False, f"Item {i+1}: categoryId, itemId, and quantity must be valid integers"
     
     # Validate customer data
     customer_data = order_data.get('customerData', {})
@@ -156,9 +192,5 @@ def validate_order_data(order_data, staff_user=False):
             return False, f"Car year must be between 1900 and {current_year + 1}"
     except (ValueError, TypeError):
         return False, "Car year must be a valid integer"
-    
-    # Validate quantity limits
-    if quantity > 100:
-        return False, "Maximum quantity per order is 100"
 
     return True, "Valid"
