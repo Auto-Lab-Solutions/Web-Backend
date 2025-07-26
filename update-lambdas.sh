@@ -47,6 +47,11 @@ show_usage() {
     echo "  --list, -l             List all available Lambda functions"
     echo "  --help, -h             Show this help message"
     echo ""
+    echo "Pipeline/Automated Execution:"
+    echo "  export AUTO_CONFIRM=true    # Skip all confirmation prompts"
+    echo "  export CI=true              # Detected in most CI/CD systems"
+    echo "  export GITHUB_ACTIONS=true  # Auto-detected in GitHub Actions"
+    echo ""
     echo "Examples:"
     echo "  $0 --env dev --all                           # Update all functions in dev"
     echo "  $0 --env prod api-get-prices api-get-users   # Update specific functions in prod"
@@ -255,12 +260,17 @@ confirm_update() {
     done
     echo ""
     
-    read -p "Continue? (y/N): " -n 1 -r
-    echo ""
-    
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        print_status "Update cancelled."
-        exit 0
+    # Skip confirmation prompt in CI/CD environments or if AUTO_CONFIRM is set
+    if [ -n "$GITHUB_ACTIONS" ] || [ -n "$CI" ] || [ "$AUTO_CONFIRM" = "true" ]; then
+        print_status "Running in automated environment - proceeding with update"
+    else
+        read -p "Continue? (y/N): " -n 1 -r
+        echo ""
+        
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            print_status "Update cancelled."
+            exit 0
+        fi
     fi
 }
 

@@ -142,6 +142,13 @@ set_default_environment() {
 prompt_for_environment() {
     local default_env=$(get_default_environment)
     
+    # Skip prompt in CI/CD environments or if AUTO_CONFIRM is set - use default
+    if [ -n "$GITHUB_ACTIONS" ] || [ -n "$CI" ] || [ "$AUTO_CONFIRM" = "true" ]; then
+        echo "Running in automated environment - using default environment: $default_env"
+        echo "$default_env"
+        return
+    fi
+    
     echo "Available environments:"
     echo "  1) development (dev) - For testing and development"
     echo "  2) production (prod) - For live deployment"

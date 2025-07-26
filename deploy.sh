@@ -46,6 +46,11 @@ show_usage() {
     echo "  $0 dev          # Deploy to development"
     echo "  $0 production   # Deploy to production"
     echo ""
+    echo "Pipeline/Automated Execution:"
+    echo "  export AUTO_CONFIRM=true    # Skip all confirmation prompts"
+    echo "  export CI=true              # Detected in most CI/CD systems"
+    echo "  export GITHUB_ACTIONS=true  # Auto-detected in GitHub Actions"
+    echo ""
     echo "Environment Configuration:"
     echo "  Use 'config/environments.sh show' to view current settings"
     echo "  Use 'config/environments.sh set dev' to change default"
@@ -240,12 +245,18 @@ main() {
     
     # Confirm deployment
     print_warning "This will deploy/update the backend infrastructure for '$ENVIRONMENT' environment."
-    read -p "Continue? (y/N): " -n 1 -r
-    echo ""
     
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        print_status "Deployment cancelled."
-        exit 0
+    # Skip confirmation prompt in CI/CD environments or if AUTO_CONFIRM is set
+    if [ -n "$GITHUB_ACTIONS" ] || [ -n "$CI" ] || [ "$AUTO_CONFIRM" = "true" ]; then
+        print_status "Running in automated environment - proceeding with deployment"
+    else
+        read -p "Continue? (y/N): " -n 1 -r
+        echo ""
+        
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            print_status "Deployment cancelled."
+            exit 0
+        fi
     fi
     
     check_prerequisites
