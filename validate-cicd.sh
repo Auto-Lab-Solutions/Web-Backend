@@ -53,31 +53,32 @@ if command -v aws &> /dev/null; then
     print_status "Validating CloudFormation templates..."
     template_errors=0
     
-    # Only validate the main stack template since nested stacks have cross-references
-    # that can't be resolved during individual template validation
-    main_template="infrastructure/main-stack.yaml"
+    # Templates that can be validated individually (no cross-references)
+    standalone_templates=("dynamodb-tables.yaml" "s3-cloudfront.yaml" "websocket-api.yaml")
     
-    if [ -f "$main_template" ]; then
-        echo "  Validating $(basename $main_template) (main stack)..."
-        if aws cloudformation validate-template --template-body file://$main_template --region ap-southeast-2 &>/dev/null; then
-            print_success "  ✓ $(basename $main_template) is valid"
+    for template in "${standalone_templates[@]}"; do
+        template_path="infrastructure/$template"
+        if [ -f "$template_path" ]; then
+            echo "  Validating $template..."
+            if aws cloudformation validate-template --template-body file://$template_path --region ap-southeast-2 &>/dev/null; then
+                echo "    ✓ $template is valid"
+            else
+                print_error "    ✗ $template validation failed"
+                ((template_errors++))
+            fi
         else
-            print_error "  ✗ $(basename $main_template) validation failed"
+            print_error "    ✗ $template not found"
             ((template_errors++))
         fi
-    else
-        print_error "  ✗ Main stack template not found"
-        ((template_errors++))
-    fi
+    done
     
-    # Check that nested template files exist and are readable
-    print_status "Checking nested template files..."
-    nested_templates=("api-gateway.yaml" "dynamodb-tables.yaml" "lambda-functions.yaml" "s3-cloudfront.yaml" "websocket-api.yaml")
+    # Templates with cross-references - check existence and readability only
+    cross_ref_templates=("api-gateway.yaml" "lambda-functions.yaml" "main-stack.yaml")
     
-    for template in "${nested_templates[@]}"; do
+    for template in "${cross_ref_templates[@]}"; do
         template_path="infrastructure/$template"
         if [ -f "$template_path" ] && [ -r "$template_path" ]; then
-            echo "  ✓ $template exists and is readable"
+            echo "  ✓ $template exists and is readable (cross-reference validation skipped)"
         else
             print_error "  ✗ $template is missing or not readable"
             ((template_errors++))
