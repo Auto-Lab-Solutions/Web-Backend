@@ -79,13 +79,12 @@ Resources:
             Cookies:
               Forward: none
           Compress: true
+          MinTTL: 0
           DefaultTTL: 86400
           MaxTTL: 31536000
         Origins:
           - Id: !Sub '${S3BucketName}-origin'
             DomainName: !GetAtt ReportsBucket.RegionalDomainName
-            S3OriginConfig:
-              OriginAccessIdentity: ''
             OriginAccessControlId: !Ref OriginAccessControl
         Enabled: true
         HttpVersion: http2
