@@ -77,6 +77,21 @@ check_prerequisites() {
         exit 1
     fi
     
+    # Check Stripe configuration
+    if [[ "$STRIPE_SECRET_KEY" == *"REPLACE_WITH_YOUR"* ]] || [[ -z "$STRIPE_SECRET_KEY" ]]; then
+        print_error "Stripe Secret Key not configured."
+        print_error "For development: export STRIPE_SECRET_KEY_DEV='your_test_secret_key'"
+        print_error "For production: export STRIPE_SECRET_KEY_PROD='your_live_secret_key'"
+        exit 1
+    fi
+    
+    if [[ "$STRIPE_WEBHOOK_SECRET" == *"REPLACE_WITH_YOUR"* ]] || [[ -z "$STRIPE_WEBHOOK_SECRET" ]]; then
+        print_error "Stripe Webhook Secret not configured."
+        print_error "For development: export STRIPE_WEBHOOK_SECRET_DEV='your_test_webhook_secret'"
+        print_error "For production: export STRIPE_WEBHOOK_SECRET_PROD='your_live_webhook_secret'"
+        exit 1
+    fi
+    
     print_success "Prerequisites check passed"
 }
 
@@ -145,6 +160,8 @@ deploy_stack() {
             Environment=$ENVIRONMENT \
             S3BucketName=$S3_BUCKET_NAME \
             CloudFormationBucket=$CLOUDFORMATION_BUCKET \
+            StripeSecretKey=$STRIPE_SECRET_KEY \
+            StripeWebhookSecret=$STRIPE_WEBHOOK_SECRET \
         --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
         --region $AWS_REGION
     
