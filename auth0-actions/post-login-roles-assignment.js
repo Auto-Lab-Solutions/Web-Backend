@@ -1,9 +1,9 @@
 exports.onExecutePostLogin = async (event, api) => {
   const userEmail = event.user.email;
   const emailVerified = event.user.email_verified;
-  const apiGwEndpoint = 'https://91maaqr173.execute-api.ap-southeast-2.amazonaws.com/production';
+  const apiGwEndpoint = process.env.API_GATEWAY_ENDPOINT || 'REPLACE_WITH_YOUR_API_ENDPOINT';
   const lambdaEndpoint = apiGwEndpoint + '/get-staff-roles';
-  const sharedSecret = 'dsa2GJN4i23SOml35hWa2p';
+  const sharedSecret = process.env.SHARED_API_KEY || 'REPLACE_WITH_SECURE_SECRET';
 
   if (!userEmail || !emailVerified) {
     api.access.deny('Access denied: A verified email is required to use this application.');
