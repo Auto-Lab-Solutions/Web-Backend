@@ -15,6 +15,7 @@ jobs:
   validate:
     name: Validate Code
     runs-on: ubuntu-latest
+    environment: development
     
     steps:
     - name: Checkout code
@@ -38,21 +39,38 @@ jobs:
         # Check Python syntax in all Lambda functions
         find lambda -name "*.py" -exec python -m py_compile {} \;
 
+    - name: Check AWS credentials
+      run: |
+        if [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ] || [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]; then
+          echo "Error: AWS credentials are not configured in repository secrets"
+          echo "Please add AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY to your repository secrets"
+          exit 1
+        fi
+        echo "AWS credentials are configured"
+
+    - name: Configure AWS credentials for validation
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
     - name: Validate CloudFormation templates
       run: |
         # Install AWS CLI
         pip install awscli
         # Validate CloudFormation templates
-        aws cloudformation validate-template --template-body file://infrastructure/main-stack.yaml --region $AWS_REGION || true
-        aws cloudformation validate-template --template-body file://infrastructure/dynamodb-tables.yaml --region $AWS_REGION || true
-        aws cloudformation validate-template --template-body file://infrastructure/lambda-functions.yaml --region $AWS_REGION || true
-        aws cloudformation validate-template --template-body file://infrastructure/api-gateway.yaml --region $AWS_REGION || true
-        aws cloudformation validate-template --template-body file://infrastructure/websocket-api.yaml --region $AWS_REGION || true
-        aws cloudformation validate-template --template-body file://infrastructure/s3-cloudfront.yaml --region $AWS_REGION || true
+        aws cloudformation validate-template --template-body file://infrastructure/main-stack.yaml --region $AWS_REGION
+        aws cloudformation validate-template --template-body file://infrastructure/dynamodb-tables.yaml --region $AWS_REGION
+        aws cloudformation validate-template --template-body file://infrastructure/lambda-functions.yaml --region $AWS_REGION
+        aws cloudformation validate-template --template-body file://infrastructure/api-gateway.yaml --region $AWS_REGION
+        aws cloudformation validate-template --template-body file://infrastructure/websocket-api.yaml --region $AWS_REGION
+        aws cloudformation validate-template --template-body file://infrastructure/s3-cloudfront.yaml --region $AWS_REGION
 
   deploy:
     name: Deploy to Development
     runs-on: ubuntu-latest
+    environment: development
     needs: validate
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
     
@@ -112,6 +130,7 @@ jobs:
   test:
     name: Run Integration Tests
     runs-on: ubuntu-latest
+    environment: development
     needs: deploy
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
     
