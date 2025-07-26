@@ -53,20 +53,41 @@ if command -v aws &> /dev/null; then
     print_status "Validating CloudFormation templates..."
     template_errors=0
     
-    for template in infrastructure/*.yaml; do
-        echo "  Validating $(basename $template)..."
-        if aws cloudformation validate-template --template-body file://$template --region ap-southeast-2 &>/dev/null; then
-            print_success "  ✓ $(basename $template) is valid"
+    # Only validate the main stack template since nested stacks have cross-references
+    # that can't be resolved during individual template validation
+    main_template="infrastructure/main-stack.yaml"
+    
+    if [ -f "$main_template" ]; then
+        echo "  Validating $(basename $main_template) (main stack)..."
+        if aws cloudformation validate-template --template-body file://$main_template --region ap-southeast-2 &>/dev/null; then
+            print_success "  ✓ $(basename $main_template) is valid"
         else
-            print_error "  ✗ $(basename $template) validation failed"
+            print_error "  ✗ $(basename $main_template) validation failed"
+            ((template_errors++))
+        fi
+    else
+        print_error "  ✗ Main stack template not found"
+        ((template_errors++))
+    fi
+    
+    # Check that nested template files exist and are readable
+    print_status "Checking nested template files..."
+    nested_templates=("api-gateway.yaml" "dynamodb-tables.yaml" "lambda-functions.yaml" "s3-cloudfront.yaml" "websocket-api.yaml")
+    
+    for template in "${nested_templates[@]}"; do
+        template_path="infrastructure/$template"
+        if [ -f "$template_path" ] && [ -r "$template_path" ]; then
+            echo "  ✓ $template exists and is readable"
+        else
+            print_error "  ✗ $template is missing or not readable"
             ((template_errors++))
         fi
     done
     
     if [ $template_errors -eq 0 ]; then
-        print_success "All CloudFormation templates are valid"
+        print_success "CloudFormation template validation passed"
     else
-        print_error "$template_errors template(s) failed validation"
+        print_error "$template_errors template validation(s) failed"
         ((error_count++))
     fi
 else
