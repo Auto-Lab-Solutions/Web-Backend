@@ -264,7 +264,7 @@ main() {
     
     # Upload CloudFormation templates
     print_status "Uploading CloudFormation templates..."
-    ./upload-templates.sh "$ENVIRONMENT"
+    ./upload-templates.sh --env "$ENVIRONMENT"
     
     package_lambdas
     deploy_stack
@@ -272,7 +272,7 @@ main() {
     
     # Configure Lambda environment variables
     print_status "Configuring Lambda environment variables..."
-    ./configure-lambda-env.sh "$ENVIRONMENT"
+    ./configure-lambda-env.sh --env "$ENVIRONMENT"
     
     update_auth0_config
     
