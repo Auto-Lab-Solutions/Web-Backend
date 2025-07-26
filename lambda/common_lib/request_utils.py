@@ -86,11 +86,14 @@ def validate_appointment_data(appointment_data, staff_user=False):
 
     if not staff_user:
         required_fields.append('selectedSlots')
-        if 'isBuyer' in appointment_data:
-            if appointment_data['isBuyer']:
-                required_fields.append('buyerData')
-            else:
-                required_fields.append('sellerData')
+    
+    # Determine which data field is required based on isBuyer value
+    is_buyer_value = appointment_data.get('isBuyer')
+    if is_buyer_value is True:
+        required_fields.append('buyerData')
+    elif is_buyer_value is False:
+        required_fields.append('sellerData')
+    # If isBuyer is not provided or invalid, validation will fail on the 'isBuyer' field check
     
     optional_fields = [field for field in all_fields if field not in required_fields]
 
@@ -111,7 +114,7 @@ def validate_appointment_data(appointment_data, staff_user=False):
 
 
 
-def validate_field(field_name, field_value, required=True):
+def validate_field(field_name, field_value, required=True, isBuyer=True):
     if required and not field_value:
         return False, f"{field_name} is required"
     
@@ -130,7 +133,10 @@ def validate_field(field_name, field_value, required=True):
         required_keys = []
         optional_keys = []
         if field_name == 'buyerData' or field_name == 'sellerData':
-            required_keys = ['name', 'email', 'phoneNumber']
+            if (isBuyer and field_name == 'buyerData') or (not isBuyer and field_name == 'sellerData'):
+                required_keys = ['name', 'email', 'phoneNumber']
+            else:
+                optional_keys = ['name', 'email', 'phoneNumber']
         elif field_name == 'carData':
             required_keys = ['make', 'model', 'year']
             optional_keys = ['location']
