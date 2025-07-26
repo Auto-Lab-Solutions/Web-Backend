@@ -147,7 +147,7 @@ jobs:
     - name: Deploy infrastructure
       run: |
         echo "Deploying to production environment"
-        ./deploy.sh --env production
+        ./deploy.sh production
       env:
         AUTO_LAB_ENV: production
 

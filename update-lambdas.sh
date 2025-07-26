@@ -157,7 +157,7 @@ update_lambda_code() {
     # Check if function exists
     if ! function_exists "$lambda_name"; then
         print_error "Lambda function '$full_function_name' does not exist in AWS"
-        print_warning "Please deploy infrastructure first using ./deploy.sh --env $ENVIRONMENT"
+        print_warning "Please deploy infrastructure first using ./deploy.sh $ENVIRONMENT"
         return 1
     fi
     

@@ -127,7 +127,7 @@ jobs:
     - name: Deploy infrastructure
       run: |
         echo "Deploying to development environment"
-        ./deploy.sh --env development
+        ./deploy.sh development
       env:
         AUTO_LAB_ENV: development
 
