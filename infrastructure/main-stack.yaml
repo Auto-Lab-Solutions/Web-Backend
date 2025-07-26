@@ -17,6 +17,16 @@ Parameters:
     Default: auto-lab-cloudformation-templates
     Description: S3 bucket containing CloudFormation templates and Lambda packages
 
+  StripeSecretKey:
+    Type: String
+    NoEcho: true
+    Description: Stripe secret key for payment processing
+  
+  StripeWebhookSecret:
+    Type: String
+    NoEcho: true
+    Description: Stripe webhook endpoint secret for signature verification
+
 Resources:
   # DynamoDB Tables
   DynamoDBStack:
@@ -45,6 +55,11 @@ Resources:
         OrdersTable: !GetAtt DynamoDBStack.Outputs.OrdersTable
         ItemPricesTable: !GetAtt DynamoDBStack.Outputs.ItemPricesTable
         InquiriesTable: !GetAtt DynamoDBStack.Outputs.InquiriesTable
+        PaymentsTable: !GetAtt DynamoDBStack.Outputs.PaymentsTable
+        StripeSecretKey: !Ref StripeSecretKey
+        StripeWebhookSecret: !Ref StripeWebhookSecret
+        StripeSecretKey: !Ref StripeSecretKey
+        StripeWebhookSecret: !Ref StripeWebhookSecret
 
   # API Gateway
   ApiGatewayStack:
@@ -67,6 +82,9 @@ Resources:
         CreateOrderArn: !GetAtt LambdaStack.Outputs.CreateOrderArn
         UpdateOrderArn: !GetAtt LambdaStack.Outputs.UpdateOrderArn
         ConfirmPaymentArn: !GetAtt LambdaStack.Outputs.ConfirmPaymentArn
+        CreatePaymentIntentArn: !GetAtt LambdaStack.Outputs.CreatePaymentIntentArn
+        ConfirmPaymentSuccessArn: !GetAtt LambdaStack.Outputs.ConfirmPaymentSuccessArn
+        WebhookStripePaymentArn: !GetAtt LambdaStack.Outputs.WebhookStripePaymentArn
         GetInquiriesArn: !GetAtt LambdaStack.Outputs.GetInquiriesArn
         CreateInquiryArn: !GetAtt LambdaStack.Outputs.CreateInquiryArn
         GetReportUploadUrlArn: !GetAtt LambdaStack.Outputs.GetReportUploadUrlArn

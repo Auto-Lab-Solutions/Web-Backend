@@ -77,3 +77,31 @@ def get_user_email(token):
     except Exception as e:
         print(f"Error decoding token: {str(e)}")
         return None
+
+def get_user_id(event):
+    """Extract user ID from JWT token in the event"""
+    token = extract_token(event)
+    if not token:
+        return None
+    
+    jwks_client = PyJWKClient(JWKS_URL)
+    
+    try:
+        key = jwks_client.get_signing_key_from_jwt(token)
+        decoded = jwt.decode(
+            token,
+            key.key,
+            algorithms=['RS256'],
+            audience=AUTH0_AUDIENCE,
+            issuer=AUTH0_ISSUER
+        )
+        return decoded.get('sub')  # 'sub' is the user ID claim in JWT
+    except jwt.ExpiredSignatureError:
+        print("Token has expired.")
+        return None
+    except jwt.InvalidTokenError as e:
+        print(f"Invalid token: {str(e)}")
+        return None
+    except Exception as e:
+        print(f"Error decoding token: {str(e)}")
+        return None

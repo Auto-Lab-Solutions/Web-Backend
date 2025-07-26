@@ -19,6 +19,7 @@ SERVICE_PRICES_TABLE = os.environ.get('SERVICE_PRICES_TABLE')
 ORDERS_TABLE = os.environ.get('ORDERS_TABLE')
 ITEM_PRICES_TABLE = os.environ.get('ITEM_PRICES_TABLE')
 INQUIRIES_TABLE = os.environ.get('INQUIRIES_TABLE')
+PAYMENTS_TABLE = os.environ.get('PAYMENTS_TABLE')
 
 # ------------------  Staff Table Functions ------------------
 
@@ -1040,7 +1041,127 @@ def build_inquiry_data(inquiry_id, first_name, last_name, email, message, user_i
     
     return inquiry_data
 
-# ------------------  Utility Functions ------------------
+# ------------------  Payment Table Functions ------------------
+
+def create_payment(payment_data):
+    """Create a new payment record"""
+    try:
+        # Convert payment data to DynamoDB format
+        item = {
+            'paymentIntentId': {'S': payment_data['paymentIntentId']},
+            'referenceNumber': {'S': payment_data['referenceNumber']},
+            'type': {'S': payment_data['type']},
+            'userId': {'S': payment_data['userId']},
+            'amount': {'N': str(payment_data['amount'])},
+            'currency': {'S': payment_data['currency']},
+            'status': {'S': payment_data['status']},
+            'createdAt': {'N': str(payment_data['createdAt'])},
+            'updatedAt': {'N': str(payment_data['updatedAt'])}
+        }
+        
+        # Add optional fields
+        if 'stripePaymentMethodId' in payment_data:
+            item['stripePaymentMethodId'] = {'S': payment_data['stripePaymentMethodId']}
+        if 'receiptUrl' in payment_data:
+            item['receiptUrl'] = {'S': payment_data['receiptUrl']}
+        if 'metadata' in payment_data:
+            item['metadata'] = {'S': payment_data['metadata']}
+        
+        dynamodb.put_item(
+            TableName=PAYMENTS_TABLE,
+            Item=item
+        )
+        print(f"Payment {payment_data['paymentIntentId']} created successfully")
+        return True
+    except ClientError as e:
+        print(f"Error creating payment: {e}")
+        return False
+
+def get_payment_by_intent_id(payment_intent_id):
+    """Get a payment record by payment intent ID"""
+    try:
+        result = dynamodb.get_item(
+            TableName=PAYMENTS_TABLE,
+            Key={'paymentIntentId': {'S': payment_intent_id}}
+        )
+        if 'Item' in result:
+            return deserialize_item_json_safe(result['Item'])
+        return None
+    except ClientError as e:
+        print(f"Error getting payment by intent ID {payment_intent_id}: {e}")
+        return None
+
+def update_payment_by_intent_id(payment_intent_id, update_data):
+    """Update a payment record by payment intent ID"""
+    try:
+        update_expression, expression_values, expression_names = build_update_expression_for_payment(update_data)
+        if update_expression:
+            update_params = {
+                'TableName': PAYMENTS_TABLE,
+                'Key': {'paymentIntentId': {'S': payment_intent_id}},
+                'UpdateExpression': update_expression,
+                'ExpressionAttributeValues': expression_values
+            }
+            
+            # Add expression attribute names if they exist
+            if expression_names:
+                update_params['ExpressionAttributeNames'] = expression_names
+            
+            dynamodb.update_item(**update_params)
+            print(f"Payment {payment_intent_id} updated successfully")
+            return True
+        else:
+            print("No valid update data provided")
+            return False
+    except ClientError as e:
+        print(f"Error updating payment {payment_intent_id}: {e}")
+        return False
+
+def get_payments_by_user(user_id):
+    """Get all payments for a specific user"""
+    try:
+        result = dynamodb.query(
+            TableName=PAYMENTS_TABLE,
+            IndexName='userId-index',
+            KeyConditionExpression='userId = :uid',
+            ExpressionAttributeValues={':uid': {'S': user_id}}
+        )
+        return [deserialize_item_json_safe(item) for item in result.get('Items', [])]
+    except ClientError as e:
+        print(f"Error getting payments by user {user_id}: {e}")
+        return []
+
+def build_update_expression_for_payment(update_data):
+    """Build update expression for payment table"""
+    update_expression = "SET "
+    expression_values = {}
+    expression_names = {}
+    updates = []
+
+    for key, value in update_data.items():
+        if value is not None:
+            attr_name = f"#{key}"
+            attr_value = f":{key}"
+            updates.append(f"{attr_name} = {attr_value}")
+            expression_names[attr_name] = key
+            
+            # Handle different data types
+            if isinstance(value, str):
+                expression_values[attr_value] = {'S': value}
+            elif isinstance(value, (int, float)):
+                expression_values[attr_value] = {'N': str(value)}
+            elif isinstance(value, bool):
+                expression_values[attr_value] = {'BOOL': value}
+            else:
+                expression_values[attr_value] = {'S': str(value)}
+
+    if updates:
+        update_expression += ", ".join(updates)
+        return update_expression, expression_values, expression_names
+    else:
+        return None, None, None
+
+# -------------------------------------------------------------
 
 def deserialize_item(item):
     return {k: deserializer.deserialize(v) for k, v in item.items()} if item else None
@@ -1075,7 +1196,7 @@ def convert_to_dynamodb_format(obj):
         return {'S': obj}
     elif isinstance(obj, int):
         return {'N': str(obj)}
-    elif isinstance(obj, bool):
+    elif obj is True or obj is False:
         return {'BOOL': obj}
     elif isinstance(obj, dict):
         return {'M': {k: convert_to_dynamodb_format(v) for k, v in obj.items()}}
@@ -1105,5 +1226,3 @@ def is_dynamodb_format(obj):
         return True
     
     return False
-
-# -------------------------------------------------------------

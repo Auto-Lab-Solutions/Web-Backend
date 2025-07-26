@@ -1,8 +1,15 @@
+import os
 import time
+import json
+import stripe
 import db_utils as db
 import response_utils as resp
 import request_utils as req
 import wsgw_utils as wsgw
+import auth_utils as auth
+
+# Set Stripe secret key from environment
+stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
 
 PERMITTED_ROLE = 'ADMIN'
 
@@ -10,95 +17,120 @@ wsgw_client = wsgw.get_apigateway_client()
 
 def lambda_handler(event, context):
     try:
-        # Get staff user authentication and request parameters
-        staff_user_email = req.get_staff_user_email(event)
-        appointment_id = req.get_body_param(event, 'appointmentId')
-        payment_method = req.get_body_param(event, 'paymentMethod')
-        payment_reference = req.get_body_param(event, 'paymentReference')
-        payment_amount = req.get_body_param(event, 'paymentAmount')
+        # Get request parameters
+        payment_intent_id = req.get_body_param(event, 'paymentIntentId')
+        reference_number = req.get_body_param(event, 'referenceNumber')
+        payment_type = req.get_body_param(event, 'type')
+        user_id = req.get_body_param(event, 'userId')
+        
+        # Validate required parameters
+        if not payment_intent_id:
+            return resp.error_response("paymentIntentId is required")
+        if not reference_number:
+            return resp.error_response("referenceNumber is required")
+        if not payment_type:
+            return resp.error_response("type is required")
+        if payment_type not in ['appointment', 'order']:
+            return resp.error_response("type must be 'appointment' or 'order'")
+        if not user_id:
+            return resp.error_response("userId is required")
 
-        # Validate appointment ID and status
-        if not appointment_id:
-            return resp.error_response("appointmentId is required")
-        existing_appointment = db.get_appointment(appointment_id)
-        if not existing_appointment:
-            return resp.error_response("Appointment not found", 404)
-        if existing_appointment.get('paymentCompleted', False):
-            return resp.error_response("Payment already completed for this appointment")
+        # Verify the payment intent with Stripe
+        try:
+            payment_intent = stripe.PaymentIntent.retrieve(payment_intent_id)
+            if payment_intent.status != 'succeeded':
+                return resp.error_response("Payment has not been completed successfully")
+        except stripe.error.StripeError as e:
+            print(f"Stripe error retrieving payment intent: {str(e)}")
+            return resp.error_response("Invalid payment intent", 400)
+
+        # Get the existing record
+        if payment_type == 'appointment':
+            existing_record = db.get_appointment(reference_number)
+            if not existing_record:
+                return resp.error_response("Appointment not found", 404)
+        else:  # order
+            existing_record = db.get_order(reference_number)
+            if not existing_record:
+                return resp.error_response("Order not found", 404)
         
-        if staff_user_email:
-            # Validate staff user and permissions
-            staff_user_record = db.get_staff_record(staff_user_email)
-            if not staff_user_record:
-                return resp.error_response(f"No staff record found for email: {staff_user_email}", 404)
-            
-            staff_roles = staff_user_record.get('roles', [])
-            if PERMITTED_ROLE not in staff_roles:
-                return resp.error_response("Unauthorized: ADMIN role required", 403)
-            
-            staff_user_id = staff_user_record.get('userId')
-            
-            # Prepare payment update data
-            update_data = {
-                'paymentCompleted': True,
-                'paymentConfirmedBy': staff_user_id,
-                'paymentConfirmedAt': int(time.time()),
-                'updatedAt': int(time.time())
-            }
+        # Verify the record belongs to the user
+        if existing_record.get('createdUserId') != user_id:
+            return resp.error_response("Unauthorized access to record", 403)
         
+        # Check if payment is already confirmed
+        if existing_record.get('paymentStatus') == 'paid':
+            return resp.error_response("Payment already confirmed for this record")
+        
+        # Verify the payment intent ID matches
+        if existing_record.get('paymentIntentId') != payment_intent_id:
+            return resp.error_response("Payment intent ID does not match record")
+        
+        # Update payment record in database
+        payment_update_data = {
+            'status': 'succeeded',
+            'updatedAt': int(time.time())
+        }
+        success = db.update_payment_by_intent_id(payment_intent_id, payment_update_data)
+        if not success:
+            print("Warning: Failed to update payment record")
+        
+        # Update the appointment/order record
+        update_data = {
+            'paymentStatus': 'paid',
+            'paidAt': int(time.time()),
+            'paymentAmount': float(payment_intent.amount) / 100,  # Convert cents to dollars
+            'updatedAt': int(time.time())
+        }
+        
+        if payment_type == 'appointment':
+            success = db.update_appointment(reference_number, update_data)
+            updated_record = db.get_appointment(reference_number)
         else:
-            # Validate payment amount if provided
-            appointment_price = existing_appointment.get('price', 0)
-            if payment_amount is not None:
-                if float(payment_amount) != float(appointment_price):
-                    return resp.error_response(f"Payment amount {payment_amount} does not match appointment price {appointment_price}")
-
-            # Add optional payment reference if provided
-            if payment_reference:
-                update_data['paymentReference'] = payment_reference
-            
-            # Add payment amount if provided
-            if payment_amount is not None:
-                update_data['paidAmount'] = float(payment_amount)
-
-        # Update appointment in database
-        success = db.update_appointment(appointment_id, update_data)
+            success = db.update_order(reference_number, update_data)
+            updated_record = db.get_order(reference_number)
+        
         if not success:
             return resp.error_response("Failed to confirm payment", 500)
         
-        # Get updated appointment for response
-        updated_appointment = db.get_appointment(appointment_id)
-        
-        # Send payment confirmation notification to customer
-        send_payment_confirmation_notification(updated_appointment, manual_confirmation=bool(staff_user_email))
+        # Send payment confirmation notification
+        send_payment_confirmation_notification(updated_record, payment_type)
         
         return resp.success_response({
             "message": "Payment confirmed successfully",
-            "appointmentId": appointment_id,
+            "referenceNumber": reference_number,
+            "paymentStatus": "paid",
+            "updatedAt": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
         })
         
     except Exception as e:
         print(f"Error in confirm payment lambda: {str(e)}")
         return resp.error_response("Internal server error", 500)
 
-def send_payment_confirmation_notification(appointment, manual_confirmation=False):
-    receiverConnections = []
-
-    if manual_confirmation:
-        customer_user_id = appointment.get('createdUserId')
+def send_payment_confirmation_notification(record, record_type):
+    """Send payment confirmation notification"""
+    try:
+        receiverConnections = []
+        
+        # Notify customer
+        customer_user_id = record.get('createdUserId')
         if customer_user_id:
             customer_connection = db.get_connection_by_user_id(customer_user_id)
             if customer_connection:
                 receiverConnections.append(customer_connection)
-    else:
-        receiverConnections = db.get_all_staff_connections()
+        
+        # Notify all staff
+        staff_connections = db.get_all_staff_connections()
+        receiverConnections.extend(staff_connections)
 
-    for connection in receiverConnections:
-        wsgw.send_notification(wsgw_client, connection.get('connectionId'), {
-            "type": "appointment",
-            "subtype": "payment-confirmation",
-            "success": True,
-            "appointmentId": appointment.get('appointmentId'),
-            "appointmentData": resp.convert_decimal(appointment),
-            "manualConfirmation": manual_confirmation
-        })
+        for connection in receiverConnections:
+            wsgw.send_notification(wsgw_client, connection.get('connectionId'), {
+                "type": record_type,
+                "subtype": "payment-confirmation",
+                "success": True,
+                "referenceNumber": record.get(f'{record_type}Id'),
+                f"{record_type}Data": resp.convert_decimal(record),
+                "paymentStatus": "paid"
+            })
+    except Exception as e:
+        print(f"Error sending payment confirmation notification: {str(e)}")

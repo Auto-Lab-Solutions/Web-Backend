@@ -51,6 +51,20 @@ Parameters:
     Type: String
     Description: Inquiries Table Name
 
+  PaymentsTable:
+    Type: String
+    Description: Payments Table Name
+  
+  StripeSecretKey:
+    Type: String
+    NoEcho: true
+    Description: Stripe secret key for payment processing
+  
+  StripeWebhookSecret:
+    Type: String
+    NoEcho: true
+    Description: Stripe webhook endpoint secret for signature verification
+
 Resources:
   # Lambda Execution Role
   LambdaExecutionRole:
@@ -100,6 +114,8 @@ Resources:
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ItemPricesTable}/index/*'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InquiriesTable}'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InquiriesTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${PaymentsTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${PaymentsTable}/index/*'
         - PolicyName: S3Access
           PolicyDocument:
             Version: '2012-10-17'
@@ -357,8 +373,81 @@ Resources:
       Environment:
         Variables:
           STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
           ORDERS_TABLE: !Ref OrdersTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          API_GATEWAY_URL: !Sub "${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiCreatePaymentIntent:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: api-create-payment-intent
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-create-payment-intent.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          ORDERS_TABLE: !Ref OrdersTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiConfirmPaymentSuccess:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: api-confirm-payment-success
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-confirm-payment-success.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          ORDERS_TABLE: !Ref OrdersTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  WebhookStripePayment:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: webhook-stripe-payment
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/webhook-stripe-payment.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          ORDERS_TABLE: !Ref OrdersTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -709,6 +798,14 @@ Outputs:
     Description: Confirm Payment Lambda ARN
     Value: !GetAtt ApiConfirmPayment.Arn
 
+  CreatePaymentIntentArn:
+    Description: Create Payment Intent Lambda ARN
+    Value: !GetAtt ApiCreatePaymentIntent.Arn
+
+  ConfirmPaymentSuccessArn:
+    Description: Confirm Payment Success Lambda ARN
+    Value: !GetAtt ApiConfirmPaymentSuccess.Arn
+
   GetInquiriesArn:
     Description: Get Inquiries Lambda ARN
     Value: !GetAtt ApiGetInquiries.Arn
@@ -772,3 +869,7 @@ Outputs:
   WsStaffInitArn:
     Description: WebSocket Staff Init Lambda ARN
     Value: !GetAtt WsStaffInit.Arn
+
+  WebhookStripePaymentArn:
+    Description: Webhook Stripe Payment Lambda ARN
+    Value: !GetAtt WebhookStripePayment.Arn

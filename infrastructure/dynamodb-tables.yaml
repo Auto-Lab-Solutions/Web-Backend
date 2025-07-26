@@ -260,6 +260,43 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
+  # Payments Table
+  PaymentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'Payments-${Environment}'
+      AttributeDefinitions:
+        - AttributeName: paymentIntentId
+          AttributeType: S
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: referenceNumber
+          AttributeType: S
+        - AttributeName: createdAt
+          AttributeType: N
+      KeySchema:
+        - AttributeName: paymentIntentId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: userId-index
+          KeySchema:
+            - AttributeName: userId
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: referenceNumber-index
+          KeySchema:
+            - AttributeName: referenceNumber
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
 Outputs:
   StaffTable:
     Description: Staff Table Name
@@ -320,3 +357,9 @@ Outputs:
     Value: !Ref InquiriesTable
     Export:
       Name: !Sub '${AWS::StackName}-InquiriesTable'
+
+  PaymentsTable:
+    Description: Payments Table Name
+    Value: !Ref PaymentsTable
+    Export:
+      Name: !Sub '${AWS::StackName}-PaymentsTable'

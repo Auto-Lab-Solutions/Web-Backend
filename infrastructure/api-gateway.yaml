@@ -59,6 +59,18 @@ Parameters:
     Type: String
     Description: Confirm Payment Lambda ARN
   
+  CreatePaymentIntentArn:
+    Type: String
+    Description: Create Payment Intent Lambda ARN
+  
+  ConfirmPaymentSuccessArn:
+    Type: String
+    Description: Confirm Payment Success Lambda ARN
+  
+  WebhookStripePaymentArn:
+    Type: String
+    Description: Webhook Stripe Payment Lambda ARN
+  
   GetInquiriesArn:
     Type: String
     Description: Get Inquiries Lambda ARN
@@ -554,6 +566,101 @@ Resources:
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetLastMessagesArn}/invocations'
 
+  # Payment Endpoints
+  PaymentsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !GetAtt RestApi.RootResourceId
+      PathPart: payments
+
+  CreatePaymentIntentResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref PaymentsResource
+      PathPart: create-intent
+
+  CreatePaymentIntentMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref CreatePaymentIntentResource
+      HttpMethod: POST
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref StaffAuthorizerOptional
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CreatePaymentIntentArn}/invocations'
+
+  ConfirmPaymentV2Resource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref PaymentsResource
+      PathPart: confirm
+
+  ConfirmPaymentV2Method:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref ConfirmPaymentV2Resource
+      HttpMethod: POST
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref StaffAuthorizerOptional
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ConfirmPaymentArn}/invocations'
+
+  ConfirmPaymentSuccessResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref PaymentsResource
+      PathPart: confirm-success
+
+  ConfirmPaymentSuccessMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref ConfirmPaymentSuccessResource
+      HttpMethod: POST
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref StaffAuthorizerOptional
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ConfirmPaymentSuccessArn}/invocations'
+
+  # Webhook Endpoints
+  WebhooksResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !GetAtt RestApi.RootResourceId
+      PathPart: webhooks
+
+  StripePaymentWebhookResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref WebhooksResource
+      PathPart: stripe-payment
+
+  StripePaymentWebhookMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref StripePaymentWebhookResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WebhookStripePaymentArn}/invocations'
+
   # Lambda Permissions
   GetPricesPermission:
     Type: AWS::Lambda::Permission
@@ -639,6 +746,30 @@ Resources:
     Type: AWS::Lambda::Permission
     Properties:
       FunctionName: !Ref ConfirmPaymentArn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/*'
+
+  CreatePaymentIntentPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref CreatePaymentIntentArn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/*'
+
+  ConfirmPaymentSuccessPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ConfirmPaymentSuccessArn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/*'
+
+  WebhookStripePaymentPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref WebhookStripePaymentArn
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/*'
@@ -773,6 +904,9 @@ Resources:
       - MessagesGetMethod
       - MessagesPostMethod
       - LastMessagesMethod
+      - CreatePaymentIntentMethod
+      - ConfirmPaymentV2Method
+      - ConfirmPaymentSuccessMethod
     Properties:
       RestApiId: !Ref RestApi
       StageName: !Ref Environment
