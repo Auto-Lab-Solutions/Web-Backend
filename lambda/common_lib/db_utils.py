@@ -912,7 +912,7 @@ def build_update_expression_for_order(data):
         return update_expression, expression_values, expression_names
     return None, None, None
 
-def build_order_data(order_id, items, customer_data, car_data, notes, created_user_id, total_price):
+def build_order_data(order_id, items, customer_data, car_data, notes, delivery_location, created_user_id, total_price):
     """Build order data in DynamoDB format with support for multiple items"""
     current_time = int(time.time())
     current_date = datetime.now().strftime('%Y-%m-%d')
@@ -937,12 +937,11 @@ def build_order_data(order_id, items, customer_data, car_data, notes, created_us
         'customerName': {'S': customer_data.get('name', '')},
         'customerEmail': {'S': customer_data.get('email', '')},
         'customerPhone': {'S': customer_data.get('phoneNumber', '')},
-        'customerAddress': {'S': customer_data.get('address', '')},
         'carMake': {'S': car_data.get('make', '')},
         'carModel': {'S': car_data.get('model', '')},
         'carYear': {'S': str(car_data.get('year', ''))},
-        'carLocation': {'S': car_data.get('location', '')},
         'notes': {'S': notes},
+        'deliveryLocation': {'S': delivery_location},
         'createdUserId': {'S': created_user_id},
         'status': {'S': 'PENDING'},
         'totalPrice': {'N': str(total_price)},

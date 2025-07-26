@@ -32,7 +32,7 @@ def lambda_handler(event, context):
                 return resp.error_response(f"No user record found for userId: {user_id}")
 
         # Validate order data
-        valid, msg = validate_order_data(order_data, staff_user=bool(staff_user_email))
+        valid, msg = req.validate_order_data(order_data, staff_user=bool(staff_user_email))
         if not valid:
             return resp.error_response(msg)
         
@@ -79,6 +79,7 @@ def lambda_handler(event, context):
             customer_data=order_data.get('customerData', {}),
             car_data=order_data.get('carData', {}),
             notes=order_data.get('notes', ''),
+            delivery_location=order_data.get('deliveryLocation', ''),
             created_user_id=user_id,
             total_price=total_price
         )
@@ -112,85 +113,3 @@ def lambda_handler(event, context):
     except Exception as e:
         print(f"Error in create order lambda: {str(e)}")
         return resp.error_response("Internal server error", 500)
-
-
-def validate_order_data(order_data, staff_user=False):
-    """Validate order data"""
-    if not order_data:
-        return False, "Order data is required"
-    
-    # Required fields
-    required_fields = ['items', 'customerData', 'carData']
-    for field in required_fields:
-        if field not in order_data:
-            return False, f"{field} is required"
-    
-    # Validate items array
-    items = order_data.get('items', [])
-    if not isinstance(items, list) or len(items) == 0:
-        return False, "items must be a non-empty array"
-    
-    if len(items) > 10:  # Reasonable limit for items per order
-        return False, "Maximum 10 items allowed per order"
-    
-    # Validate each item
-    for i, item in enumerate(items):
-        if not isinstance(item, dict):
-            return False, f"Item {i+1} must be an object"
-        
-        # Required item fields
-        required_item_fields = ['categoryId', 'itemId', 'quantity']
-        for field in required_item_fields:
-            if field not in item:
-                return False, f"Item {i+1}: {field} is required"
-        
-        # Validate item values
-        try:
-            category_id = int(item['categoryId'])
-            item_id = int(item['itemId'])
-            quantity = int(item['quantity'])
-            
-            if category_id <= 0 or item_id <= 0 or quantity <= 0:
-                return False, f"Item {i+1}: categoryId, itemId, and quantity must be positive integers"
-                
-            if quantity > 30:  # Reasonable limit per item
-                return False, f"Item {i+1}: Maximum quantity per item is 30"
-
-        except (ValueError, TypeError):
-            return False, f"Item {i+1}: categoryId, itemId, and quantity must be valid integers"
-    
-    # Validate customer data
-    customer_data = order_data.get('customerData', {})
-    if not isinstance(customer_data, dict):
-        return False, "customerData must be an object"
-    
-    required_customer_fields = ['name', 'email', 'phoneNumber']
-    for field in required_customer_fields:
-        if field not in customer_data or not customer_data[field]:
-            return False, f"customerData.{field} is required"
-    
-    # Validate email format
-    email = customer_data.get('email', '')
-    if '@' not in email or '.' not in email:
-        return False, "Invalid email format"
-    
-    # Validate car data
-    car_data = order_data.get('carData', {})
-    if not isinstance(car_data, dict):
-        return False, "carData must be an object"
-    
-    required_car_fields = ['make', 'model', 'year']
-    for field in required_car_fields:
-        if field not in car_data or not car_data[field]:
-            return False, f"carData.{field} is required"
-    
-    # Validate car year
-    try:
-        year = int(car_data.get('year', 0))
-        current_year = datetime.now().year
-        if year < 1900 or year > current_year + 1:
-            return False, f"Car year must be between 1900 and {current_year + 1}"
-    except (ValueError, TypeError):
-        return False, "Car year must be a valid integer"
-
-    return True, "Valid"

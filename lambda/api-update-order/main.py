@@ -266,8 +266,6 @@ def process_basic_info_updates(body, existing_order):
             update_data['customerEmail'] = customer_data['email']
         if 'phoneNumber' in customer_data:
             update_data['customerPhone'] = customer_data['phoneNumber']
-        if 'address' in customer_data:
-            update_data['customerAddress'] = customer_data['address']
     
     # Car data updates
     if 'carData' in body:
@@ -278,12 +276,14 @@ def process_basic_info_updates(body, existing_order):
             update_data['carModel'] = car_data['model']
         if 'year' in car_data:
             update_data['carYear'] = str(car_data['year'])
-        if 'location' in car_data:
-            update_data['carLocation'] = car_data['location']
     
     # Notes update
     if 'notes' in body:
         update_data['notes'] = body['notes']
+    
+    # Delivery location update
+    if 'deliveryLocation' in body:
+        update_data['deliveryLocation'] = body['deliveryLocation']
     
     return update_data
 

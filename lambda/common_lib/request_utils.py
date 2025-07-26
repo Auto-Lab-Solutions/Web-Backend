@@ -1,4 +1,6 @@
 import json
+import re
+from datetime import datetime
 
 def get_query_param(event, key, default=None):
     return (event.get('queryStringParameters') or {}).get(key, default)
@@ -38,6 +40,38 @@ def get_staff_user_roles(event):
         if roles_text:
             return roles_text.split(',')
     return []
+
+
+def validate_email(email):
+    """Validate email format using regex"""
+    if not email or not isinstance(email, str):
+        return False
+    
+    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return re.match(email_pattern, email) is not None
+
+def validate_phone_number(phone):
+    """Validate phone number format"""
+    if not phone or not isinstance(phone, str):
+        return False
+    
+    # Remove spaces, dashes, and parentheses for validation
+    clean_phone = re.sub(r'[\s\-\(\)]', '', phone)
+    
+    # Allow international format starting with + or domestic format
+    phone_pattern = r'^(\+\d{1,3})?\d{7,15}$'
+    return re.match(phone_pattern, clean_phone) is not None
+
+def validate_year(year, field_name="year"):
+    """Validate year value"""
+    try:
+        year_int = int(year)
+        current_year = datetime.now().year
+        if year_int < 1900 or year_int > current_year + 1:
+            return False, f"{field_name} must be between 1900 and {current_year + 1}"
+        return True, ""
+    except (ValueError, TypeError):
+        return False, f"{field_name} must be a valid integer"
 
 
 def validate_appointment_data(appointment_data, staff_user=False):
@@ -106,6 +140,18 @@ def validate_field(field_name, field_value, required=True):
                 return False, f"{field_name} must contain {key}"
             if not field_value[key]:
                 return False, f"{field_name}.{key} cannot be empty"
+            
+            # Enhanced validation for specific fields
+            if key == 'email':
+                if not validate_email(field_value[key]):
+                    return False, f"{field_name}.{key} has invalid email format"
+            elif key == 'phoneNumber':
+                if not validate_phone_number(field_value[key]):
+                    return False, f"{field_name}.{key} has invalid phone number format"
+            elif key == 'year':
+                valid_year, year_msg = validate_year(field_value[key], f"{field_name}.{key}")
+                if not valid_year:
+                    return False, year_msg
         
         for key in optional_keys:
             if key in field_value and not field_value[key]:
@@ -130,3 +176,89 @@ def validate_field(field_name, field_value, required=True):
                 return False, "Slot priority must be an integer"
     
     return True, ""
+
+def validate_order_data(order_data, staff_user=False):
+    """Validate order data with enhanced validation"""
+    if not order_data:
+        return False, "Order data is required"
+    
+    if not isinstance(order_data, dict):
+        return False, "Order data must be an object"
+    
+    # Required fields
+    required_fields = ['items', 'customerData', 'carData']
+    for field in required_fields:
+        if field not in order_data:
+            return False, f"{field} is required"
+    
+    # Validate items array
+    items = order_data.get('items', [])
+    if not isinstance(items, list) or len(items) == 0:
+        return False, "items must be a non-empty array"
+    
+    if len(items) > 10:  # Maximum items per order
+        return False, "Maximum 10 items allowed per order"
+    
+    # Validate each item
+    for i, item in enumerate(items):
+        if not isinstance(item, dict):
+            return False, f"Item {i+1} must be an object"
+        
+        # Required item fields
+        required_item_fields = ['categoryId', 'itemId', 'quantity']
+        for field in required_item_fields:
+            if field not in item:
+                return False, f"Item {i+1}: {field} is required"
+        
+        # Validate item values
+        try:
+            category_id = int(item['categoryId'])
+            item_id = int(item['itemId'])
+            quantity = int(item['quantity'])
+            
+            if category_id <= 0 or item_id <= 0 or quantity <= 0:
+                return False, f"Item {i+1}: categoryId, itemId, and quantity must be positive integers"
+                
+            if quantity > 30:  # Maximum quantity per item
+                return False, f"Item {i+1}: Maximum quantity per item is 30"
+
+        except (ValueError, TypeError):
+            return False, f"Item {i+1}: categoryId, itemId, and quantity must be valid integers"
+    
+    # Validate customer data
+    customer_data = order_data.get('customerData', {})
+    if not isinstance(customer_data, dict):
+        return False, "customerData must be an object"
+    
+    required_customer_fields = ['name', 'email', 'phoneNumber']
+    for field in required_customer_fields:
+        if field not in customer_data or not customer_data[field]:
+            return False, f"customerData.{field} is required"
+    
+    # Enhanced email validation
+    email = customer_data.get('email', '')
+    if not validate_email(email):
+        return False, "Invalid email format"
+    
+    # Enhanced phone number validation
+    phone = customer_data.get('phoneNumber', '')
+    if not validate_phone_number(phone):
+        return False, "Invalid phone number format"
+    
+    # Validate car data
+    car_data = order_data.get('carData', {})
+    if not isinstance(car_data, dict):
+        return False, "carData must be an object"
+    
+    required_car_fields = ['make', 'model', 'year']
+    for field in required_car_fields:
+        if field not in car_data or not car_data[field]:
+            return False, f"carData.{field} is required"
+    
+    # Enhanced year validation
+    year = car_data.get('year')
+    valid_year, year_msg = validate_year(year, "Car year")
+    if not valid_year:
+        return False, year_msg
+
+    return True, "Valid"
