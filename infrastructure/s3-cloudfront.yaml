@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'S3 and CloudFront with OAC for Auto Lab Solutions'
+Description: 'S3 + CloudFront (OAC) with dependency fix'
 
 Parameters:
   Environment:
@@ -46,6 +46,7 @@ Resources:
 
   CloudFrontDistribution:
     Type: AWS::CloudFront::Distribution
+    DependsOn: ReportsBucket
     Properties:
       DistributionConfig:
         Enabled: true
@@ -74,6 +75,7 @@ Resources:
 
   BucketPolicy:
     Type: AWS::S3::BucketPolicy
+    DependsOn: CloudFrontDistribution
     Properties:
       Bucket: !Ref ReportsBucket
       PolicyDocument:
@@ -86,7 +88,7 @@ Resources:
             Resource: !Sub '${ReportsBucket.Arn}/*'
             Condition:
               StringEquals:
-                AWS:SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}'
+                "AWS:SourceArn": !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}'
 
 Outputs:
   ReportsBucketName:
