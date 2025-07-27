@@ -883,14 +883,14 @@ Resources:
     Type: AWS::ApiGateway::Stage
     Properties:
       RestApiId: !Ref RestApi
-      DeploymentId: !Ref ApiDeployment
+      DeploymentId: !Ref ApiDeploymentV2
       StageName: !Ref Environment
       Description: !Sub 'API Gateway stage for ${Environment}'
       Variables:
         environment: !Ref Environment
 
   # Deployment
-  ApiDeployment:
+  ApiDeploymentV2:
     Type: AWS::ApiGateway::Deployment
     DependsOn:
       - PricesMethod
@@ -918,8 +918,10 @@ Resources:
       - CreatePaymentIntentMethod
       - ConfirmPaymentV2Method
       - ConfirmPaymentSuccessMethod
+      - StripePaymentWebhookMethod
     Properties:
       RestApiId: !Ref RestApi
+      Description: !Sub 'API Deployment for ${Environment} - Updated for Stage Separation'
 
 Outputs:
   RestApiId:
