@@ -54,7 +54,15 @@ update_lambda_env() {
     print_status "WebSocket API Endpoint: $WEBSOCKET_API_ENDPOINT"
     
     # Update WebSocket-related Lambda functions with the WebSocket API endpoint
-    local ws_functions=("ws-connect" "ws-disconnect" "ws-init" "ws-ping" "ws-staff-init" "api-notify" "api-send-message")
+    local ws_functions=(
+        "ws-connect-${ENVIRONMENT}"
+        "ws-disconnect-${ENVIRONMENT}"
+        "ws-init-${ENVIRONMENT}"
+        "ws-ping-${ENVIRONMENT}"
+        "ws-staff-init-${ENVIRONMENT}"
+        "api-notify-${ENVIRONMENT}"
+        "api-send-message-${ENVIRONMENT}"
+    )
     
     for func in "${ws_functions[@]}"; do
         print_status "Updating $func environment variables..."
