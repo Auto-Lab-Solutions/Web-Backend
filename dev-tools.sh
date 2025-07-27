@@ -162,6 +162,12 @@ show_env() {
 show_status() {
     print_status "Checking deployment status for environment: $ENVIRONMENT..."
     
+    # Verify required variables are set
+    if [ -z "$STACK_NAME" ] || [ -z "$AWS_REGION" ]; then
+        print_error "Required environment variables not set. Please check environment configuration."
+        return 1
+    fi
+    
     # Check CloudFormation stack
     local stack_status=$(aws cloudformation describe-stacks \
         --stack-name "$STACK_NAME" \
@@ -197,9 +203,9 @@ show_status() {
                 state="NOT_FOUND"
             fi
             
-            ((function_count++))
+            function_count=$((function_count + 1))
             if [ "$state" = "Active" ]; then
-                ((active_count++))
+                active_count=$((active_count + 1))
                 echo "  ✅ $full_function_name: $state"
             else
                 echo "  ❌ $full_function_name: $state"
@@ -211,7 +217,7 @@ show_status() {
     
     # Check DynamoDB tables
     print_status "DynamoDB Tables:"
-    local tables=("$STAFF_TABLE" "$USERS_TABLE" "$CONNECTIONS_TABLE" "$MESSAGES_TABLE" "$UNAVAILABLE_SLOTS_TABLE" "$APPOINTMENTS_TABLE" "$SERVICE_PRICES_TABLE" "$ORDERS_TABLE" "$ITEM_PRICES_TABLE" "$INQUIRIES_TABLE")
+    local tables=("$STAFF_TABLE" "$USERS_TABLE" "$CONNECTIONS_TABLE" "$MESSAGES_TABLE" "$UNAVAILABLE_SLOTS_TABLE" "$APPOINTMENTS_TABLE" "$SERVICE_PRICES_TABLE" "$ORDERS_TABLE" "$ITEM_PRICES_TABLE" "$INQUIRIES_TABLE" "$PAYMENTS_TABLE")
     local table_count=0
     local active_tables=0
     
@@ -231,9 +237,9 @@ show_status() {
             status="NOT_FOUND"
         fi
         
-        ((table_count++))
+        table_count=$((table_count + 1))
         if [ "$status" = "ACTIVE" ]; then
-            ((active_tables++))
+            active_tables=$((active_tables + 1))
             echo "  ✅ $table: $status"
         else
             echo "  ❌ $table: $status"

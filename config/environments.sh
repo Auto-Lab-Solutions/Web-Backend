@@ -70,6 +70,7 @@ get_env_config() {
     export ORDERS_TABLE="Orders-${ENVIRONMENT}"
     export ITEM_PRICES_TABLE="ItemPrices-${ENVIRONMENT}"
     export INQUIRIES_TABLE="Inquiries-${ENVIRONMENT}"
+    export PAYMENTS_TABLE="Payments-${ENVIRONMENT}"
     
     return 0
 }
@@ -105,6 +106,7 @@ show_env_config() {
     echo "  Orders:                $ORDERS_TABLE"
     echo "  ItemPrices:            $ITEM_PRICES_TABLE"
     echo "  Inquiries:             $INQUIRIES_TABLE"
+    echo "  Payments:              $PAYMENTS_TABLE"
     echo "=========================================="
 }
 
