@@ -6,7 +6,7 @@ Parameters:
     Type: String
     Default: production
     Description: Environment name
-  
+
   S3BucketName:
     Type: String
     Default: auto-lab-reports
@@ -44,7 +44,7 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
-  # CloudFront Origin Access Control
+  # CloudFront Origin Access Control (OAC)
   OriginAccessControl:
     Type: AWS::CloudFront::OriginAccessControl
     Properties:
@@ -70,10 +70,6 @@ Resources:
             - GET
             - HEAD
             - OPTIONS
-            - PUT
-            - POST
-            - PATCH
-            - DELETE
           CachedMethods:
             - GET
             - HEAD
@@ -85,30 +81,12 @@ Resources:
           - Id: !Sub '${S3BucketName}-origin'
             DomainName: !GetAtt ReportsBucket.RegionalDomainName
             OriginAccessControlId: !Ref OriginAccessControl
-            S3OriginConfig: {}  # Still required, but valid with OAC now
+            S3OriginConfig: {}  # Required even with OAC
         ViewerCertificate:
           CloudFrontDefaultCertificate: true
       Tags:
         - Key: Environment
           Value: !Ref Environment
-
-  # S3 Bucket Policy for CloudFront
-  BucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref ReportsBucket
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Sid: AllowCloudFrontServicePrincipalRead
-            Effect: Allow
-            Principal:
-              Service: cloudfront.amazonaws.com
-            Action: s3:GetObject
-            Resource: !Sub '${ReportsBucket.Arn}/*'
-            Condition:
-              StringEquals:
-                "AWS:SourceArn": !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
 
 Outputs:
   ReportsBucketName:
