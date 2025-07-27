@@ -81,8 +81,7 @@ Resources:
         Origins:
           - Id: !Sub '${S3BucketName}-origin'
             DomainName: !GetAtt ReportsBucket.RegionalDomainName
-            S3OriginConfig:
-              OriginAccessIdentity: ''
+            S3OriginConfig: {}
             OriginAccessControlId: !Ref OriginAccessControl
         Enabled: true
         HttpVersion: http2
