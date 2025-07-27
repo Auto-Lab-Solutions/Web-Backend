@@ -181,11 +181,21 @@ show_status() {
         if [ -d "$lambda_dir" ] && [ "$(basename "$lambda_dir")" != "common_lib" ] && [ "$(basename "$lambda_dir")" != "tmp" ]; then
             local function_name=$(basename "$lambda_dir")
             local full_function_name="${function_name}-${ENVIRONMENT}"
+            
+            # Temporarily disable exit on error for AWS command
+            set +e
             local state=$(aws lambda get-function \
                 --function-name "$full_function_name" \
                 --query 'Configuration.State' \
                 --output text \
-                --region $AWS_REGION 2>/dev/null || echo "NOT_FOUND")
+                --region $AWS_REGION 2>/dev/null)
+            local aws_exit_code=$?
+            set -e
+            
+            # Handle the result
+            if [ $aws_exit_code -ne 0 ] || [ -z "$state" ]; then
+                state="NOT_FOUND"
+            fi
             
             ((function_count++))
             if [ "$state" = "Active" ]; then
@@ -206,11 +216,20 @@ show_status() {
     local active_tables=0
     
     for table in "${tables[@]}"; do
+        # Temporarily disable exit on error for AWS command
+        set +e
         local status=$(aws dynamodb describe-table \
             --table-name "$table" \
             --query 'Table.TableStatus' \
             --output text \
-            --region $AWS_REGION 2>/dev/null || echo "NOT_FOUND")
+            --region $AWS_REGION 2>/dev/null)
+        local aws_exit_code=$?
+        set -e
+        
+        # Handle the result
+        if [ $aws_exit_code -ne 0 ] || [ -z "$status" ]; then
+            status="NOT_FOUND"
+        fi
         
         ((table_count++))
         if [ "$status" = "ACTIVE" ]; then
