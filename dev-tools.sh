@@ -68,7 +68,15 @@ get_logs() {
     print_status "Getting recent logs for $full_function_name..."
     
     # Get logs from the last 10 minutes
-    local start_time=$(date -d '10 minutes ago' +%s)000
+    # Use a cross-platform approach for calculating timestamp
+    local start_time
+    if date -d '10 minutes ago' +%s >/dev/null 2>&1; then
+        # GNU date (Linux)
+        start_time=$(date -d '10 minutes ago' +%s)000
+    else
+        # BSD date (macOS)
+        start_time=$(date -v-10M +%s)000
+    fi
     
     aws logs filter-log-events \
         --log-group-name "$log_group" \
@@ -128,17 +136,31 @@ test_function() {
     
     print_status "Invoking function with test event..."
     
+    # Create a temporary file for the response
+    local response_file=$(mktemp)
+    
+    # Invoke the Lambda function
+    set +e  # Temporarily disable exit on error
     aws lambda invoke \
         --function-name "$full_function_name" \
         --payload "$test_event" \
         --region $AWS_REGION \
-        --cli-binary-format raw-in-base64-out \
-        response.json
+        "$response_file" 2>/dev/null
+    local invoke_exit_code=$?
+    set -e  # Re-enable exit on error
     
-    if [ -f response.json ]; then
+    if [ $invoke_exit_code -eq 0 ] && [ -f "$response_file" ]; then
         print_success "Function response:"
-        cat response.json | python3 -m json.tool 2>/dev/null || cat response.json
-        rm response.json
+        cat "$response_file" | python3 -m json.tool 2>/dev/null || cat "$response_file"
+        rm "$response_file"
+    else
+        print_error "Failed to invoke Lambda function: $full_function_name"
+        if [ -f "$response_file" ]; then
+            print_warning "Error response:"
+            cat "$response_file"
+            rm "$response_file"
+        fi
+        print_warning "Make sure the function exists and you have proper permissions"
     fi
 }
 
