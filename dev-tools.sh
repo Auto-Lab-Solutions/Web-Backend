@@ -237,7 +237,6 @@ show_endpoints() {
     
     # Get WebSocket endpoint
     local ws_endpoint=$(aws cloudformation describe-stacks \
-    local ws_endpoint=$(aws cloudformation describe-stacks \
         --stack-name "$STACK_NAME" \
         --query 'Stacks[0].Outputs[?OutputKey==`WebSocketApiEndpoint`].OutputValue' \
         --output text \
