@@ -56,22 +56,102 @@ Resources:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref WebSocketApi
-      IntegrationType: AWS_PROXY
+      IntegrationType: AWS
       IntegrationUri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WsInitArn}/invocations'
+      IntegrationMethod: POST
+      PassthroughBehavior: WHEN_NO_MATCH
+      PayloadFormatVersion: '1.0'
+      TimeoutInMillis: 29000
+      RequestTemplates:
+        Template1: |
+          {
+            "connectionId": "$context.connectionId",
+            "domain": "$context.domainName", 
+            "stage": "$context.stage",
+            "body": $input.body
+          }
+      TemplateSelectionExpression: Template1
+      IntegrationResponseSelectionExpression: ${integration.response.body.errorMessage}
 
   PingIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref WebSocketApi
-      IntegrationType: AWS_PROXY
+      IntegrationType: AWS
       IntegrationUri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WsPingArn}/invocations'
+      IntegrationMethod: POST
+      PassthroughBehavior: WHEN_NO_MATCH
+      PayloadFormatVersion: '1.0'
+      TimeoutInMillis: 29000
+      ContentHandlingStrategy: CONVERT_TO_TEXT
+      RequestTemplates:
+        Template1: |
+          {
+            "connectionId": "$context.connectionId",
+            "domain": "$context.domainName",
+            "stage": "$context.stage",
+            "body": $input.body
+          }
+      TemplateSelectionExpression: Template1
+      IntegrationResponseSelectionExpression: ${integration.response.body.errorMessage}
 
   StaffInitIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref WebSocketApi
-      IntegrationType: AWS_PROXY
+      IntegrationType: AWS
       IntegrationUri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WsStaffInitArn}/invocations'
+      IntegrationMethod: POST
+      PassthroughBehavior: WHEN_NO_MATCH
+      PayloadFormatVersion: '1.0'
+      TimeoutInMillis: 29000
+      RequestTemplates:
+        Template1: |
+          {
+            "connectionId": "$context.connectionId",
+            "domain": "$context.domainName",
+            "stage": "$context.stage",
+            "body": $input.body
+          }
+      TemplateSelectionExpression: Template1
+      IntegrationResponseSelectionExpression: ${integration.response.body.errorMessage}
+
+  # Integration Responses for non-proxy integrations
+  InitIntegrationResponse:
+    Type: AWS::ApiGatewayV2::IntegrationResponse
+    Properties:
+      ApiId: !Ref WebSocketApi
+      IntegrationId: !Ref InitIntegration
+      IntegrationResponseKey: /200/
+      ResponseTemplates:
+        application/json: |
+          {
+            "statusCode": 200
+          }
+
+  PingIntegrationResponse:
+    Type: AWS::ApiGatewayV2::IntegrationResponse
+    Properties:
+      ApiId: !Ref WebSocketApi
+      IntegrationId: !Ref PingIntegration
+      IntegrationResponseKey: /200/
+      ResponseTemplates:
+        application/json: |
+          {
+            "statusCode": 200
+          }
+
+  StaffInitIntegrationResponse:
+    Type: AWS::ApiGatewayV2::IntegrationResponse
+    Properties:
+      ApiId: !Ref WebSocketApi
+      IntegrationId: !Ref StaffInitIntegration
+      IntegrationResponseKey: /200/
+      ResponseTemplates:
+        application/json: |
+          {
+            "statusCode": 200
+          }
 
   # Routes
   ConnectRoute:
@@ -113,6 +193,28 @@ Resources:
       RouteKey: staff-init
       AuthorizationType: NONE
       Target: !Sub 'integrations/${StaffInitIntegration}'
+
+  # Route Responses for non-proxy routes
+  InitRouteResponse:
+    Type: AWS::ApiGatewayV2::RouteResponse
+    Properties:
+      ApiId: !Ref WebSocketApi
+      RouteId: !Ref InitRoute
+      RouteResponseKey: $default
+
+  PingRouteResponse:
+    Type: AWS::ApiGatewayV2::RouteResponse
+    Properties:
+      ApiId: !Ref WebSocketApi
+      RouteId: !Ref PingRoute
+      RouteResponseKey: $default
+
+  StaffInitRouteResponse:
+    Type: AWS::ApiGatewayV2::RouteResponse
+    Properties:
+      ApiId: !Ref WebSocketApi
+      RouteId: !Ref StaffInitRoute
+      RouteResponseKey: $default
 
   # Lambda Permissions
   ConnectPermission:
