@@ -35,6 +35,13 @@ get_env_config() {
             export LOG_LEVEL="DEBUG"
             export LAMBDA_TIMEOUT="30"
             export LAMBDA_MEMORY="256"
+            
+            # Frontend Configuration
+            export FRONTEND_DOMAIN_NAME=""
+            export FRONTEND_HOSTED_ZONE_ID=""
+            export FRONTEND_ACM_CERTIFICATE_ARN=""
+            export ENABLE_CUSTOM_DOMAIN="false"
+            export ENABLE_FRONTEND_WEBSITE="true"
             ;;
         production)
             # Production Environment Configuration
@@ -47,6 +54,13 @@ get_env_config() {
             export LOG_LEVEL="INFO"
             export LAMBDA_TIMEOUT="60"
             export LAMBDA_MEMORY="512"
+            
+            # Frontend Configuration
+            export FRONTEND_DOMAIN_NAME=""
+            export FRONTEND_HOSTED_ZONE_ID=""
+            export FRONTEND_ACM_CERTIFICATE_ARN=""
+            export ENABLE_CUSTOM_DOMAIN="false"
+            export ENABLE_FRONTEND_WEBSITE="true"
             ;;
         *)
             echo "Error: Invalid environment '$env'"
@@ -107,6 +121,11 @@ show_env_config() {
     echo "  ItemPrices:            $ITEM_PRICES_TABLE"
     echo "  Inquiries:             $INQUIRIES_TABLE"
     echo "  Payments:              $PAYMENTS_TABLE"
+    echo ""
+    echo "Frontend Configuration:"
+    echo "  Domain Name:           $FRONTEND_DOMAIN_NAME"
+    echo "  Custom Domain:         $ENABLE_CUSTOM_DOMAIN"
+    echo "  Enable Website:        $ENABLE_FRONTEND_WEBSITE"
     echo "=========================================="
 }
 

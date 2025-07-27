@@ -14,6 +14,12 @@ env:
   STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
   STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
   SHARED_API_KEY: ${{ secrets.SHARED_API_KEY }}
+  # Frontend deployment settings for development
+  ENABLE_FRONTEND_WEBSITE: 'true'
+  ENABLE_CUSTOM_DOMAIN: 'false'
+  FRONTEND_DOMAIN_NAME: ''
+  FRONTEND_HOSTED_ZONE_ID: ''
+  FRONTEND_ACM_CERTIFICATE_ARN: ''
 
 jobs:
   validate:

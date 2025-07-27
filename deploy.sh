@@ -167,6 +167,11 @@ deploy_stack() {
             CloudFormationBucket=$CLOUDFORMATION_BUCKET \
             StripeSecretKey=$STRIPE_SECRET_KEY \
             StripeWebhookSecret=$STRIPE_WEBHOOK_SECRET \
+            EnableFrontendWebsite=$ENABLE_FRONTEND_WEBSITE \
+            FrontendDomainName="$FRONTEND_DOMAIN_NAME" \
+            FrontendHostedZoneId="$FRONTEND_HOSTED_ZONE_ID" \
+            FrontendAcmCertificateArn="$FRONTEND_ACM_CERTIFICATE_ARN" \
+            EnableCustomDomain=$ENABLE_CUSTOM_DOMAIN \
         --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
         --region $AWS_REGION
     

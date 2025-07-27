@@ -27,6 +27,37 @@ Parameters:
     NoEcho: true
     Description: Stripe webhook endpoint secret for signature verification
 
+  # Frontend Website Parameters
+  EnableFrontendWebsite:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'true'
+    Description: Whether to deploy the frontend website
+
+  FrontendDomainName:
+    Type: String
+    Description: The full domain name for the frontend website (leave empty for development)
+    Default: ''
+
+  FrontendHostedZoneId:
+    Type: String
+    Description: The ID of the Route53 hosted zone for frontend domain (leave empty to skip Route53)
+    Default: ''
+
+  FrontendAcmCertificateArn:
+    Type: String
+    Description: ARN of the ACM certificate in us-east-1 for frontend domain (leave empty for development)
+    Default: ''
+
+  EnableCustomDomain:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+    Description: Whether to enable custom domain for frontend
+
+Conditions:
+  ShouldDeployFrontend: !Equals [!Ref EnableFrontendWebsite, 'true']
+
 Resources:
   # DynamoDB Tables
   DynamoDBStack:
@@ -111,7 +142,7 @@ Resources:
         WsPingArn: !GetAtt LambdaStack.Outputs.WsPingArn
         WsStaffInitArn: !GetAtt LambdaStack.Outputs.WsStaffInitArn
 
-  # S3 and CloudFront
+  # S3 and CloudFront for Reports
   S3CloudFrontStack:
     Type: AWS::CloudFormation::Stack
     Properties:
@@ -119,6 +150,19 @@ Resources:
       Parameters:
         Environment: !Ref Environment
         S3BucketName: !Ref S3BucketName
+
+  # Frontend Website Stack
+  FrontendWebsiteStack:
+    Type: AWS::CloudFormation::Stack
+    Condition: ShouldDeployFrontend
+    Properties:
+      TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/frontend-website.yaml'
+      Parameters:
+        Environment: !Ref Environment
+        DomainName: !Ref FrontendDomainName
+        HostedZoneId: !Ref FrontendHostedZoneId
+        AcmCertificateArn: !Ref FrontendAcmCertificateArn
+        EnableCustomDomain: !Ref EnableCustomDomain
 
 Outputs:
   RestApiId:
@@ -156,3 +200,32 @@ Outputs:
     Value: !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName
     Export:
       Name: !Sub '${AWS::StackName}-CloudFrontDomainName'
+
+  # Frontend Website Outputs
+  FrontendWebsiteURL:
+    Condition: ShouldDeployFrontend
+    Description: Frontend Website URL
+    Value: !GetAtt FrontendWebsiteStack.Outputs.WebsiteURL
+    Export:
+      Name: !Sub '${AWS::StackName}-FrontendWebsiteURL'
+
+  FrontendBucketName:
+    Condition: ShouldDeployFrontend
+    Description: Frontend S3 Bucket Name
+    Value: !GetAtt FrontendWebsiteStack.Outputs.WebsiteBucketName
+    Export:
+      Name: !Sub '${AWS::StackName}-FrontendBucketName'
+
+  FrontendCloudFrontDistributionId:
+    Condition: ShouldDeployFrontend
+    Description: Frontend CloudFront Distribution ID
+    Value: !GetAtt FrontendWebsiteStack.Outputs.CloudFrontDistributionId
+    Export:
+      Name: !Sub '${AWS::StackName}-FrontendCloudFrontDistributionId'
+
+  FrontendCloudFrontDomainName:
+    Condition: ShouldDeployFrontend
+    Description: Frontend CloudFront Domain Name
+    Value: !GetAtt FrontendWebsiteStack.Outputs.CloudFrontDomainName
+    Export:
+      Name: !Sub '${AWS::StackName}-FrontendCloudFrontDomainName'

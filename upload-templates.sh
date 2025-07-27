@@ -44,6 +44,7 @@ upload_templates() {
     aws s3 cp infrastructure/api-gateway.yaml s3://$CLOUDFORMATION_BUCKET/api-gateway.yaml --region $AWS_REGION
     aws s3 cp infrastructure/websocket-api.yaml s3://$CLOUDFORMATION_BUCKET/websocket-api.yaml --region $AWS_REGION
     aws s3 cp infrastructure/s3-cloudfront.yaml s3://$CLOUDFORMATION_BUCKET/s3-cloudfront.yaml --region $AWS_REGION
+    aws s3 cp infrastructure/frontend-website.yaml s3://$CLOUDFORMATION_BUCKET/frontend-website.yaml --region $AWS_REGION
     
     print_success "All CloudFormation templates uploaded successfully!"
 }

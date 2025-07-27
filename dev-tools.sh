@@ -289,10 +289,24 @@ show_endpoints() {
         --output text \
         --region $AWS_REGION 2>/dev/null || echo "NOT_FOUND")
     
-    # Get CloudFront domain
+    # Get CloudFront domain for reports
     local cf_domain=$(aws cloudformation describe-stacks \
         --stack-name "$STACK_NAME" \
         --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDomainName`].OutputValue' \
+        --output text \
+        --region $AWS_REGION 2>/dev/null || echo "NOT_FOUND")
+    
+    # Get Frontend Website URL
+    local frontend_url=$(aws cloudformation describe-stacks \
+        --stack-name "$STACK_NAME" \
+        --query 'Stacks[0].Outputs[?OutputKey==`FrontendWebsiteURL`].OutputValue' \
+        --output text \
+        --region $AWS_REGION 2>/dev/null || echo "NOT_FOUND")
+    
+    # Get Frontend CloudFront domain
+    local frontend_cf_domain=$(aws cloudformation describe-stacks \
+        --stack-name "$STACK_NAME" \
+        --query 'Stacks[0].Outputs[?OutputKey==`FrontendCloudFrontDomainName`].OutputValue' \
         --output text \
         --region $AWS_REGION 2>/dev/null || echo "NOT_FOUND")
     
@@ -300,7 +314,13 @@ show_endpoints() {
     print_success "API Endpoints:"
     echo "  🌐 REST API: $rest_endpoint"
     echo "  🔌 WebSocket API: $ws_endpoint"
-    echo "  📁 CloudFront CDN: https://$cf_domain"
+    echo "  📁 Reports CDN: https://$cf_domain"
+    echo ""
+    
+    print_success "Frontend Website:"
+    echo "  🏠 Website URL: $frontend_url"
+    echo "  📦 CloudFront: https://$frontend_cf_domain"
+    echo "  📊 Status: $([ "$frontend_url" != "NOT_FOUND" ] && echo "✅ Deployed" || echo "❌ Not Deployed")"
     echo ""
     
     print_status "Sample API calls:"
