@@ -71,7 +71,6 @@ Resources:
             "body": $input.body
           }
       TemplateSelectionExpression: Template1
-      IntegrationResponseSelectionExpression: ${integration.response.body.errorMessage}
 
   PingIntegration:
     Type: AWS::ApiGatewayV2::Integration
@@ -93,7 +92,6 @@ Resources:
             "body": $input.body
           }
       TemplateSelectionExpression: Template1
-      IntegrationResponseSelectionExpression: ${integration.response.body.errorMessage}
 
   StaffInitIntegration:
     Type: AWS::ApiGatewayV2::Integration
@@ -114,7 +112,6 @@ Resources:
             "body": $input.body
           }
       TemplateSelectionExpression: Template1
-      IntegrationResponseSelectionExpression: ${integration.response.body.errorMessage}
 
   # Integration Responses for non-proxy integrations
   InitIntegrationResponse:
