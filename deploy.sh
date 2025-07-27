@@ -191,18 +191,6 @@ configure_api_gateway() {
     print_status "REST API ID: $REST_API_ID"
     print_status "WebSocket API ID: $WEBSOCKET_API_ID"
     
-    # Deploy REST API
-    aws apigateway create-deployment \
-        --rest-api-id $REST_API_ID \
-        --stage-name production \
-        --region $AWS_REGION
-    
-    # Deploy WebSocket API
-    aws apigatewayv2 create-deployment \
-        --api-id $WEBSOCKET_API_ID \
-        --stage-name production \
-        --region $AWS_REGION
-    
     print_success "API Gateway configured successfully"
 }
 

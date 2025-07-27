@@ -878,6 +878,17 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/authorizers/${StaffAuthorizerOptional}'
 
+  # API Gateway Stage
+  ApiStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      RestApiId: !Ref RestApi
+      DeploymentId: !Ref ApiDeployment
+      StageName: !Ref Environment
+      Description: !Sub 'API Gateway stage for ${Environment}'
+      Variables:
+        environment: !Ref Environment
+
   # Deployment
   ApiDeployment:
     Type: AWS::ApiGateway::Deployment
@@ -909,7 +920,6 @@ Resources:
       - ConfirmPaymentSuccessMethod
     Properties:
       RestApiId: !Ref RestApi
-      StageName: !Ref Environment
 
 Outputs:
   RestApiId:
@@ -923,3 +933,9 @@ Outputs:
     Value: !Sub 'https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
     Export:
       Name: !Sub '${AWS::StackName}-RestApiEndpoint'
+
+  ApiStageArn:
+    Description: API Gateway Stage ARN
+    Value: !Sub 'arn:aws:apigateway:${AWS::Region}::/restapis/${RestApi}/stages/${Environment}'
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiStageArn'
