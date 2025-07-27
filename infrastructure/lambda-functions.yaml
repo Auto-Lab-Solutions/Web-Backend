@@ -244,8 +244,8 @@ Resources:
         Variables:
           STAFF_TABLE: !Ref StaffTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
@@ -264,8 +264,8 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
           USERS_TABLE: !Ref UsersTable
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
@@ -283,8 +283,8 @@ Resources:
         Variables:
           STAFF_TABLE: !Ref StaffTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
@@ -302,8 +302,8 @@ Resources:
         Variables:
           STAFF_TABLE: !Ref StaffTable
           UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
@@ -321,8 +321,8 @@ Resources:
         Variables:
           STAFF_TABLE: !Ref StaffTable
           UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
@@ -340,8 +340,8 @@ Resources:
         Variables:
           STAFF_TABLE: !Ref StaffTable
           ORDERS_TABLE: !Ref OrdersTable
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
@@ -360,8 +360,8 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           ORDERS_TABLE: !Ref OrdersTable
           USERS_TABLE: !Ref UsersTable
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
@@ -379,8 +379,8 @@ Resources:
         Variables:
           STAFF_TABLE: !Ref StaffTable
           ORDERS_TABLE: !Ref OrdersTable
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
@@ -404,8 +404,8 @@ Resources:
           PAYMENTS_TABLE: !Ref PaymentsTable
           STRIPE_SECRET_KEY: !Ref StripeSecretKey
           API_GATEWAY_URL: !Sub "${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
@@ -427,15 +427,15 @@ Resources:
           ORDERS_TABLE: !Ref OrdersTable
           PAYMENTS_TABLE: !Ref PaymentsTable
           STRIPE_SECRET_KEY: !Ref StripeSecretKey
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
   ApiConfirmPaymentSuccess:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub 'api-confirm-payment-${Environment}'-success
+      FunctionName: !Sub 'api-confirm-payment-success-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -450,8 +450,8 @@ Resources:
           ORDERS_TABLE: !Ref OrdersTable
           PAYMENTS_TABLE: !Ref PaymentsTable
           STRIPE_SECRET_KEY: !Ref StripeSecretKey
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
@@ -475,8 +475,8 @@ Resources:
           PAYMENTS_TABLE: !Ref PaymentsTable
           STRIPE_SECRET_KEY: !Ref StripeSecretKey
           STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
@@ -494,8 +494,8 @@ Resources:
         Variables:
           STAFF_TABLE: !Ref StaffTable
           INQUIRIES_TABLE: !Ref InquiriesTable
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
@@ -514,8 +514,8 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           INQUIRIES_TABLE: !Ref InquiriesTable
           USERS_TABLE: !Ref UsersTable
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
@@ -532,8 +532,8 @@ Resources:
       Environment:
         Variables:
           STAFF_TABLE: !Ref StaffTable
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
@@ -553,8 +553,8 @@ Resources:
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
           ORDERS_TABLE: !Ref OrdersTable
           INQUIRIES_TABLE: !Ref InquiriesTable
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
@@ -571,8 +571,8 @@ Resources:
       Environment:
         Variables:
           STAFF_TABLE: !Ref StaffTable
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
@@ -590,8 +590,8 @@ Resources:
         Variables:
           STAFF_TABLE: !Ref StaffTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
@@ -610,8 +610,8 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           USERS_TABLE: !Ref UsersTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
@@ -629,8 +629,8 @@ Resources:
         Variables:
           STAFF_TABLE: !Ref StaffTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
@@ -648,8 +648,8 @@ Resources:
         Variables:
           STAFF_TABLE: !Ref StaffTable
           MESSAGES_TABLE: !Ref MessagesTable
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
@@ -667,8 +667,8 @@ Resources:
         Variables:
           STAFF_TABLE: !Ref StaffTable
           MESSAGES_TABLE: !Ref MessagesTable
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
@@ -687,8 +687,8 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           MESSAGES_TABLE: !Ref MessagesTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
@@ -706,8 +706,8 @@ Resources:
       Environment:
         Variables:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
@@ -724,8 +724,8 @@ Resources:
       Environment:
         Variables:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
@@ -743,8 +743,8 @@ Resources:
         Variables:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           USERS_TABLE: !Ref UsersTable
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
@@ -761,8 +761,8 @@ Resources:
       Environment:
         Variables:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
@@ -780,8 +780,8 @@ Resources:
         Variables:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           STAFF_TABLE: !Ref StaffTable
-      Tags:
           ENVIRONMENT: !Ref Environment
+      Tags:
         - Key: Environment
           Value: !Ref Environment
 
