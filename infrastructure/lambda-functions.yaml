@@ -65,6 +65,19 @@ Parameters:
     NoEcho: true
     Description: Stripe webhook endpoint secret for signature verification
 
+  WebSocketApi:
+    Type: String
+    Description: WebSocket API ID for connections
+    Default: ""
+
+  Stage:
+    Type: String
+    Description: API Gateway stage name
+    Default: "prod"
+
+Conditions:
+  IsProduction: !Equals [!Ref Environment, 'production']
+
 Resources:
   # Lambda Execution Role
   LambdaExecutionRole:
@@ -162,7 +175,7 @@ Resources:
   StaffAuthorizerOptional:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: staff-authorizer-optional
+      FunctionName: !Sub 'staff-authorizer-optional-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -172,6 +185,7 @@ Resources:
       Environment:
         Variables:
           STAFF_TABLE: !Ref StaffTable
+          ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -180,7 +194,7 @@ Resources:
   ApiGetPrices:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-get-prices
+      FunctionName: !Sub 'api-get-prices-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -192,6 +206,7 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           ITEM_PRICES_TABLE: !Ref ItemPricesTable
           SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -199,7 +214,7 @@ Resources:
   ApiGetUsers:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-get-users
+      FunctionName: !Sub 'api-get-users-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -210,6 +225,7 @@ Resources:
         Variables:
           STAFF_TABLE: !Ref StaffTable
           USERS_TABLE: !Ref UsersTable
+          ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -217,7 +233,7 @@ Resources:
   ApiGetAppointments:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-get-appointments
+      FunctionName: !Sub 'api-get-appointments-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -229,13 +245,14 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
   ApiCreateAppointment:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-create-appointment
+      FunctionName: !Sub 'api-create-appointment-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -248,13 +265,14 @@ Resources:
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
           USERS_TABLE: !Ref UsersTable
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
   ApiUpdateAppointment:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-update-appointment
+      FunctionName: !Sub 'api-update-appointment-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -266,13 +284,14 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
   ApiGetUnavailableSlots:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-get-unavailable-slots
+      FunctionName: !Sub 'api-get-unavailable-slots-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -284,13 +303,14 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
   ApiUpdateUnavailableSlots:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-update-unavailable-slots
+      FunctionName: !Sub 'api-update-unavailable-slots-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -302,13 +322,14 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
   ApiGetOrders:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-get-orders
+      FunctionName: !Sub 'api-get-orders-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -320,13 +341,14 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           ORDERS_TABLE: !Ref OrdersTable
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
   ApiCreateOrder:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-create-order
+      FunctionName: !Sub 'api-create-order-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -339,13 +361,14 @@ Resources:
           ORDERS_TABLE: !Ref OrdersTable
           USERS_TABLE: !Ref UsersTable
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
   ApiUpdateOrder:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-update-order
+      FunctionName: !Sub 'api-update-order-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -357,13 +380,14 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           ORDERS_TABLE: !Ref OrdersTable
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
   ApiConfirmPayment:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-confirm-payment
+      FunctionName: !Sub 'api-confirm-payment-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -381,13 +405,14 @@ Resources:
           STRIPE_SECRET_KEY: !Ref StripeSecretKey
           API_GATEWAY_URL: !Sub "${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
   ApiCreatePaymentIntent:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-create-payment-intent
+      FunctionName: !Sub 'api-create-payment-intent-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -403,13 +428,14 @@ Resources:
           PAYMENTS_TABLE: !Ref PaymentsTable
           STRIPE_SECRET_KEY: !Ref StripeSecretKey
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
   ApiConfirmPaymentSuccess:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-confirm-payment-success
+      FunctionName: !Sub 'api-confirm-payment-${Environment}'-success
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -425,13 +451,14 @@ Resources:
           PAYMENTS_TABLE: !Ref PaymentsTable
           STRIPE_SECRET_KEY: !Ref StripeSecretKey
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
   WebhookStripePayment:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: webhook-stripe-payment
+      FunctionName: !Sub 'webhook-stripe-payment-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -449,13 +476,14 @@ Resources:
           STRIPE_SECRET_KEY: !Ref StripeSecretKey
           STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
   ApiGetInquiries:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-get-inquiries
+      FunctionName: !Sub 'api-get-inquiries-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -467,13 +495,14 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           INQUIRIES_TABLE: !Ref InquiriesTable
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
   ApiCreateInquiry:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-create-inquiry
+      FunctionName: !Sub 'api-create-inquiry-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -486,13 +515,14 @@ Resources:
           INQUIRIES_TABLE: !Ref InquiriesTable
           USERS_TABLE: !Ref UsersTable
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
   ApiGetReportUploadUrl:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-get-report-upload-url
+      FunctionName: !Sub 'api-get-report-upload-url-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -503,13 +533,14 @@ Resources:
         Variables:
           STAFF_TABLE: !Ref StaffTable
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
   ApiGetAnalytics:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-get-analytics
+      FunctionName: !Sub 'api-get-analytics-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -523,13 +554,14 @@ Resources:
           ORDERS_TABLE: !Ref OrdersTable
           INQUIRIES_TABLE: !Ref InquiriesTable
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
   ApiGetStaffRoles:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-get-staff-roles
+      FunctionName: !Sub 'api-get-staff-roles-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -540,13 +572,14 @@ Resources:
         Variables:
           STAFF_TABLE: !Ref StaffTable
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
   ApiNotify:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-notify
+      FunctionName: !Sub 'api-notify-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -558,13 +591,14 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
   ApiTakeUser:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-take-user
+      FunctionName: !Sub 'api-take-user-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -577,13 +611,14 @@ Resources:
           USERS_TABLE: !Ref UsersTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
   ApiGetConnections:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-get-connections
+      FunctionName: !Sub 'api-get-connections-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -595,13 +630,14 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
   ApiGetMessages:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-get-messages
+      FunctionName: !Sub 'api-get-messages-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -613,13 +649,14 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           MESSAGES_TABLE: !Ref MessagesTable
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
   ApiGetLastMessages:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-get-last-messages
+      FunctionName: !Sub 'api-get-last-messages-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -631,13 +668,14 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           MESSAGES_TABLE: !Ref MessagesTable
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
   ApiSendMessage:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-send-message
+      FunctionName: !Sub 'api-send-message-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -650,6 +688,7 @@ Resources:
           MESSAGES_TABLE: !Ref MessagesTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
@@ -657,7 +696,7 @@ Resources:
   WsConnect:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: ws-connect
+      FunctionName: !Sub 'ws-connect-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -668,13 +707,14 @@ Resources:
         Variables:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
   WsDisconnect:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: ws-disconnect
+      FunctionName: !Sub 'ws-disconnect-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -685,13 +725,14 @@ Resources:
         Variables:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
   WsInit:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: ws-init
+      FunctionName: !Sub 'ws-init-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -703,13 +744,14 @@ Resources:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           USERS_TABLE: !Ref UsersTable
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
   WsPing:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: ws-ping
+      FunctionName: !Sub 'ws-ping-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -720,13 +762,14 @@ Resources:
         Variables:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
   WsStaffInit:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: ws-staff-init
+      FunctionName: !Sub 'ws-staff-init-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -738,6 +781,7 @@ Resources:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           STAFF_TABLE: !Ref StaffTable
       Tags:
+          ENVIRONMENT: !Ref Environment
         - Key: Environment
           Value: !Ref Environment
 
