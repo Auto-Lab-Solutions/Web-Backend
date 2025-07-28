@@ -44,6 +44,8 @@ show_usage() {
     echo "Options:"
     echo "  --env, -e <env>     Specify environment (development/dev, production/prod)"
     echo "  --dry-run          Show what would be updated without making changes"
+    echo "  --verbose, -v      Show verbose output for debugging"
+    echo "  --list-functions   List expected Lambda functions and their status"
     echo "  --help, -h         Show this help message"
     echo ""
     echo "Arguments:"
@@ -74,6 +76,36 @@ lambda_exists() {
     aws lambda get-function --function-name "$function_name" --region $AWS_REGION >/dev/null 2>&1
 }
 
+# Function to check prerequisites
+check_prerequisites() {
+    local environment=$1
+    
+    print_status "Checking prerequisites..."
+    
+    # Check if jq is available
+    if ! command -v jq &> /dev/null; then
+        print_error "jq is required but not installed. Please install jq to continue."
+        return 1
+    fi
+    
+    # Check AWS credentials
+    if ! aws sts get-caller-identity &> /dev/null; then
+        print_error "AWS credentials not configured. Please run 'aws configure'."
+        return 1
+    fi
+    
+    # Check if CloudFormation stack exists
+    if ! aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region $AWS_REGION >/dev/null 2>&1; then
+        print_error "CloudFormation stack '$STACK_NAME' does not exist!"
+        print_error "Please deploy the infrastructure first using:"
+        print_error "  ./deploy.sh $environment"
+        return 1
+    fi
+    
+    print_success "Prerequisites check passed"
+    return 0
+}
+
 # Function to get current lambda environment variables
 get_lambda_env() {
     local function_name=$1
@@ -87,6 +119,7 @@ get_lambda_env() {
 # Function to update Lambda environment variables
 update_lambda_websocket_env() {
     local dry_run=$1
+    local verbose=${2:-false}
     
     print_status "Getting WebSocket API endpoint from CloudFormation stack..."
     
@@ -95,7 +128,15 @@ update_lambda_websocket_env() {
     
     if [[ -z "$websocket_endpoint" || "$websocket_endpoint" == "None" ]]; then
         print_error "WebSocket API endpoint not found in stack outputs!"
-        print_error "Make sure the WebSocket stack has been deployed successfully."
+        print_error "Available stack outputs:"
+        aws cloudformation describe-stacks \
+            --stack-name "$STACK_NAME" \
+            --query "Stacks[0].Outputs[].{Key:OutputKey,Value:OutputValue}" \
+            --output table \
+            --region $AWS_REGION 2>/dev/null || print_error "Could not retrieve stack outputs"
+        print_error ""
+        print_error "Make sure the WebSocket API has been deployed successfully."
+        print_error "Expected output key: 'WebSocketApiEndpoint'"
         return 1
     fi
     
@@ -134,21 +175,50 @@ update_lambda_websocket_env() {
             continue
         fi
         
+        if [[ "$verbose" == "true" ]]; then
+            print_status "Current environment variables for $func:"
+            echo "$current_env" | jq .
+        fi
+        
         # Update the environment variables JSON to include/update WEBSOCKET_ENDPOINT_URL
         local updated_env=$(echo "$current_env" | jq --arg endpoint "$websocket_endpoint" '. + {WEBSOCKET_ENDPOINT_URL: $endpoint}')
         
+        # Validate the JSON is properly formatted
+        if ! echo "$updated_env" | jq . > /dev/null 2>&1; then
+            print_error "Invalid JSON generated for $func environment variables"
+            print_error "Current env: $current_env"
+            print_error "Updated env: $updated_env"
+            ((error_count++))
+            continue
+        fi
+        
+        # Check if the environment variables are within AWS Lambda limits
+        local env_size=$(echo "$updated_env" | wc -c)
+        if [[ $env_size -gt 4096 ]]; then
+            print_error "Environment variables too large for $func ($env_size bytes, max 4096)"
+            ((error_count++))
+            continue
+        fi
+        
         if [[ "$dry_run" == "true" ]]; then
             print_status "[DRY RUN] Would update $func with WEBSOCKET_ENDPOINT_URL=$websocket_endpoint"
+            if [[ "$verbose" == "true" ]]; then
+                print_status "Updated environment variables would be:"
+                echo "$updated_env" | jq .
+            fi
         else
             # Update the Lambda function
-            if aws lambda update-function-configuration \
+            print_status "Updating environment variables for $func..."
+            local update_output
+            if update_output=$(aws lambda update-function-configuration \
                 --function-name "$func" \
                 --environment "Variables=$updated_env" \
-                --region $AWS_REGION > /dev/null 2>&1; then
+                --region $AWS_REGION 2>&1); then
                 print_success "Updated $func"
                 ((updated_count++))
             else
                 print_error "Failed to update $func"
+                print_error "AWS CLI Error: $update_output"
                 ((error_count++))
             fi
         fi
@@ -157,12 +227,17 @@ update_lambda_websocket_env() {
     echo ""
     if [[ "$dry_run" == "true" ]]; then
         print_status "Dry run completed. ${#websocket_functions[@]} functions would be processed."
+        print_status "To actually update the functions, run without --dry-run"
     else
         print_success "WebSocket endpoint update completed!"
+        print_status "Functions processed: ${#websocket_functions[@]}"
         print_status "Functions updated: $updated_count"
         if [[ $error_count -gt 0 ]]; then
             print_warning "Functions with errors: $error_count"
+            print_warning "Run with --verbose to see detailed error information"
+            return 1
         fi
+        print_status "All functions now have WEBSOCKET_ENDPOINT_URL=$websocket_endpoint"
     fi
 }
 
@@ -219,11 +294,37 @@ verify_websocket_endpoints() {
     return 0
 }
 
+# Function to list expected Lambda functions
+list_expected_functions() {
+    print_status "Expected Lambda functions for environment '$ENVIRONMENT':"
+    local websocket_functions=(
+        "api-notify-${ENVIRONMENT}"
+        "api-send-message-${ENVIRONMENT}"
+        "api-take-user-${ENVIRONMENT}"
+        "ws-connect-${ENVIRONMENT}"
+        "ws-disconnect-${ENVIRONMENT}"
+        "ws-init-${ENVIRONMENT}"
+        "ws-ping-${ENVIRONMENT}"
+        "ws-staff-init-${ENVIRONMENT}"
+    )
+    
+    for func in "${websocket_functions[@]}"; do
+        if lambda_exists "$func"; then
+            print_success "  ✓ $func (exists)"
+        else
+            print_error "  ✗ $func (missing)"
+        fi
+    done
+    echo ""
+}
+
 # Main function
 main() {
     local environment=""
     local dry_run=false
     local verify_only=false
+    local verbose=false
+    local list_functions=false
     
     # Parse command line arguments
     while [[ $# -gt 0 ]]; do
@@ -234,6 +335,14 @@ main() {
                 ;;
             --dry-run)
                 dry_run=true
+                shift
+                ;;
+            --verbose|-v)
+                verbose=true
+                shift
+                ;;
+            --list-functions)
+                list_functions=true
                 shift
                 ;;
             --verify)
@@ -272,22 +381,24 @@ main() {
     print_status "AWS Region: $AWS_REGION"
     echo ""
     
-    # Check if jq is available
-    if ! command -v jq &> /dev/null; then
-        print_error "jq is required but not installed. Please install jq to continue."
-        exit 1
+    if [[ "$list_functions" == "true" ]]; then
+        list_expected_functions
+        exit 0
     fi
     
-    # Check AWS credentials
-    if ! aws sts get-caller-identity &> /dev/null; then
-        print_error "AWS credentials not configured. Please run 'aws configure'."
+    # Check prerequisites
+    if ! check_prerequisites "$environment"; then
         exit 1
     fi
+    echo ""
+    
+    # List expected functions
+    list_expected_functions
     
     if [[ "$verify_only" == "true" ]]; then
         verify_websocket_endpoints
     else
-        update_lambda_websocket_env "$dry_run"
+        update_lambda_websocket_env "$dry_run" "$verbose"
     fi
 }
 
