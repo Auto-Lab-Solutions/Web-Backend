@@ -296,7 +296,7 @@ Resources:
           USERS_TABLE: !Ref UsersTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           SERVICE_PRICES_TABLE: !Ref ServicePricesTable
-          WEBSOCKET_ENDPOINT_URL: !Sub "${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+          WEBSOCKET_ENDPOINT_URL: !Sub "https://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
           ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
@@ -318,7 +318,7 @@ Resources:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
           SERVICE_PRICES_TABLE: !Ref ServicePricesTable
-          WEBSOCKET_ENDPOINT_URL: !Sub "${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+          WEBSOCKET_ENDPOINT_URL: !Sub "https://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
           ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
@@ -398,7 +398,7 @@ Resources:
           USERS_TABLE: !Ref UsersTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           ITEM_PRICES_TABLE: !Ref ItemPricesTable
-          WEBSOCKET_ENDPOINT_URL: !Sub "${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+          WEBSOCKET_ENDPOINT_URL: !Sub "https://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
           ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
@@ -420,7 +420,7 @@ Resources:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           ORDERS_TABLE: !Ref OrdersTable
           ITEM_PRICES_TABLE: !Ref ItemPricesTable
-          WEBSOCKET_ENDPOINT_URL: !Sub "${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+          WEBSOCKET_ENDPOINT_URL: !Sub "https://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
           ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
@@ -445,7 +445,7 @@ Resources:
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
           PAYMENTS_TABLE: !Ref PaymentsTable
           STRIPE_SECRET_KEY: !Ref StripeSecretKey
-          WEBSOCKET_ENDPOINT_URL: !Sub "${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+          WEBSOCKET_ENDPOINT_URL: !Sub "https://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
           ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
@@ -517,7 +517,7 @@ Resources:
           PAYMENTS_TABLE: !Ref PaymentsTable
           STRIPE_SECRET_KEY: !Ref StripeSecretKey
           STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
-          WEBSOCKET_ENDPOINT_URL: !Sub "${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+          WEBSOCKET_ENDPOINT_URL: !Sub "https://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
           ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
@@ -557,7 +557,7 @@ Resources:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           INQUIRIES_TABLE: !Ref InquiriesTable
           USERS_TABLE: !Ref UsersTable
-          WEBSOCKET_ENDPOINT_URL: !Sub "${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+          WEBSOCKET_ENDPOINT_URL: !Sub "https://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
           ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
@@ -642,7 +642,7 @@ Resources:
           USERS_TABLE: !Ref UsersTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           MESSAGES_TABLE: !Ref MessagesTable
-          WEBSOCKET_ENDPOINT_URL: !Sub "${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+          WEBSOCKET_ENDPOINT_URL: !Sub "https://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
           ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
@@ -663,7 +663,7 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           USERS_TABLE: !Ref UsersTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
-          WEBSOCKET_ENDPOINT_URL: !Sub "${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+          WEBSOCKET_ENDPOINT_URL: !Sub "https://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
           ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
@@ -743,7 +743,7 @@ Resources:
           USERS_TABLE: !Ref UsersTable
           MESSAGES_TABLE: !Ref MessagesTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
-          WEBSOCKET_ENDPOINT_URL: !Sub "${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+          WEBSOCKET_ENDPOINT_URL: !Sub "https://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
           ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
