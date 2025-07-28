@@ -46,6 +46,7 @@ show_usage() {
     echo "  --dry-run          Show what would be updated without making changes"
     echo "  --verbose, -v      Show verbose output for debugging"
     echo "  --list-functions   List expected Lambda functions and their status"
+    echo "  --test-json        Test JSON file approach for debugging"
     echo "  --help, -h         Show this help message"
     echo ""
     echo "Arguments:"
@@ -209,18 +210,36 @@ update_lambda_websocket_env() {
         else
             # Update the Lambda function
             print_status "Updating environment variables for $func..."
+            
+            # Write the JSON to a temporary file to avoid shell escaping issues
+            local temp_file=$(mktemp)
+            TEMP_FILES+=("$temp_file")
+            echo "$updated_env" > "$temp_file"
+            
+            if [[ "$verbose" == "true" ]]; then
+                print_status "Using temporary file: $temp_file"
+                print_status "File contents:"
+                cat "$temp_file"
+            fi
+            
             local update_output
             if update_output=$(aws lambda update-function-configuration \
                 --function-name "$func" \
-                --environment "Variables=$updated_env" \
+                --environment "Variables=file://$temp_file" \
                 --region $AWS_REGION 2>&1); then
                 print_success "Updated $func"
                 ((updated_count++))
             else
                 print_error "Failed to update $func"
                 print_error "AWS CLI Error: $update_output"
+                if [[ "$verbose" == "true" ]]; then
+                    print_error "Temp file contents were:"
+                    cat "$temp_file"
+                fi
                 ((error_count++))
             fi
+            
+            # Note: temp file will be cleaned up by trap on exit
         fi
     done
     
@@ -318,6 +337,44 @@ list_expected_functions() {
     echo ""
 }
 
+# Function to test JSON file approach (for debugging)
+test_json_approach() {
+    print_status "Testing JSON file approach..."
+    
+    # Create a sample environment variables JSON
+    local test_json='{"TEST_VAR": "test_value", "WEBSOCKET_ENDPOINT_URL": "wss://test.execute-api.region.amazonaws.com/stage"}'
+    
+    # Write to temporary file
+    local temp_file=$(mktemp)
+    TEMP_FILES+=("$temp_file")
+    echo "$test_json" > "$temp_file"
+    
+    print_status "Temporary file: $temp_file"
+    print_status "File contents:"
+    cat "$temp_file"
+    
+    print_status "Testing AWS CLI parameter parsing..."
+    # This would be the actual command structure (but we won't run it without a real function)
+    echo "aws lambda update-function-configuration --function-name test-function --environment \"Variables=file://$temp_file\""
+    
+    print_success "JSON file approach test completed"
+}
+
+# Array to track temporary files for cleanup
+declare -a TEMP_FILES=()
+
+# Function to cleanup temporary files
+cleanup_temp_files() {
+    for temp_file in "${TEMP_FILES[@]}"; do
+        if [[ -f "$temp_file" ]]; then
+            rm -f "$temp_file"
+        fi
+    done
+}
+
+# Set trap to cleanup on exit
+trap cleanup_temp_files EXIT
+
 # Main function
 main() {
     local environment=""
@@ -325,6 +382,7 @@ main() {
     local verify_only=false
     local verbose=false
     local list_functions=false
+    local test_json=false
     
     # Parse command line arguments
     while [[ $# -gt 0 ]]; do
@@ -343,6 +401,10 @@ main() {
                 ;;
             --list-functions)
                 list_functions=true
+                shift
+                ;;
+            --test-json)
+                test_json=true
                 shift
                 ;;
             --verify)
@@ -371,6 +433,11 @@ main() {
         esac
     done
     
+    if [[ "$test_json" == "true" ]]; then
+        test_json_approach
+        exit 0
+    fi
+    
     # Load environment configuration
     if ! load_environment "$environment"; then
         exit 1
@@ -383,6 +450,11 @@ main() {
     
     if [[ "$list_functions" == "true" ]]; then
         list_expected_functions
+        exit 0
+    fi
+    
+    if [[ "$test_json" == "true" ]]; then
+        test_json_approach
         exit 0
     fi
     
@@ -400,6 +472,9 @@ main() {
     else
         update_lambda_websocket_env "$dry_run" "$verbose"
     fi
+    
+    # Uncomment the following line to test the JSON file approach
+    # test_json_approach
 }
 
 # Check if script is being run directly
