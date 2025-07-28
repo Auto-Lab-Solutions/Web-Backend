@@ -193,7 +193,7 @@ update_lambda_websocket_env() {
         # Check if function exists
         if ! lambda_exists "$func"; then
             print_warning "Function $func does not exist, skipping..."
-            ((skipped_count++))
+            skipped_count=$((skipped_count + 1))
             continue
         fi
         
@@ -201,7 +201,7 @@ update_lambda_websocket_env() {
         local current_env=$(get_lambda_env "$func")
         if [[ "$current_env" == "{}" ]]; then
             print_warning "Could not retrieve environment variables for $func, skipping..."
-            ((skipped_count++))
+            skipped_count=$((skipped_count + 1))
             continue
         fi
         
@@ -221,7 +221,7 @@ update_lambda_websocket_env() {
             print_error "Invalid JSON generated for $func environment variables"
             print_error "Current env: $current_env"
             print_error "Updated env: $updated_env"
-            ((error_count++))
+            error_count=$((error_count + 1))
             continue
         fi
         
@@ -233,7 +233,7 @@ update_lambda_websocket_env() {
         
         if [[ $compact_exit_code -ne 0 ]]; then
             print_error "Failed to compact JSON for $func environment variables"
-            ((error_count++))
+            error_count=$((error_count + 1))
             continue
         fi
         
@@ -242,7 +242,7 @@ update_lambda_websocket_env() {
         local env_size=$(echo "$complete_env_structure" | wc -c)
         if [[ $env_size -gt 4096 ]]; then
             print_error "Environment variables too large for $func ($env_size bytes, max 4096)"
-            ((error_count++))
+            error_count=$((error_count + 1))
             continue
         fi
         
@@ -284,7 +284,7 @@ update_lambda_websocket_env() {
             
             if [[ $aws_exit_code -eq 0 ]]; then
                 print_success "Updated $func"
-                ((updated_count++))
+                updated_count=$((updated_count + 1))
             else
                 print_error "Failed to update $func"
                 print_error "AWS CLI Error: $update_output"
@@ -292,7 +292,7 @@ update_lambda_websocket_env() {
                     print_error "Temp file contents were:"
                     cat "$temp_env_file"
                 fi
-                ((error_count++))
+                error_count=$((error_count + 1))
             fi
             
             # Clean up temporary file
@@ -366,12 +366,12 @@ verify_websocket_endpoints() {
             
             if [[ "$current_endpoint" == "$websocket_endpoint" ]]; then
                 print_success "$func: ✓ Correct endpoint"
-                ((verified_count++))
+                verified_count=$((verified_count + 1))
             else
                 print_error "$func: ✗ Endpoint mismatch"
                 print_error "  Expected: $websocket_endpoint"
                 print_error "  Current:  $current_endpoint"
-                ((mismatch_count++))
+                mismatch_count=$((mismatch_count + 1))
             fi
         fi
     done
@@ -508,11 +508,11 @@ test_success_scenario() {
         case $func in
             "api-notify-development"|"api-send-message-development")
                 print_success "Updated $func"
-                ((updated_count++))
+                updated_count=$((updated_count + 1))
                 ;;
             *)
                 print_warning "Function $func does not exist, skipping..."
-                ((skipped_count++))
+                skipped_count=$((skipped_count + 1))
                 ;;
         esac
     done
@@ -579,19 +579,19 @@ test_user_scenario() {
             "api-notify-development")
                 print_status "Updating environment variables for $func..."
                 print_success "Updated $func"
-                ((updated_count++))
+                updated_count=$((updated_count + 1))
                 ;;
             "api-send-message-development")
                 print_status "Updating environment variables for $func..."
                 # Simulate a potential failure on the second function
                 print_error "Failed to update $func"
                 print_error "AWS CLI Error: ResourceConflictException: The function could not be updated due to a concurrent update operation"
-                ((error_count++))
+                error_count=$((error_count + 1))
                 ;;
             *)
                 print_status "Updating environment variables for $func..."
                 print_success "Updated $func"
-                ((updated_count++))
+                updated_count=$((updated_count + 1))
                 ;;
         esac
         
