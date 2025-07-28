@@ -97,6 +97,14 @@ check_prerequisites() {
         exit 1
     fi
     
+    # Check Shared Key configuration
+    if [[ "$SHARED_KEY" == *"REPLACE_WITH_YOUR"* ]] || [[ -z "$SHARED_KEY" ]]; then
+        print_error "Shared Key not configured."
+        print_error "For development: export SHARED_KEY_DEV='your_dev_shared_key'"
+        print_error "For production: export SHARED_KEY_PROD='your_prod_shared_key'"
+        exit 1
+    fi
+    
     print_success "Prerequisites check passed"
 }
 
@@ -167,6 +175,11 @@ deploy_stack() {
             CloudFormationBucket=$CLOUDFORMATION_BUCKET \
             StripeSecretKey=$STRIPE_SECRET_KEY \
             StripeWebhookSecret=$STRIPE_WEBHOOK_SECRET \
+            Auth0Domain=$AUTH0_DOMAIN \
+            Auth0Audience=$AUTH0_AUDIENCE \
+            CloudFrontDomain="$CLOUDFRONT_DOMAIN" \
+            ReportsBucketName=$REPORTS_BUCKET_NAME \
+            SharedKey=$SHARED_KEY \
             EnableFrontendWebsite=$ENABLE_FRONTEND_WEBSITE \
             FrontendDomainName="$FRONTEND_DOMAIN_NAME" \
             FrontendHostedZoneId="$FRONTEND_HOSTED_ZONE_ID" \

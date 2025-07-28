@@ -31,7 +31,8 @@ get_env_config() {
             export STACK_NAME="auto-lab-backend-dev"
             export S3_BUCKET_NAME="auto-lab-reports-dev"
             export CLOUDFORMATION_BUCKET="auto-lab-cloudformation-templates-dev"
-            export AUTH0_DOMAIN="auto-lab-dev.auth0.com"
+            export AUTH0_DOMAIN="dev-cjmbjafms4r74wr8.us.auth0.com"
+            export AUTH0_AUDIENCE="https://myapi.example.com"
             export LOG_LEVEL="DEBUG"
             export LAMBDA_TIMEOUT="30"
             export LAMBDA_MEMORY="256"
@@ -50,10 +51,11 @@ get_env_config() {
             export STACK_NAME="auto-lab-backend"
             export S3_BUCKET_NAME="auto-lab-reports"
             export CLOUDFORMATION_BUCKET="auto-lab-cloudformation-templates"
-            export AUTH0_DOMAIN="auto-lab.auth0.com"
+            export AUTH0_DOMAIN="dev-cjmbjafms4r74wr8.us.auth0.com"
+            export AUTH0_AUDIENCE="https://myapi.example.com"
             export LOG_LEVEL="INFO"
-            export LAMBDA_TIMEOUT="60"
-            export LAMBDA_MEMORY="512"
+            export LAMBDA_TIMEOUT="30"
+            export LAMBDA_MEMORY="256"
             
             # Frontend Configuration
             export FRONTEND_DOMAIN_NAME=""
@@ -86,6 +88,22 @@ get_env_config() {
     export INQUIRIES_TABLE="Inquiries-${ENVIRONMENT}"
     export PAYMENTS_TABLE="Payments-${ENVIRONMENT}"
     
+    # Additional configuration values
+    export CLOUDFRONT_DOMAIN="${CLOUDFRONT_DOMAIN:-}"
+    export REPORTS_BUCKET_NAME="$S3_BUCKET_NAME"
+    
+    # Load environment-specific secrets from environment variables
+    # Stripe Configuration
+    if [ "$ENVIRONMENT" = "development" ]; then
+        export STRIPE_SECRET_KEY="${STRIPE_SECRET_KEY_DEV:-}"
+        export STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK_SECRET_DEV:-}"
+        export SHARED_KEY="${SHARED_KEY_DEV:-}"
+    else
+        export STRIPE_SECRET_KEY="${STRIPE_SECRET_KEY_PROD:-}"
+        export STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK_SECRET_PROD:-}"
+        export SHARED_KEY="${SHARED_KEY_PROD:-}"
+    fi
+    
     return 0
 }
 
@@ -105,6 +123,7 @@ show_env_config() {
     echo "S3 Bucket:               $S3_BUCKET_NAME"
     echo "CloudFormation Bucket:   $CLOUDFORMATION_BUCKET"
     echo "Auth0 Domain:            $AUTH0_DOMAIN"
+    echo "Auth0 Audience:          $AUTH0_AUDIENCE"
     echo "Log Level:               $LOG_LEVEL"
     echo "Lambda Timeout:          ${LAMBDA_TIMEOUT}s"
     echo "Lambda Memory:           ${LAMBDA_MEMORY}MB"
@@ -121,6 +140,10 @@ show_env_config() {
     echo "  ItemPrices:            $ITEM_PRICES_TABLE"
     echo "  Inquiries:             $INQUIRIES_TABLE"
     echo "  Payments:              $PAYMENTS_TABLE"
+    echo ""
+    echo "Additional Configuration:"
+    echo "  CloudFront Domain:     $CLOUDFRONT_DOMAIN"
+    echo "  Reports Bucket:        $REPORTS_BUCKET_NAME"
     echo ""
     echo "Frontend Configuration:"
     echo "  Domain Name:           $FRONTEND_DOMAIN_NAME"

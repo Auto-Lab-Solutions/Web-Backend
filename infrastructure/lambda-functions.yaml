@@ -65,6 +65,30 @@ Parameters:
     NoEcho: true
     Description: Stripe webhook endpoint secret for signature verification
 
+  Auth0Domain:
+    Type: String
+    NoEcho: true
+    Description: Auth0 domain for token validation
+
+  Auth0Audience:
+    Type: String
+    NoEcho: true
+    Description: Auth0 API audience for token validation
+
+  CloudFrontDomain:
+    Type: String
+    Description: CloudFront domain for file access
+    Default: ""
+
+  ReportsBucketName:
+    Type: String
+    Description: S3 bucket name for storing reports
+
+  SharedKey:
+    Type: String
+    NoEcho: true
+    Description: Shared key for secure operations
+
   WebSocketApi:
     Type: String
     Description: WebSocket API ID for connections
@@ -162,9 +186,10 @@ Resources:
         S3Key: lambda/staff-authorizer.zip
       Environment:
         Variables:
-          STAFF_TABLE: !Ref StaffTable
           ENVIRONMENT: !Ref Environment
           LOG_LEVEL: !If [IsProduction, 'INFO', 'DEBUG']
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
       Timeout: !If [IsProduction, 60, 30]
       MemorySize: !If [IsProduction, 512, 256]
       Tags:
@@ -184,8 +209,9 @@ Resources:
         S3Key: lambda/staff-authorizer-optional.zip
       Environment:
         Variables:
-          STAFF_TABLE: !Ref StaffTable
           ENVIRONMENT: !Ref Environment
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -264,6 +290,9 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
           USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          WEBSOCKET_ENDPOINT_URL: !Sub "${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
           ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
@@ -282,7 +311,9 @@ Resources:
       Environment:
         Variables:
           STAFF_TABLE: !Ref StaffTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
           ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
@@ -300,7 +331,7 @@ Resources:
         S3Key: lambda/api-get-unavailable-slots.zip
       Environment:
         Variables:
-          STAFF_TABLE: !Ref StaffTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
           UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
           ENVIRONMENT: !Ref Environment
       Tags:
@@ -360,6 +391,9 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           ORDERS_TABLE: !Ref OrdersTable
           USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          WEBSOCKET_ENDPOINT_URL: !Sub "${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
           ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
@@ -378,7 +412,10 @@ Resources:
       Environment:
         Variables:
           STAFF_TABLE: !Ref StaffTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
           ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          WEBSOCKET_ENDPOINT_URL: !Sub "${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
           ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
@@ -403,7 +440,7 @@ Resources:
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
           PAYMENTS_TABLE: !Ref PaymentsTable
           STRIPE_SECRET_KEY: !Ref StripeSecretKey
-          API_GATEWAY_URL: !Sub "${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+          WEBSOCKET_ENDPOINT_URL: !Sub "${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
           ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
@@ -511,7 +548,7 @@ Resources:
         S3Key: lambda/api-create-inquiry.zip
       Environment:
         Variables:
-          STAFF_TABLE: !Ref StaffTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
           INQUIRIES_TABLE: !Ref InquiriesTable
           USERS_TABLE: !Ref UsersTable
           ENVIRONMENT: !Ref Environment
@@ -531,7 +568,10 @@ Resources:
         S3Key: lambda/api-get-report-upload-url.zip
       Environment:
         Variables:
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
           STAFF_TABLE: !Ref StaffTable
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET_NAME: !Ref ReportsBucketName
           ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
@@ -552,7 +592,9 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
           ORDERS_TABLE: !Ref OrdersTable
-          INQUIRIES_TABLE: !Ref InquiriesTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          USERS_TABLE: !Ref UsersTable
           ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
@@ -571,6 +613,7 @@ Resources:
       Environment:
         Variables:
           STAFF_TABLE: !Ref StaffTable
+          SHARED_KEY: !Ref SharedKey
           ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
@@ -589,7 +632,10 @@ Resources:
       Environment:
         Variables:
           STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          WEBSOCKET_ENDPOINT_URL: !Sub "${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
           ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
@@ -610,6 +656,7 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           USERS_TABLE: !Ref UsersTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
+          WEBSOCKET_ENDPOINT_URL: !Sub "${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
           ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
@@ -648,6 +695,7 @@ Resources:
         Variables:
           STAFF_TABLE: !Ref StaffTable
           MESSAGES_TABLE: !Ref MessagesTable
+          USERS_TABLE: !Ref UsersTable
           ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
@@ -685,8 +733,10 @@ Resources:
       Environment:
         Variables:
           STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
           MESSAGES_TABLE: !Ref MessagesTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
+          WEBSOCKET_ENDPOINT_URL: !Sub "${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
           ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
@@ -724,6 +774,7 @@ Resources:
       Environment:
         Variables:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
+          USERS_TABLE: !Ref UsersTable
           ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
@@ -760,7 +811,6 @@ Resources:
         S3Key: lambda/ws-ping.zip
       Environment:
         Variables:
-          CONNECTIONS_TABLE: !Ref ConnectionsTable
           ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
@@ -778,6 +828,8 @@ Resources:
         S3Key: lambda/ws-staff-init.zip
       Environment:
         Variables:
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           STAFF_TABLE: !Ref StaffTable
           ENVIRONMENT: !Ref Environment
