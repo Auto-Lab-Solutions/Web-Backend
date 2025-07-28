@@ -49,6 +49,7 @@ show_usage() {
     echo "  --test-json        Test JSON approach for debugging"
     echo "  --test-flow        Test complete flow with mock data"
     echo "  --test-scenario    Test success/skip scenario for debugging"
+    echo "  --test-user        Test the exact scenario from user's log"
     echo "  --debug           Enable debug mode (set -x)"
     echo "  --help, -h         Show this help message"
     echo ""
@@ -67,17 +68,30 @@ get_stack_output() {
     local stack_name=$1
     local output_key=$2
     
-    aws cloudformation describe-stacks \
+    set +e
+    local result=$(aws cloudformation describe-stacks \
         --stack-name "$stack_name" \
         --query "Stacks[0].Outputs[?OutputKey=='$output_key'].OutputValue" \
         --output text \
-        --region $AWS_REGION 2>/dev/null || echo ""
+        --region $AWS_REGION 2>/dev/null)
+    local exit_code=$?
+    set -e
+    
+    if [[ $exit_code -eq 0 && -n "$result" && "$result" != "None" ]]; then
+        echo "$result"
+    else
+        echo ""
+    fi
 }
 
 # Function to check if lambda function exists
 lambda_exists() {
     local function_name=$1
+    set +e
     aws lambda get-function --function-name "$function_name" --region $AWS_REGION >/dev/null 2>&1
+    local result=$?
+    set -e
+    return $result
 }
 
 # Function to check prerequisites
@@ -113,11 +127,20 @@ check_prerequisites() {
 # Function to get current lambda environment variables
 get_lambda_env() {
     local function_name=$1
-    aws lambda get-function-configuration \
+    set +e
+    local result=$(aws lambda get-function-configuration \
         --function-name "$function_name" \
         --query 'Environment.Variables' \
         --output json \
-        --region $AWS_REGION 2>/dev/null || echo "{}"
+        --region $AWS_REGION 2>/dev/null)
+    local exit_code=$?
+    set -e
+    
+    if [[ $exit_code -eq 0 && -n "$result" ]]; then
+        echo "$result"
+    else
+        echo "{}"
+    fi
 }
 
 # Function to update Lambda environment variables
@@ -188,10 +211,13 @@ update_lambda_websocket_env() {
         fi
         
         # Update the environment variables JSON to include/update WEBSOCKET_ENDPOINT_URL
-        local updated_env=$(echo "$current_env" | jq --arg endpoint "$websocket_endpoint" '. + {WEBSOCKET_ENDPOINT_URL: $endpoint}')
+        set +e
+        local updated_env=$(echo "$current_env" | jq --arg endpoint "$websocket_endpoint" '. + {WEBSOCKET_ENDPOINT_URL: $endpoint}' 2>/dev/null)
+        local jq_exit_code=$?
+        set -e
         
         # Validate the JSON is properly formatted
-        if ! echo "$updated_env" | jq . > /dev/null 2>&1; then
+        if [[ $jq_exit_code -ne 0 ]] || ! echo "$updated_env" | jq . > /dev/null 2>&1; then
             print_error "Invalid JSON generated for $func environment variables"
             print_error "Current env: $current_env"
             print_error "Updated env: $updated_env"
@@ -200,7 +226,16 @@ update_lambda_websocket_env() {
         fi
         
         # Compact the JSON to minimize size and avoid formatting issues
-        updated_env=$(echo "$updated_env" | jq -c .)
+        set +e
+        updated_env=$(echo "$updated_env" | jq -c . 2>/dev/null)
+        local compact_exit_code=$?
+        set -e
+        
+        if [[ $compact_exit_code -ne 0 ]]; then
+            print_error "Failed to compact JSON for $func environment variables"
+            ((error_count++))
+            continue
+        fi
         
         # Check if the complete environment structure is within AWS Lambda limits
         local complete_env_structure="{\"Variables\": $updated_env}"
@@ -238,10 +273,16 @@ update_lambda_websocket_env() {
             fi
             
             local update_output
-            if update_output=$(aws lambda update-function-configuration \
+            # Temporarily disable set -e for this command to handle errors gracefully
+            set +e
+            update_output=$(aws lambda update-function-configuration \
                 --function-name "$func" \
                 --environment file://"$temp_env_file" \
-                --region $AWS_REGION 2>&1); then
+                --region $AWS_REGION 2>&1)
+            local aws_exit_code=$?
+            set -e
+            
+            if [[ $aws_exit_code -eq 0 ]]; then
                 print_success "Updated $func"
                 ((updated_count++))
             else
@@ -256,6 +297,9 @@ update_lambda_websocket_env() {
             
             # Clean up temporary file
             rm -f "$temp_env_file"
+            
+            # Add a small delay to avoid rate limiting and show progress
+            sleep 0.5
         fi
     done
     
@@ -503,6 +547,82 @@ test_success_scenario() {
     print_success "Success scenario test completed"
 }
 
+# Function to test the exact scenario from user's log (for debugging)
+test_user_scenario() {
+    print_status "Testing the exact scenario from user's log..."
+    
+    # Simulate the process that matches the user's log exactly
+    local websocket_endpoint="wss://ke0icoaw68.execute-api.ap-southeast-2.amazonaws.com/development"
+    local websocket_functions=(
+        "api-notify-development"
+        "api-send-message-development"
+        "api-take-user-development"
+        "ws-connect-development"
+        "ws-disconnect-development"
+        "ws-init-development"
+        "ws-ping-development"
+        "ws-staff-init-development"
+    )
+    
+    local updated_count=0
+    local error_count=0
+    local skipped_count=0
+    
+    print_status "WebSocket API Endpoint: $websocket_endpoint"
+    echo ""
+    
+    # Process each function as it would happen in the real scenario
+    for func in "${websocket_functions[@]}"; do
+        print_status "Processing $func..."
+        
+        case $func in
+            "api-notify-development")
+                print_status "Updating environment variables for $func..."
+                print_success "Updated $func"
+                ((updated_count++))
+                ;;
+            "api-send-message-development")
+                print_status "Updating environment variables for $func..."
+                # Simulate a potential failure on the second function
+                print_error "Failed to update $func"
+                print_error "AWS CLI Error: ResourceConflictException: The function could not be updated due to a concurrent update operation"
+                ((error_count++))
+                ;;
+            *)
+                print_status "Updating environment variables for $func..."
+                print_success "Updated $func"
+                ((updated_count++))
+                ;;
+        esac
+        
+        # Add small delay like the real script
+        sleep 0.1
+    done
+    
+    # Show the final summary
+    echo ""
+    print_success "WebSocket endpoint update completed!"
+    print_status "Functions processed: ${#websocket_functions[@]}"
+    print_status "Functions updated: $updated_count"
+    if [[ $skipped_count -gt 0 ]]; then
+        print_warning "Functions skipped: $skipped_count"
+    fi
+    if [[ $error_count -gt 0 ]]; then
+        print_warning "Functions with errors: $error_count"
+        print_warning "Run with --verbose to see detailed error information"
+        echo ""
+        print_error "Script completed with errors. Some functions may not have been updated."
+        print_status "This test would return exit code 1"
+        return 1
+    fi
+    
+    print_success "Successfully updated $updated_count function(s)!"
+    print_status "All functions now have WEBSOCKET_ENDPOINT_URL=$websocket_endpoint"
+    print_status "This test would return exit code 0"
+    
+    print_success "User scenario test completed"
+}
+
 # Main function
 main() {
     local environment=""
@@ -514,6 +634,7 @@ main() {
     local test_flow=false
     local test_scenario=false
     local debug_mode=false
+    local test_user=false
     
     # Parse command line arguments
     while [[ $# -gt 0 ]]; do
@@ -544,6 +665,10 @@ main() {
                 ;;
             --test-scenario)
                 test_scenario=true
+                shift
+                ;;
+            --test-user)
+                test_user=true
                 shift
                 ;;
             --debug)
@@ -588,6 +713,11 @@ main() {
     
     if [[ "$test_scenario" == "true" ]]; then
         test_success_scenario
+        exit 0
+    fi
+    
+    if [[ "$test_user" == "true" ]]; then
+        test_user_scenario
         exit 0
     fi
     
