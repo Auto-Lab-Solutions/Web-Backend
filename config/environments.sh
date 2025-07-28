@@ -31,8 +31,6 @@ get_env_config() {
             export STACK_NAME="auto-lab-backend-dev"
             export S3_BUCKET_NAME="auto-lab-reports-dev"
             export CLOUDFORMATION_BUCKET="auto-lab-cloudformation-templates-dev"
-            export AUTH0_DOMAIN="dev-cjmbjafms4r74wr8.us.auth0.com"
-            export AUTH0_AUDIENCE="https://myapi.example.com"
             export LOG_LEVEL="DEBUG"
             export LAMBDA_TIMEOUT="30"
             export LAMBDA_MEMORY="256"
@@ -51,8 +49,6 @@ get_env_config() {
             export STACK_NAME="auto-lab-backend"
             export S3_BUCKET_NAME="auto-lab-reports"
             export CLOUDFORMATION_BUCKET="auto-lab-cloudformation-templates"
-            export AUTH0_DOMAIN="dev-cjmbjafms4r74wr8.us.auth0.com"
-            export AUTH0_AUDIENCE="https://myapi.example.com"
             export LOG_LEVEL="INFO"
             export LAMBDA_TIMEOUT="30"
             export LAMBDA_MEMORY="256"
@@ -89,13 +85,16 @@ get_env_config() {
     export PAYMENTS_TABLE="Payments-${ENVIRONMENT}"
     
     # Additional configuration values
-    export CLOUDFRONT_DOMAIN="${CLOUDFRONT_DOMAIN:-}"
-    export REPORTS_BUCKET_NAME="$S3_BUCKET_NAME"
+    export REPORTS_BUCKET_NAME="${S3_BUCKET_NAME}"
+
+    # Auth0 configuration (if needed)
+    export AUTH0_DOMAIN="${AUTH0_DOMAIN}"
+    export AUTH0_AUDIENCE="${AUTH0_AUDIENCE}"
     
     # Load secrets from environment variables (GitHub environments will provide correct values)
-    export STRIPE_SECRET_KEY="${STRIPE_SECRET_KEY:-}"
-    export STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK_SECRET:-}"
-    export SHARED_KEY="${SHARED_KEY:-}"
+    export STRIPE_SECRET_KEY="${STRIPE_SECRET_KEY}"
+    export STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK_SECRET}"
+    export SHARED_KEY="${SHARED_KEY}"
     
     return 0
 }
@@ -135,7 +134,6 @@ show_env_config() {
     echo "  Payments:              $PAYMENTS_TABLE"
     echo ""
     echo "Additional Configuration:"
-    echo "  CloudFront Domain:     $CLOUDFRONT_DOMAIN"
     echo "  Reports Bucket:        $REPORTS_BUCKET_NAME"
     echo ""
     echo "Frontend Configuration:"

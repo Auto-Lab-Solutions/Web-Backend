@@ -174,7 +174,6 @@ deploy_stack() {
             StripeWebhookSecret=$STRIPE_WEBHOOK_SECRET \
             Auth0Domain=$AUTH0_DOMAIN \
             Auth0Audience=$AUTH0_AUDIENCE \
-            CloudFrontDomain="$CLOUDFRONT_DOMAIN" \
             ReportsBucketName=$REPORTS_BUCKET_NAME \
             SharedKey=$SHARED_KEY \
             EnableFrontendWebsite=$ENABLE_FRONTEND_WEBSITE \

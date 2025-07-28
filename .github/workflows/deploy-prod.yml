@@ -10,7 +10,8 @@ on:
 env:
   AWS_REGION: ap-southeast-2
   ENVIRONMENT: production
-  AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN }}
+  AUTH0_DOMAIN: ${{ vars.AUTH0_DOMAIN }}
+  AUTH0_AUDIENCE: ${{ vars.AUTH0_AUDIENCE }}
   STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
   STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
   SHARED_KEY: ${{ secrets.SHARED_KEY }}

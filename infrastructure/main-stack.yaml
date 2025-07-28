@@ -27,6 +27,29 @@ Parameters:
     NoEcho: true
     Description: Stripe webhook endpoint secret for signature verification
 
+  Auth0Domain:
+    Type: String
+    NoEcho: true
+    Description: Auth0 domain for authentication
+    Default: ""
+
+  Auth0Audience:
+    Type: String
+    NoEcho: true
+    Description: Auth0 API audience for token validation
+    Default: ""
+
+  ReportsBucketName:
+    Type: String
+    Description: S3 bucket name for storing reports
+    Default: ""
+
+  SharedKey:
+    Type: String
+    NoEcho: true
+    Description: Shared key for internal communication
+    Default: ""
+
   # Frontend Website Parameters
   EnableFrontendWebsite:
     Type: String
@@ -70,7 +93,9 @@ Resources:
   # Lambda Functions
   LambdaStack:
     Type: AWS::CloudFormation::Stack
-    DependsOn: DynamoDBStack
+    DependsOn: 
+      - DynamoDBStack
+      - S3CloudFrontStack
     Properties:
       TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/lambda-functions.yaml'
       Parameters:
@@ -89,8 +114,11 @@ Resources:
         PaymentsTable: !GetAtt DynamoDBStack.Outputs.PaymentsTable
         StripeSecretKey: !Ref StripeSecretKey
         StripeWebhookSecret: !Ref StripeWebhookSecret
-        StripeSecretKey: !Ref StripeSecretKey
-        StripeWebhookSecret: !Ref StripeWebhookSecret
+        Auth0Domain: !Ref Auth0Domain
+        Auth0Audience: !Ref Auth0Audience
+        CloudFrontDomain: !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName
+        ReportsBucketName: !Ref ReportsBucketName
+        SharedKey: !Ref SharedKey
 
   # API Gateway
   ApiGatewayStack:

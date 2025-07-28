@@ -43,6 +43,9 @@ def generate_unique_file_key(prefix, appointment_id, file_name):
 def generate_public_url(cloudfront_domain=None, file_key=None):
     """Generate public URL using CloudFront domain"""
     domain = cloudfront_domain or CLOUDFRONT_DOMAIN
+    if not domain:
+        # Fallback to S3 URL if CloudFront domain is not available
+        return f"https://{REPORTS_BUCKET_NAME}.s3.amazonaws.com/{file_key}"
     return f"https://{domain}/{file_key}"
 
 
