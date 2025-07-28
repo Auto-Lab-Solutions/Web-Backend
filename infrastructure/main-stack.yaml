@@ -117,7 +117,7 @@ Resources:
         Auth0Domain: !Ref Auth0Domain
         Auth0Audience: !Ref Auth0Audience
         CloudFrontDomain: !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName
-        ReportsBucketName: !Ref ReportsBucketName
+        ReportsBucketName: !Sub 'auto-lab-reports-${AWS::AccountId}-${Environment}'
         SharedKey: !Ref SharedKey
 
   # API Gateway

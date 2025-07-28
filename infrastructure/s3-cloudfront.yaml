@@ -9,14 +9,13 @@ Parameters:
 
   S3BucketName:
     Type: String
-    Default: auto-lab-reports
-    Description: S3 bucket name for reports
+    Description: S3 bucket name for reports (auto-generated, do not override)
 
 Resources:
   ReportsBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Ref S3BucketName
+      BucketName: !Sub '${S3BucketName}-${AWS::AccountId}-${Environment}'
       VersioningConfiguration:
         Status: Enabled
       CorsConfiguration:
@@ -39,7 +38,7 @@ Resources:
     Type: AWS::CloudFront::OriginAccessControl
     Properties:
       OriginAccessControlConfig:
-        Name: !Sub '${S3BucketName}-oac'
+        Name: !Sub '${S3BucketName}-${AWS::AccountId}-${Environment}-oac'
         OriginAccessControlOriginType: s3
         SigningBehavior: always
         SigningProtocol: sigv4
@@ -50,7 +49,7 @@ Resources:
     Properties:
       DistributionConfig:
         Enabled: true
-        Comment: !Sub 'CloudFront distribution for ${S3BucketName}'
+        Comment: !Sub 'CloudFront distribution for ${S3BucketName}-${AWS::AccountId}-${Environment}'
         HttpVersion: http2
         PriceClass: PriceClass_100
         DefaultCacheBehavior:
@@ -63,7 +62,7 @@ Resources:
           ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03
           Compress: true
         Origins:
-          - Id: !Sub '${S3BucketName}-origin'
+          - Id: !Sub '${S3BucketName}-${AWS::AccountId}-${Environment}-origin'
             DomainName: !GetAtt ReportsBucket.RegionalDomainName
             OriginAccessControlId: !Ref OriginAccessControl
             S3OriginConfig: {}
@@ -92,7 +91,7 @@ Resources:
 
 Outputs:
   ReportsBucketName:
-    Value: !Ref ReportsBucket
+    Value: !Sub '${S3BucketName}-${AWS::AccountId}-${Environment}'
     Export:
       Name: !Sub '${AWS::StackName}-ReportsBucketName'
 
