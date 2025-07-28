@@ -46,11 +46,6 @@ show_usage() {
     echo "  --dry-run          Show what would be updated without making changes"
     echo "  --verbose, -v      Show verbose output for debugging"
     echo "  --list-functions   List expected Lambda functions and their status"
-    echo "  --test-json        Test JSON approach for debugging"
-    echo "  --test-flow        Test complete flow with mock data"
-    echo "  --test-scenario    Test success/skip scenario for debugging"
-    echo "  --test-user        Test the exact scenario from user's log"
-    echo "  --debug           Enable debug mode (set -x)"
     echo "  --help, -h         Show this help message"
     echo ""
     echo "Arguments:"
@@ -167,7 +162,11 @@ update_lambda_websocket_env() {
         return 1
     fi
     
+    # Convert wss:// to https:// for WEBSOCKET_ENDPOINT_URL environment variable
+    local https_endpoint="${websocket_endpoint//wss:\/\//https:\/\/}"
+    
     print_status "WebSocket API Endpoint: $websocket_endpoint"
+    print_status "HTTPS Endpoint for environment variable: $https_endpoint"
     echo ""
     
     # Define all Lambda functions that need WebSocket endpoint
@@ -212,7 +211,7 @@ update_lambda_websocket_env() {
         
         # Update the environment variables JSON to include/update WEBSOCKET_ENDPOINT_URL
         set +e
-        local updated_env=$(echo "$current_env" | jq --arg endpoint "$websocket_endpoint" '. + {WEBSOCKET_ENDPOINT_URL: $endpoint}' 2>/dev/null)
+        local updated_env=$(echo "$current_env" | jq --arg endpoint "$https_endpoint" '. + {WEBSOCKET_ENDPOINT_URL: $endpoint}' 2>/dev/null)
         local jq_exit_code=$?
         set -e
         
@@ -247,7 +246,7 @@ update_lambda_websocket_env() {
         fi
         
         if [[ "$dry_run" == "true" ]]; then
-            print_status "[DRY RUN] Would update $func with WEBSOCKET_ENDPOINT_URL=$websocket_endpoint"
+            print_status "[DRY RUN] Would update $func with WEBSOCKET_ENDPOINT_URL=$https_endpoint"
             if [[ "$verbose" == "true" ]]; then
                 print_status "Updated environment variables would be:"
                 echo "$updated_env" | jq .
@@ -326,10 +325,10 @@ update_lambda_websocket_env() {
             print_warning "No functions were updated (all were skipped)."
             print_warning "This may indicate that the Lambda functions don't exist yet."
             echo ""
-            print_status "All functions now have WEBSOCKET_ENDPOINT_URL=$websocket_endpoint"
+            print_status "All functions now have WEBSOCKET_ENDPOINT_URL=$https_endpoint"
         else
             print_success "Successfully updated $updated_count function(s)!"
-            print_status "All functions now have WEBSOCKET_ENDPOINT_URL=$websocket_endpoint"
+            print_status "All functions now have WEBSOCKET_ENDPOINT_URL=$https_endpoint"
         fi
     fi
 }
@@ -344,6 +343,9 @@ verify_websocket_endpoints() {
         print_error "WebSocket API endpoint not found in stack outputs!"
         return 1
     fi
+    
+    # Convert wss:// to https:// for comparison with environment variables
+    local https_endpoint="${websocket_endpoint//wss:\/\//https:\/\/}"
     
     local websocket_functions=(
         "api-notify-${ENVIRONMENT}"
@@ -364,12 +366,12 @@ verify_websocket_endpoints() {
             local current_env=$(get_lambda_env "$func")
             local current_endpoint=$(echo "$current_env" | jq -r '.WEBSOCKET_ENDPOINT_URL // "NOT_SET"')
             
-            if [[ "$current_endpoint" == "$websocket_endpoint" ]]; then
+            if [[ "$current_endpoint" == "$https_endpoint" ]]; then
                 print_success "$func: ✓ Correct endpoint"
                 verified_count=$((verified_count + 1))
             else
                 print_error "$func: ✗ Endpoint mismatch"
-                print_error "  Expected: $websocket_endpoint"
+                print_error "  Expected: $https_endpoint"
                 print_error "  Current:  $current_endpoint"
                 mismatch_count=$((mismatch_count + 1))
             fi
@@ -411,218 +413,6 @@ list_expected_functions() {
     echo ""
 }
 
-# Function to test JSON approach (for debugging)
-test_json_approach() {
-    print_status "Testing JSON approach..."
-    
-    # Create a sample environment variables JSON
-    local test_json='{"TEST_VAR": "test_value", "WEBSOCKET_ENDPOINT_URL": "wss://test.execute-api.region.amazonaws.com/stage"}'
-    
-    print_status "Sample environment variables JSON:"
-    echo "$test_json" | jq .
-    
-    # Create the AWS Lambda environment structure
-    local env_structure="{\"Variables\": $test_json}"
-    print_status "AWS Lambda environment structure:"
-    echo "$env_structure" | jq .
-    
-    print_status "Testing AWS CLI parameter structure..."
-    # This would be the actual command structure
-    echo "aws lambda update-function-configuration --function-name test-function --environment file://temp-file"
-    
-    print_success "JSON approach test completed"
-}
-
-# Function to test the complete flow with mock data (for debugging)
-test_complete_flow() {
-    print_status "Testing complete flow with mock data..."
-    
-    # Mock environment variables that a Lambda function might have
-    local mock_current_env='{"DATABASE_URL": "some-database-url", "LOG_LEVEL": "INFO", "TIMEOUT": "30"}'
-    local mock_websocket_endpoint="wss://abc123.execute-api.ap-southeast-2.amazonaws.com/dev"
-    
-    print_status "Mock current environment variables:"
-    echo "$mock_current_env" | jq .
-    
-    print_status "Mock WebSocket endpoint: $mock_websocket_endpoint"
-    
-    # Simulate the update process
-    local updated_env=$(echo "$mock_current_env" | jq --arg endpoint "$mock_websocket_endpoint" '. + {WEBSOCKET_ENDPOINT_URL: $endpoint}')
-    
-    # Validate and compact
-    if echo "$updated_env" | jq . > /dev/null 2>&1; then
-        updated_env=$(echo "$updated_env" | jq -c .)
-        print_success "JSON validation passed"
-        print_status "Updated environment variables:"
-        echo "$updated_env" | jq .
-        
-        # Check size of complete structure
-        local env_structure="{\"Variables\": $updated_env}"
-        local env_size=$(echo "$env_structure" | wc -c)
-        print_status "Complete environment structure size: $env_size bytes (max 4096)"
-        
-        if [[ $env_size -le 4096 ]]; then
-            print_success "Size validation passed"
-            
-            # Show the complete AWS Lambda environment structure
-            print_status "Complete environment structure:"
-            echo "$env_structure" | jq .
-            
-            print_status "Would execute:"
-            echo "aws lambda update-function-configuration --function-name mock-function --environment file://temp-file"
-        else
-            print_error "Size validation failed"
-        fi
-    else
-        print_error "JSON validation failed"
-    fi
-    
-    print_success "Complete flow test completed"
-}
-
-# Function to test success/skip scenario (for debugging)
-test_success_scenario() {
-    print_status "Testing success with some skipped functions scenario..."
-    
-    # Simulate the process without actual AWS calls
-    local websocket_functions=(
-        "api-notify-development"
-        "api-send-message-development" 
-        "api-take-user-development"
-        "ws-connect-development"
-        "ws-disconnect-development"
-        "ws-init-development"
-        "ws-ping-development"
-        "ws-staff-init-development"
-    )
-    
-    local updated_count=0
-    local error_count=0
-    local skipped_count=0
-    
-    # Simulate processing each function
-    for func in "${websocket_functions[@]}"; do
-        print_status "Processing $func..."
-        
-        # Simulate different scenarios
-        case $func in
-            "api-notify-development"|"api-send-message-development")
-                print_success "Updated $func"
-                updated_count=$((updated_count + 1))
-                ;;
-            *)
-                print_warning "Function $func does not exist, skipping..."
-                skipped_count=$((skipped_count + 1))
-                ;;
-        esac
-    done
-    
-    # Show the same summary logic as the real function
-    echo ""
-    print_success "WebSocket endpoint update completed!"
-    print_status "Functions processed: ${#websocket_functions[@]}"
-    print_status "Functions updated: $updated_count"
-    if [[ $skipped_count -gt 0 ]]; then
-        print_warning "Functions skipped: $skipped_count"
-    fi
-    if [[ $error_count -gt 0 ]]; then
-        print_warning "Functions with errors: $error_count"
-        print_warning "Run with --verbose to see detailed error information"
-        echo ""
-        print_error "Script completed with errors. Some functions may not have been updated."
-        print_status "This test would return exit code 1"
-        return 1
-    fi
-    
-    if [[ $updated_count -eq 0 && $skipped_count -eq ${#websocket_functions[@]} ]]; then
-        print_warning "No functions were updated (all were skipped)."
-        print_warning "This may indicate that the Lambda functions don't exist yet."
-        echo ""
-        print_status "This test would return exit code 0"
-    else
-        print_success "Successfully updated $updated_count function(s)!"
-        print_status "This test would return exit code 0"
-    fi
-    
-    print_success "Success scenario test completed"
-}
-
-# Function to test the exact scenario from user's log (for debugging)
-test_user_scenario() {
-    print_status "Testing the exact scenario from user's log..."
-    
-    # Simulate the process that matches the user's log exactly
-    local websocket_endpoint="wss://ke0icoaw68.execute-api.ap-southeast-2.amazonaws.com/development"
-    local websocket_functions=(
-        "api-notify-development"
-        "api-send-message-development"
-        "api-take-user-development"
-        "ws-connect-development"
-        "ws-disconnect-development"
-        "ws-init-development"
-        "ws-ping-development"
-        "ws-staff-init-development"
-    )
-    
-    local updated_count=0
-    local error_count=0
-    local skipped_count=0
-    
-    print_status "WebSocket API Endpoint: $websocket_endpoint"
-    echo ""
-    
-    # Process each function as it would happen in the real scenario
-    for func in "${websocket_functions[@]}"; do
-        print_status "Processing $func..."
-        
-        case $func in
-            "api-notify-development")
-                print_status "Updating environment variables for $func..."
-                print_success "Updated $func"
-                updated_count=$((updated_count + 1))
-                ;;
-            "api-send-message-development")
-                print_status "Updating environment variables for $func..."
-                # Simulate a potential failure on the second function
-                print_error "Failed to update $func"
-                print_error "AWS CLI Error: ResourceConflictException: The function could not be updated due to a concurrent update operation"
-                error_count=$((error_count + 1))
-                ;;
-            *)
-                print_status "Updating environment variables for $func..."
-                print_success "Updated $func"
-                updated_count=$((updated_count + 1))
-                ;;
-        esac
-        
-        # Add small delay like the real script
-        sleep 0.1
-    done
-    
-    # Show the final summary
-    echo ""
-    print_success "WebSocket endpoint update completed!"
-    print_status "Functions processed: ${#websocket_functions[@]}"
-    print_status "Functions updated: $updated_count"
-    if [[ $skipped_count -gt 0 ]]; then
-        print_warning "Functions skipped: $skipped_count"
-    fi
-    if [[ $error_count -gt 0 ]]; then
-        print_warning "Functions with errors: $error_count"
-        print_warning "Run with --verbose to see detailed error information"
-        echo ""
-        print_error "Script completed with errors. Some functions may not have been updated."
-        print_status "This test would return exit code 1"
-        return 1
-    fi
-    
-    print_success "Successfully updated $updated_count function(s)!"
-    print_status "All functions now have WEBSOCKET_ENDPOINT_URL=$websocket_endpoint"
-    print_status "This test would return exit code 0"
-    
-    print_success "User scenario test completed"
-}
-
 # Main function
 main() {
     local environment=""
@@ -630,11 +420,6 @@ main() {
     local verify_only=false
     local verbose=false
     local list_functions=false
-    local test_json=false
-    local test_flow=false
-    local test_scenario=false
-    local debug_mode=false
-    local test_user=false
     
     # Parse command line arguments
     while [[ $# -gt 0 ]]; do
@@ -653,26 +438,6 @@ main() {
                 ;;
             --list-functions)
                 list_functions=true
-                shift
-                ;;
-            --test-json)
-                test_json=true
-                shift
-                ;;
-            --test-flow)
-                test_flow=true
-                shift
-                ;;
-            --test-scenario)
-                test_scenario=true
-                shift
-                ;;
-            --test-user)
-                test_user=true
-                shift
-                ;;
-            --debug)
-                debug_mode=true
                 shift
                 ;;
             --verify)
@@ -700,31 +465,6 @@ main() {
                 ;;
         esac
     done
-    
-    if [[ "$test_json" == "true" ]]; then
-        test_json_approach
-        exit 0
-    fi
-    
-    if [[ "$test_flow" == "true" ]]; then
-        test_complete_flow
-        exit 0
-    fi
-    
-    if [[ "$test_scenario" == "true" ]]; then
-        test_success_scenario
-        exit 0
-    fi
-    
-    if [[ "$test_user" == "true" ]]; then
-        test_user_scenario
-        exit 0
-    fi
-    
-    if [[ "$debug_mode" == "true" ]]; then
-        set -x
-        print_status "Debug mode enabled"
-    fi
     
     # Load environment configuration
     if ! load_environment "$environment"; then
@@ -755,9 +495,6 @@ main() {
     else
         update_lambda_websocket_env "$dry_run" "$verbose"
     fi
-    
-    # Uncomment the following line to test the JSON file approach
-    # test_json_approach
 }
 
 # Check if script is being run directly
