@@ -69,11 +69,13 @@ Parameters:
     Type: String
     NoEcho: true
     Description: Auth0 domain for token validation
+    Default: ""
 
   Auth0Audience:
     Type: String
     NoEcho: true
     Description: Auth0 API audience for token validation
+    Default: ""
 
   CloudFrontDomain:
     Type: String
@@ -83,11 +85,13 @@ Parameters:
   ReportsBucketName:
     Type: String
     Description: S3 bucket name for storing reports
+    Default: ""
 
   SharedKey:
     Type: String
     NoEcho: true
     Description: Shared key for secure operations
+    Default: ""
 
   WebSocketApi:
     Type: String
