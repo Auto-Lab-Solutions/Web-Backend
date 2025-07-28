@@ -272,9 +272,9 @@ main() {
     deploy_stack
     configure_api_gateway
     
-    # Configure Lambda environment variables
-    print_status "Configuring Lambda environment variables..."
-    ./configure-lambda-env.sh --env "$ENVIRONMENT"
+    # Update WebSocket endpoints in Lambda functions
+    print_status "Updating WebSocket endpoints in Lambda functions..."
+    ./update-websocket-endpoints.sh --env "$ENVIRONMENT"
     
     update_auth0_config
     
