@@ -531,6 +531,34 @@ Resources:
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ConfirmPaymentArn}/invocations'
 
+  # /confirm-payment (OPTIONS)
+  ConfirmPaymentOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref ConfirmPaymentResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            ResponseTemplates:
+              application/json: ''
+        PassthroughBehavior: WHEN_NO_MATCH
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+
   InquiriesResource:
     Type: AWS::ApiGateway::Resource
     Properties:
@@ -646,18 +674,6 @@ Resources:
       ParentId: !GetAtt RestApi.RootResourceId
       PathPart: analytics
 
-  AnalyticsMethod:
-    Type: AWS::ApiGateway::Method
-    Properties:
-      RestApiId: !Ref RestApi
-      ResourceId: !Ref AnalyticsResource
-      HttpMethod: GET
-      AuthorizationType: CUSTOM
-      AuthorizerId: !Ref StaffAuthorizer
-      Integration:
-        Type: AWS_PROXY
-        IntegrationHttpMethod: POST
-        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetAnalyticsArn}/invocations'
   # /analytics (POST)
   AnalyticsPostMethod:
     Type: AWS::ApiGateway::Method
@@ -712,25 +728,6 @@ Resources:
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${TakeUserArn}/invocations'
 
-  ConnectionsResource:
-    Type: AWS::ApiGateway::Resource
-    Properties:
-      RestApiId: !Ref RestApi
-      ParentId: !GetAtt RestApi.RootResourceId
-      PathPart: connections
-
-  ConnectionsMethod:
-    Type: AWS::ApiGateway::Method
-    Properties:
-      RestApiId: !Ref RestApi
-      ResourceId: !Ref ConnectionsResource
-      HttpMethod: GET
-      AuthorizationType: CUSTOM
-      AuthorizerId: !Ref StaffAuthorizer
-      Integration:
-        Type: AWS_PROXY
-        IntegrationHttpMethod: POST
-        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetConnectionsArn}/invocations'
 
   MessagesResource:
     Type: AWS::ApiGateway::Resource
@@ -816,10 +813,10 @@ Resources:
     Type: AWS::ApiGateway::Resource
     Properties:
       RestApiId: !Ref RestApi
-      ParentId: !GetAtt RestApi.RootResourceId
+      ParentId: !Ref MessagesResource
       PathPart: last-messages
 
-  LastMessagesMethod:
+  LastMessagesGetMethod:
     Type: AWS::ApiGateway::Method
     Properties:
       RestApiId: !Ref RestApi
@@ -1170,17 +1167,17 @@ Resources:
       - OrdersPostMethod
       - OrdersIdPatchMethod
       - ConfirmPaymentMethod
+      - ConfirmPaymentOptionsMethod
       - InquiriesGetMethod
       - InquiriesPostMethod
       - ReportUploadUrlsPostMethod
-      - AnalyticsMethod
       - GetStaffRolesMethod
       - MessagesNotifyPostMethod
       - UsersTakePostMethod
-      - ConnectionsMethod
+      # Removed ConnectionsMethod (no /connections endpoint)
       - MessagesGetMethod
       - MessagesPostMethod
-      - LastMessagesMethod
+      - LastMessagesGetMethod
       - CreatePaymentIntentMethod
       - ConfirmPaymentV2Method
       - ConfirmPaymentSuccessMethod
