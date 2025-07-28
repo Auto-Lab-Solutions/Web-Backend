@@ -197,8 +197,9 @@ update_lambda_websocket_env() {
         # Compact the JSON to minimize size and avoid formatting issues
         updated_env=$(echo "$updated_env" | jq -c .)
         
-        # Check if the environment variables are within AWS Lambda limits
-        local env_size=$(echo "$updated_env" | wc -c)
+        # Check if the complete environment structure is within AWS Lambda limits
+        local complete_env_structure="{\"Variables\": $updated_env}"
+        local env_size=$(echo "$complete_env_structure" | wc -c)
         if [[ $env_size -gt 4096 ]]; then
             print_error "Environment variables too large for $func ($env_size bytes, max 4096)"
             ((error_count++))
@@ -220,10 +221,21 @@ update_lambda_websocket_env() {
                 echo "$updated_env" | jq .
             fi
             
+            # Write environment variables to a temporary file to handle complex JSON
+            local temp_env_file=$(mktemp)
+            # Create the correct structure for AWS Lambda environment parameter
+            echo "{\"Variables\": $updated_env}" > "$temp_env_file"
+            
+            if [[ "$verbose" == "true" ]]; then
+                print_status "Using temporary file: $temp_env_file"
+                print_status "File contents:"
+                cat "$temp_env_file"
+            fi
+            
             local update_output
             if update_output=$(aws lambda update-function-configuration \
                 --function-name "$func" \
-                --environment Variables="$updated_env" \
+                --environment file://"$temp_env_file" \
                 --region $AWS_REGION 2>&1); then
                 print_success "Updated $func"
                 ((updated_count++))
@@ -231,11 +243,14 @@ update_lambda_websocket_env() {
                 print_error "Failed to update $func"
                 print_error "AWS CLI Error: $update_output"
                 if [[ "$verbose" == "true" ]]; then
-                    print_error "Environment variables were:"
-                    echo "$updated_env" | jq .
+                    print_error "Temp file contents were:"
+                    cat "$temp_env_file"
                 fi
                 ((error_count++))
             fi
+            
+            # Clean up temporary file
+            rm -f "$temp_env_file"
         fi
     done
     
@@ -340,12 +355,17 @@ test_json_approach() {
     # Create a sample environment variables JSON
     local test_json='{"TEST_VAR": "test_value", "WEBSOCKET_ENDPOINT_URL": "wss://test.execute-api.region.amazonaws.com/stage"}'
     
-    print_status "Sample JSON:"
+    print_status "Sample environment variables JSON:"
     echo "$test_json" | jq .
+    
+    # Create the AWS Lambda environment structure
+    local env_structure="{\"Variables\": $test_json}"
+    print_status "AWS Lambda environment structure:"
+    echo "$env_structure" | jq .
     
     print_status "Testing AWS CLI parameter structure..."
     # This would be the actual command structure
-    echo "aws lambda update-function-configuration --function-name test-function --environment Variables='$test_json'"
+    echo "aws lambda update-function-configuration --function-name test-function --environment file://temp-file"
     
     print_success "JSON approach test completed"
 }
@@ -373,14 +393,20 @@ test_complete_flow() {
         print_status "Updated environment variables:"
         echo "$updated_env" | jq .
         
-        # Check size
-        local env_size=$(echo "$updated_env" | wc -c)
-        print_status "Environment variables size: $env_size bytes (max 4096)"
+        # Check size of complete structure
+        local env_structure="{\"Variables\": $updated_env}"
+        local env_size=$(echo "$env_structure" | wc -c)
+        print_status "Complete environment structure size: $env_size bytes (max 4096)"
         
         if [[ $env_size -le 4096 ]]; then
             print_success "Size validation passed"
+            
+            # Show the complete AWS Lambda environment structure
+            print_status "Complete environment structure:"
+            echo "$env_structure" | jq .
+            
             print_status "Would execute:"
-            echo "aws lambda update-function-configuration --function-name mock-function --environment Variables='$updated_env'"
+            echo "aws lambda update-function-configuration --function-name mock-function --environment file://temp-file"
         else
             print_error "Size validation failed"
         fi
