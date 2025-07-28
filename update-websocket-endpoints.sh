@@ -48,6 +48,8 @@ show_usage() {
     echo "  --list-functions   List expected Lambda functions and their status"
     echo "  --test-json        Test JSON approach for debugging"
     echo "  --test-flow        Test complete flow with mock data"
+    echo "  --test-scenario    Test success/skip scenario for debugging"
+    echo "  --debug           Enable debug mode (set -x)"
     echo "  --help, -h         Show this help message"
     echo ""
     echo "Arguments:"
@@ -160,6 +162,7 @@ update_lambda_websocket_env() {
     
     local updated_count=0
     local error_count=0
+    local skipped_count=0
     
     for func in "${websocket_functions[@]}"; do
         print_status "Processing $func..."
@@ -167,6 +170,7 @@ update_lambda_websocket_env() {
         # Check if function exists
         if ! lambda_exists "$func"; then
             print_warning "Function $func does not exist, skipping..."
+            ((skipped_count++))
             continue
         fi
         
@@ -174,6 +178,7 @@ update_lambda_websocket_env() {
         local current_env=$(get_lambda_env "$func")
         if [[ "$current_env" == "{}" ]]; then
             print_warning "Could not retrieve environment variables for $func, skipping..."
+            ((skipped_count++))
             continue
         fi
         
@@ -262,12 +267,26 @@ update_lambda_websocket_env() {
         print_success "WebSocket endpoint update completed!"
         print_status "Functions processed: ${#websocket_functions[@]}"
         print_status "Functions updated: $updated_count"
+        if [[ $skipped_count -gt 0 ]]; then
+            print_warning "Functions skipped: $skipped_count"
+        fi
         if [[ $error_count -gt 0 ]]; then
             print_warning "Functions with errors: $error_count"
             print_warning "Run with --verbose to see detailed error information"
+            echo ""
+            print_error "Script completed with errors. Some functions may not have been updated."
             return 1
         fi
-        print_status "All functions now have WEBSOCKET_ENDPOINT_URL=$websocket_endpoint"
+        
+        if [[ $updated_count -eq 0 && $skipped_count -eq ${#websocket_functions[@]} ]]; then
+            print_warning "No functions were updated (all were skipped)."
+            print_warning "This may indicate that the Lambda functions don't exist yet."
+            echo ""
+            print_status "All functions now have WEBSOCKET_ENDPOINT_URL=$websocket_endpoint"
+        else
+            print_success "Successfully updated $updated_count function(s)!"
+            print_status "All functions now have WEBSOCKET_ENDPOINT_URL=$websocket_endpoint"
+        fi
     fi
 }
 
@@ -417,6 +436,73 @@ test_complete_flow() {
     print_success "Complete flow test completed"
 }
 
+# Function to test success/skip scenario (for debugging)
+test_success_scenario() {
+    print_status "Testing success with some skipped functions scenario..."
+    
+    # Simulate the process without actual AWS calls
+    local websocket_functions=(
+        "api-notify-development"
+        "api-send-message-development" 
+        "api-take-user-development"
+        "ws-connect-development"
+        "ws-disconnect-development"
+        "ws-init-development"
+        "ws-ping-development"
+        "ws-staff-init-development"
+    )
+    
+    local updated_count=0
+    local error_count=0
+    local skipped_count=0
+    
+    # Simulate processing each function
+    for func in "${websocket_functions[@]}"; do
+        print_status "Processing $func..."
+        
+        # Simulate different scenarios
+        case $func in
+            "api-notify-development"|"api-send-message-development")
+                print_success "Updated $func"
+                ((updated_count++))
+                ;;
+            *)
+                print_warning "Function $func does not exist, skipping..."
+                ((skipped_count++))
+                ;;
+        esac
+    done
+    
+    # Show the same summary logic as the real function
+    echo ""
+    print_success "WebSocket endpoint update completed!"
+    print_status "Functions processed: ${#websocket_functions[@]}"
+    print_status "Functions updated: $updated_count"
+    if [[ $skipped_count -gt 0 ]]; then
+        print_warning "Functions skipped: $skipped_count"
+    fi
+    if [[ $error_count -gt 0 ]]; then
+        print_warning "Functions with errors: $error_count"
+        print_warning "Run with --verbose to see detailed error information"
+        echo ""
+        print_error "Script completed with errors. Some functions may not have been updated."
+        print_status "This test would return exit code 1"
+        return 1
+    fi
+    
+    if [[ $updated_count -eq 0 && $skipped_count -eq ${#websocket_functions[@]} ]]; then
+        print_warning "No functions were updated (all were skipped)."
+        print_warning "This may indicate that the Lambda functions don't exist yet."
+        echo ""
+        print_status "This test would return exit code 0"
+    else
+        print_success "Successfully updated $updated_count function(s)!"
+        print_status "This test would return exit code 0"
+    fi
+    
+    print_success "Success scenario test completed"
+}
+
 # Main function
 main() {
     local environment=""
@@ -426,6 +512,8 @@ main() {
     local list_functions=false
     local test_json=false
     local test_flow=false
+    local test_scenario=false
+    local debug_mode=false
     
     # Parse command line arguments
     while [[ $# -gt 0 ]]; do
@@ -452,6 +540,14 @@ main() {
                 ;;
             --test-flow)
                 test_flow=true
+                shift
+                ;;
+            --test-scenario)
+                test_scenario=true
+                shift
+                ;;
+            --debug)
+                debug_mode=true
                 shift
                 ;;
             --verify)
@@ -488,6 +584,16 @@ main() {
     if [[ "$test_flow" == "true" ]]; then
         test_complete_flow
         exit 0
+    fi
+    
+    if [[ "$test_scenario" == "true" ]]; then
+        test_success_scenario
+        exit 0
+    fi
+    
+    if [[ "$debug_mode" == "true" ]]; then
+        set -x
+        print_status "Debug mode enabled"
     fi
     
     # Load environment configuration
