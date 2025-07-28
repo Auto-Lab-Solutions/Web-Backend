@@ -215,6 +215,26 @@ Resources:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetUsersArn}/invocations'
+  # /users/online
+  UsersOnlineResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref UsersResource
+      PathPart: online
+
+  UsersOnlineGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref UsersOnlineResource
+      HttpMethod: GET
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref StaffAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetConnectionsArn}/invocations'
 
   AppointmentsResource:
     Type: AWS::ApiGateway::Resource
@@ -230,7 +250,7 @@ Resources:
       ResourceId: !Ref AppointmentsResource
       HttpMethod: GET
       AuthorizationType: CUSTOM
-      AuthorizerId: !Ref StaffAuthorizer
+      AuthorizerId: !Ref StaffAuthorizerOptional
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
@@ -243,24 +263,99 @@ Resources:
       ResourceId: !Ref AppointmentsResource
       HttpMethod: POST
       AuthorizationType: CUSTOM
-      AuthorizerId: !Ref StaffAuthorizer
+      AuthorizerId: !Ref StaffAuthorizerOptional
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CreateAppointmentArn}/invocations'
-
-  AppointmentsPutMethod:
+  # /appointments (OPTIONS)
+  AppointmentsOptionsMethod:
     Type: AWS::ApiGateway::Method
     Properties:
       RestApiId: !Ref RestApi
       ResourceId: !Ref AppointmentsResource
-      HttpMethod: PUT
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            ResponseTemplates:
+              application/json: ''
+        PassthroughBehavior: WHEN_NO_MATCH
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  # /appointments/{appointmentId}
+  AppointmentsIdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref AppointmentsResource
+      PathPart: '{appointmentId}'
+
+  AppointmentsIdGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref AppointmentsIdResource
+      HttpMethod: GET
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref StaffAuthorizerOptional
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetAppointmentsArn}/invocations'
+
+  AppointmentsIdPatchMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref AppointmentsIdResource
+      HttpMethod: PATCH
       AuthorizationType: CUSTOM
       AuthorizerId: !Ref StaffAuthorizer
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${UpdateAppointmentArn}/invocations'
+
+  AppointmentsIdOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref AppointmentsIdResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            ResponseTemplates:
+              application/json: ''
+        PassthroughBehavior: WHEN_NO_MATCH
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
 
   UnavailableSlotsResource:
     Type: AWS::ApiGateway::Resource
@@ -275,19 +370,19 @@ Resources:
       RestApiId: !Ref RestApi
       ResourceId: !Ref UnavailableSlotsResource
       HttpMethod: GET
-      AuthorizationType: CUSTOM
-      AuthorizerId: !Ref StaffAuthorizerOptional
+      AuthorizationType: NONE
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetUnavailableSlotsArn}/invocations'
 
-  UnavailableSlotsPutMethod:
+  # /unavailable-slots (POST)
+  UnavailableSlotsPostMethod:
     Type: AWS::ApiGateway::Method
     Properties:
       RestApiId: !Ref RestApi
       ResourceId: !Ref UnavailableSlotsResource
-      HttpMethod: PUT
+      HttpMethod: POST
       AuthorizationType: CUSTOM
       AuthorizerId: !Ref StaffAuthorizer
       Integration:
@@ -309,7 +404,7 @@ Resources:
       ResourceId: !Ref OrdersResource
       HttpMethod: GET
       AuthorizationType: CUSTOM
-      AuthorizerId: !Ref StaffAuthorizer
+      AuthorizerId: !Ref StaffAuthorizerOptional
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
@@ -322,24 +417,99 @@ Resources:
       ResourceId: !Ref OrdersResource
       HttpMethod: POST
       AuthorizationType: CUSTOM
-      AuthorizerId: !Ref StaffAuthorizer
+      AuthorizerId: !Ref StaffAuthorizerOptional
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CreateOrderArn}/invocations'
 
-  OrdersPutMethod:
+  # /orders (OPTIONS)
+  OrdersOptionsMethod:
     Type: AWS::ApiGateway::Method
     Properties:
       RestApiId: !Ref RestApi
       ResourceId: !Ref OrdersResource
-      HttpMethod: PUT
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            ResponseTemplates:
+              application/json: ''
+        PassthroughBehavior: WHEN_NO_MATCH
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+  # /orders/{orderId}
+  OrdersIdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref OrdersResource
+      PathPart: '{orderId}'
+
+  OrdersIdGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref OrdersIdResource
+      HttpMethod: GET
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref StaffAuthorizerOptional
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetOrdersArn}/invocations'
+
+  OrdersIdPatchMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref OrdersIdResource
+      HttpMethod: PATCH
       AuthorizationType: CUSTOM
       AuthorizerId: !Ref StaffAuthorizer
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${UpdateOrderArn}/invocations'
+
+  OrdersIdOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref OrdersIdResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            ResponseTemplates:
+              application/json: ''
+        PassthroughBehavior: WHEN_NO_MATCH
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
 
   ConfirmPaymentResource:
     Type: AWS::ApiGateway::Resource
@@ -355,7 +525,7 @@ Resources:
       ResourceId: !Ref ConfirmPaymentResource
       HttpMethod: POST
       AuthorizationType: CUSTOM
-      AuthorizerId: !Ref StaffAuthorizer
+      AuthorizerId: !Ref StaffAuthorizerOptional
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
@@ -387,32 +557,87 @@ Resources:
       RestApiId: !Ref RestApi
       ResourceId: !Ref InquiriesResource
       HttpMethod: POST
-      AuthorizationType: CUSTOM
-      AuthorizerId: !Ref StaffAuthorizerOptional
+      AuthorizationType: NONE
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CreateInquiryArn}/invocations'
+  # /inquiries (OPTIONS)
+  InquiriesOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref InquiriesResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            ResponseTemplates:
+              application/json: ''
+        PassthroughBehavior: WHEN_NO_MATCH
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
 
-  ReportUploadUrlResource:
+  # /report-upload-urls (POST)
+  ReportUploadUrlsResource:
     Type: AWS::ApiGateway::Resource
     Properties:
       RestApiId: !Ref RestApi
       ParentId: !GetAtt RestApi.RootResourceId
-      PathPart: get-report-upload-url
+      PathPart: report-upload-urls
 
-  ReportUploadUrlMethod:
+  ReportUploadUrlsPostMethod:
     Type: AWS::ApiGateway::Method
     Properties:
       RestApiId: !Ref RestApi
-      ResourceId: !Ref ReportUploadUrlResource
-      HttpMethod: GET
+      ResourceId: !Ref ReportUploadUrlsResource
+      HttpMethod: POST
       AuthorizationType: CUSTOM
       AuthorizerId: !Ref StaffAuthorizer
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetReportUploadUrlArn}/invocations'
+        
+  # /report-upload-urls (OPTIONS)
+  ReportUploadUrlsOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref ReportUploadUrlsResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            ResponseTemplates:
+              application/json: ''
+        PassthroughBehavior: WHEN_NO_MATCH
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
 
   AnalyticsResource:
     Type: AWS::ApiGateway::Resource
@@ -427,6 +652,19 @@ Resources:
       RestApiId: !Ref RestApi
       ResourceId: !Ref AnalyticsResource
       HttpMethod: GET
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref StaffAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetAnalyticsArn}/invocations'
+  # /analytics (POST)
+  AnalyticsPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref AnalyticsResource
+      HttpMethod: POST
       AuthorizationType: CUSTOM
       AuthorizerId: !Ref StaffAuthorizer
       Integration:
@@ -453,38 +691,19 @@ Resources:
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetStaffRolesArn}/invocations'
 
-  NotifyResource:
+  # /users/take
+  UsersTakeResource:
     Type: AWS::ApiGateway::Resource
     Properties:
       RestApiId: !Ref RestApi
-      ParentId: !GetAtt RestApi.RootResourceId
-      PathPart: notify
+      ParentId: !Ref UsersResource
+      PathPart: take
 
-  NotifyMethod:
+  UsersTakePostMethod:
     Type: AWS::ApiGateway::Method
     Properties:
       RestApiId: !Ref RestApi
-      ResourceId: !Ref NotifyResource
-      HttpMethod: POST
-      AuthorizationType: CUSTOM
-      AuthorizerId: !Ref StaffAuthorizer
-      Integration:
-        Type: AWS_PROXY
-        IntegrationHttpMethod: POST
-        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${NotifyArn}/invocations'
-
-  TakeUserResource:
-    Type: AWS::ApiGateway::Resource
-    Properties:
-      RestApiId: !Ref RestApi
-      ParentId: !GetAtt RestApi.RootResourceId
-      PathPart: take-user
-
-  TakeUserMethod:
-    Type: AWS::ApiGateway::Method
-    Properties:
-      RestApiId: !Ref RestApi
-      ResourceId: !Ref TakeUserResource
+      ResourceId: !Ref UsersTakeResource
       HttpMethod: POST
       AuthorizationType: CUSTOM
       AuthorizerId: !Ref StaffAuthorizer
@@ -540,11 +759,58 @@ Resources:
       ResourceId: !Ref MessagesResource
       HttpMethod: POST
       AuthorizationType: CUSTOM
-      AuthorizerId: !Ref StaffAuthorizer
+      AuthorizerId: !Ref StaffAuthorizerOptional
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SendMessageArn}/invocations'
+  # /messages/notify (OPTIONS)
+  MessagesNotifyOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref MessagesNotifyResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            ResponseTemplates:
+              application/json: ''
+        PassthroughBehavior: WHEN_NO_MATCH
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+  # /messages/notify
+  MessagesNotifyResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref MessagesResource
+      PathPart: notify
+
+  MessagesNotifyPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref MessagesNotifyResource
+      HttpMethod: POST
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref StaffAuthorizerOptional
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${NotifyArn}/invocations'
 
   LastMessagesResource:
     Type: AWS::ApiGateway::Resource
@@ -919,6 +1185,24 @@ Resources:
       - ConfirmPaymentV2Method
       - ConfirmPaymentSuccessMethod
       - StripePaymentWebhookMethod
+      # --- NEW ENDPOINTS ---
+      - OrdersIdGetMethod
+      - OrdersIdPatchMethod
+      - OrdersIdOptionsMethod
+      - AppointmentsIdGetMethod
+      - AppointmentsIdPatchMethod
+      - AppointmentsIdOptionsMethod
+      - UsersOnlineGetMethod
+      - UsersTakePostMethod
+      - MessagesNotifyPostMethod
+      - MessagesNotifyOptionsMethod
+      - ReportUploadUrlsPostMethod
+      - ReportUploadUrlsOptionsMethod
+      - AnalyticsPostMethod
+      - UnavailableSlotsPostMethod
+      - InquiriesOptionsMethod
+      - AppointmentsOptionsMethod
+      - OrdersOptionsMethod
     Properties:
       RestApiId: !Ref RestApi
       Description: !Sub 'API Deployment for ${Environment} - Updated for Stage Separation'
