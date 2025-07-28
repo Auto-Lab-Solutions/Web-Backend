@@ -46,7 +46,8 @@ show_usage() {
     echo "  --dry-run          Show what would be updated without making changes"
     echo "  --verbose, -v      Show verbose output for debugging"
     echo "  --list-functions   List expected Lambda functions and their status"
-    echo "  --test-json        Test JSON file approach for debugging"
+    echo "  --test-json        Test JSON approach for debugging"
+    echo "  --test-flow        Test complete flow with mock data"
     echo "  --help, -h         Show this help message"
     echo ""
     echo "Arguments:"
@@ -193,6 +194,9 @@ update_lambda_websocket_env() {
             continue
         fi
         
+        # Compact the JSON to minimize size and avoid formatting issues
+        updated_env=$(echo "$updated_env" | jq -c .)
+        
         # Check if the environment variables are within AWS Lambda limits
         local env_size=$(echo "$updated_env" | wc -c)
         if [[ $env_size -gt 4096 ]]; then
@@ -211,21 +215,15 @@ update_lambda_websocket_env() {
             # Update the Lambda function
             print_status "Updating environment variables for $func..."
             
-            # Write the JSON to a temporary file to avoid shell escaping issues
-            local temp_file=$(mktemp)
-            TEMP_FILES+=("$temp_file")
-            echo "$updated_env" > "$temp_file"
-            
             if [[ "$verbose" == "true" ]]; then
-                print_status "Using temporary file: $temp_file"
-                print_status "File contents:"
-                cat "$temp_file"
+                print_status "Updated environment variables:"
+                echo "$updated_env" | jq .
             fi
             
             local update_output
             if update_output=$(aws lambda update-function-configuration \
                 --function-name "$func" \
-                --environment "Variables=file://$temp_file" \
+                --environment Variables="$updated_env" \
                 --region $AWS_REGION 2>&1); then
                 print_success "Updated $func"
                 ((updated_count++))
@@ -233,13 +231,11 @@ update_lambda_websocket_env() {
                 print_error "Failed to update $func"
                 print_error "AWS CLI Error: $update_output"
                 if [[ "$verbose" == "true" ]]; then
-                    print_error "Temp file contents were:"
-                    cat "$temp_file"
+                    print_error "Environment variables were:"
+                    echo "$updated_env" | jq .
                 fi
                 ((error_count++))
             fi
-            
-            # Note: temp file will be cleaned up by trap on exit
         fi
     done
     
@@ -337,43 +333,63 @@ list_expected_functions() {
     echo ""
 }
 
-# Function to test JSON file approach (for debugging)
+# Function to test JSON approach (for debugging)
 test_json_approach() {
-    print_status "Testing JSON file approach..."
+    print_status "Testing JSON approach..."
     
     # Create a sample environment variables JSON
     local test_json='{"TEST_VAR": "test_value", "WEBSOCKET_ENDPOINT_URL": "wss://test.execute-api.region.amazonaws.com/stage"}'
     
-    # Write to temporary file
-    local temp_file=$(mktemp)
-    TEMP_FILES+=("$temp_file")
-    echo "$test_json" > "$temp_file"
+    print_status "Sample JSON:"
+    echo "$test_json" | jq .
     
-    print_status "Temporary file: $temp_file"
-    print_status "File contents:"
-    cat "$temp_file"
+    print_status "Testing AWS CLI parameter structure..."
+    # This would be the actual command structure
+    echo "aws lambda update-function-configuration --function-name test-function --environment Variables='$test_json'"
     
-    print_status "Testing AWS CLI parameter parsing..."
-    # This would be the actual command structure (but we won't run it without a real function)
-    echo "aws lambda update-function-configuration --function-name test-function --environment \"Variables=file://$temp_file\""
-    
-    print_success "JSON file approach test completed"
+    print_success "JSON approach test completed"
 }
 
-# Array to track temporary files for cleanup
-declare -a TEMP_FILES=()
-
-# Function to cleanup temporary files
-cleanup_temp_files() {
-    for temp_file in "${TEMP_FILES[@]}"; do
-        if [[ -f "$temp_file" ]]; then
-            rm -f "$temp_file"
+# Function to test the complete flow with mock data (for debugging)
+test_complete_flow() {
+    print_status "Testing complete flow with mock data..."
+    
+    # Mock environment variables that a Lambda function might have
+    local mock_current_env='{"DATABASE_URL": "some-database-url", "LOG_LEVEL": "INFO", "TIMEOUT": "30"}'
+    local mock_websocket_endpoint="wss://abc123.execute-api.ap-southeast-2.amazonaws.com/dev"
+    
+    print_status "Mock current environment variables:"
+    echo "$mock_current_env" | jq .
+    
+    print_status "Mock WebSocket endpoint: $mock_websocket_endpoint"
+    
+    # Simulate the update process
+    local updated_env=$(echo "$mock_current_env" | jq --arg endpoint "$mock_websocket_endpoint" '. + {WEBSOCKET_ENDPOINT_URL: $endpoint}')
+    
+    # Validate and compact
+    if echo "$updated_env" | jq . > /dev/null 2>&1; then
+        updated_env=$(echo "$updated_env" | jq -c .)
+        print_success "JSON validation passed"
+        print_status "Updated environment variables:"
+        echo "$updated_env" | jq .
+        
+        # Check size
+        local env_size=$(echo "$updated_env" | wc -c)
+        print_status "Environment variables size: $env_size bytes (max 4096)"
+        
+        if [[ $env_size -le 4096 ]]; then
+            print_success "Size validation passed"
+            print_status "Would execute:"
+            echo "aws lambda update-function-configuration --function-name mock-function --environment Variables='$updated_env'"
+        else
+            print_error "Size validation failed"
         fi
-    done
+    else
+        print_error "JSON validation failed"
+    fi
+    
+    print_success "Complete flow test completed"
 }
-
-# Set trap to cleanup on exit
-trap cleanup_temp_files EXIT
 
 # Main function
 main() {
@@ -383,6 +399,7 @@ main() {
     local verbose=false
     local list_functions=false
     local test_json=false
+    local test_flow=false
     
     # Parse command line arguments
     while [[ $# -gt 0 ]]; do
@@ -405,6 +422,10 @@ main() {
                 ;;
             --test-json)
                 test_json=true
+                shift
+                ;;
+            --test-flow)
+                test_flow=true
                 shift
                 ;;
             --verify)
@@ -438,6 +459,11 @@ main() {
         exit 0
     fi
     
+    if [[ "$test_flow" == "true" ]]; then
+        test_complete_flow
+        exit 0
+    fi
+    
     # Load environment configuration
     if ! load_environment "$environment"; then
         exit 1
@@ -450,11 +476,6 @@ main() {
     
     if [[ "$list_functions" == "true" ]]; then
         list_expected_functions
-        exit 0
-    fi
-    
-    if [[ "$test_json" == "true" ]]; then
-        test_json_approach
         exit 0
     fi
     
