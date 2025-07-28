@@ -13,7 +13,7 @@ env:
   AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN }}
   STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
   STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-  SHARED_API_KEY: ${{ secrets.SHARED_API_KEY }}
+  SHARED_KEY: ${{ secrets.SHARED_KEY }}
   # Frontend deployment settings for development
   ENABLE_FRONTEND_WEBSITE: 'true'
   ENABLE_CUSTOM_DOMAIN: 'false'

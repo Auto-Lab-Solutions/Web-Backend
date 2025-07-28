@@ -314,6 +314,7 @@ Resources:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
           SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          WEBSOCKET_ENDPOINT_URL: !Sub "${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
           ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
@@ -512,6 +513,7 @@ Resources:
           PAYMENTS_TABLE: !Ref PaymentsTable
           STRIPE_SECRET_KEY: !Ref StripeSecretKey
           STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          WEBSOCKET_ENDPOINT_URL: !Sub "${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
           ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
@@ -551,6 +553,7 @@ Resources:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           INQUIRIES_TABLE: !Ref InquiriesTable
           USERS_TABLE: !Ref UsersTable
+          WEBSOCKET_ENDPOINT_URL: !Sub "${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
           ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment

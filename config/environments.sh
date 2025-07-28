@@ -92,17 +92,10 @@ get_env_config() {
     export CLOUDFRONT_DOMAIN="${CLOUDFRONT_DOMAIN:-}"
     export REPORTS_BUCKET_NAME="$S3_BUCKET_NAME"
     
-    # Load environment-specific secrets from environment variables
-    # Stripe Configuration
-    if [ "$ENVIRONMENT" = "development" ]; then
-        export STRIPE_SECRET_KEY="${STRIPE_SECRET_KEY_DEV:-}"
-        export STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK_SECRET_DEV:-}"
-        export SHARED_KEY="${SHARED_KEY_DEV:-}"
-    else
-        export STRIPE_SECRET_KEY="${STRIPE_SECRET_KEY_PROD:-}"
-        export STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK_SECRET_PROD:-}"
-        export SHARED_KEY="${SHARED_KEY_PROD:-}"
-    fi
+    # Load secrets from environment variables (GitHub environments will provide correct values)
+    export STRIPE_SECRET_KEY="${STRIPE_SECRET_KEY:-}"
+    export STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK_SECRET:-}"
+    export SHARED_KEY="${SHARED_KEY:-}"
     
     return 0
 }

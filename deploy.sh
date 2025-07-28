@@ -85,23 +85,20 @@ check_prerequisites() {
     # Check Stripe configuration
     if [[ "$STRIPE_SECRET_KEY" == *"REPLACE_WITH_YOUR"* ]] || [[ -z "$STRIPE_SECRET_KEY" ]]; then
         print_error "Stripe Secret Key not configured."
-        print_error "For development: export STRIPE_SECRET_KEY_DEV='your_test_secret_key'"
-        print_error "For production: export STRIPE_SECRET_KEY_PROD='your_live_secret_key'"
+        print_error "Please set: export STRIPE_SECRET_KEY='your_stripe_secret_key'"
         exit 1
     fi
     
     if [[ "$STRIPE_WEBHOOK_SECRET" == *"REPLACE_WITH_YOUR"* ]] || [[ -z "$STRIPE_WEBHOOK_SECRET" ]]; then
         print_error "Stripe Webhook Secret not configured."
-        print_error "For development: export STRIPE_WEBHOOK_SECRET_DEV='your_test_webhook_secret'"
-        print_error "For production: export STRIPE_WEBHOOK_SECRET_PROD='your_live_webhook_secret'"
+        print_error "Please set: export STRIPE_WEBHOOK_SECRET='your_webhook_secret'"
         exit 1
     fi
     
     # Check Shared Key configuration
     if [[ "$SHARED_KEY" == *"REPLACE_WITH_YOUR"* ]] || [[ -z "$SHARED_KEY" ]]; then
         print_error "Shared Key not configured."
-        print_error "For development: export SHARED_KEY_DEV='your_dev_shared_key'"
-        print_error "For production: export SHARED_KEY_PROD='your_prod_shared_key'"
+        print_error "Please set: export SHARED_KEY='your_shared_key'"
         exit 1
     fi
     
