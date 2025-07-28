@@ -742,8 +742,7 @@ Resources:
       RestApiId: !Ref RestApi
       ResourceId: !Ref MessagesResource
       HttpMethod: GET
-      AuthorizationType: CUSTOM
-      AuthorizerId: !Ref StaffAuthorizer
+      AuthorizationType: NONE
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
@@ -761,6 +760,56 @@ Resources:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SendMessageArn}/invocations'
+
+  # /messages (OPTIONS)
+  MessagesOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref MessagesResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,POST'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            ResponseTemplates:
+              application/json: ''
+        PassthroughBehavior: WHEN_NO_MATCH
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  # /messages/notify
+  MessagesNotifyResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref MessagesResource
+      PathPart: notify
+
+  MessagesNotifyPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref MessagesNotifyResource
+      HttpMethod: POST
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref StaffAuthorizerOptional
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${NotifyArn}/invocations'
+
   # /messages/notify (OPTIONS)
   MessagesNotifyOptionsMethod:
     Type: AWS::ApiGateway::Method
@@ -788,33 +837,13 @@ Resources:
             method.response.header.Access-Control-Allow-Methods: true
             method.response.header.Access-Control-Allow-Headers: true
             method.response.header.Access-Control-Allow-Origin: true
-  # /messages/notify
-  MessagesNotifyResource:
-    Type: AWS::ApiGateway::Resource
-    Properties:
-      RestApiId: !Ref RestApi
-      ParentId: !Ref MessagesResource
-      PathPart: notify
-
-  MessagesNotifyPostMethod:
-    Type: AWS::ApiGateway::Method
-    Properties:
-      RestApiId: !Ref RestApi
-      ResourceId: !Ref MessagesNotifyResource
-      HttpMethod: POST
-      AuthorizationType: CUSTOM
-      AuthorizerId: !Ref StaffAuthorizerOptional
-      Integration:
-        Type: AWS_PROXY
-        IntegrationHttpMethod: POST
-        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${NotifyArn}/invocations'
 
   LastMessagesResource:
     Type: AWS::ApiGateway::Resource
     Properties:
       RestApiId: !Ref RestApi
       ParentId: !Ref MessagesResource
-      PathPart: last-messages
+      PathPart: last
 
   LastMessagesGetMethod:
     Type: AWS::ApiGateway::Method
