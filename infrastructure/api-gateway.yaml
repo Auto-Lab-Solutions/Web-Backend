@@ -1163,20 +1163,20 @@ Resources:
       - UsersMethod
       - AppointmentsGetMethod
       - AppointmentsPostMethod
-      - AppointmentsPutMethod
+      - AppointmentsIdPatchMethod
       - UnavailableSlotsGetMethod
-      - UnavailableSlotsPutMethod
+      - UnavailableSlotsPostMethod
       - OrdersGetMethod
       - OrdersPostMethod
-      - OrdersPutMethod
+      - OrdersIdPatchMethod
       - ConfirmPaymentMethod
       - InquiriesGetMethod
       - InquiriesPostMethod
-      - ReportUploadUrlMethod
+      - ReportUploadUrlsPostMethod
       - AnalyticsMethod
       - GetStaffRolesMethod
-      - NotifyMethod
-      - TakeUserMethod
+      - MessagesNotifyPostMethod
+      - UsersTakePostMethod
       - ConnectionsMethod
       - MessagesGetMethod
       - MessagesPostMethod
