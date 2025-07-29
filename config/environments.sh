@@ -48,7 +48,7 @@ get_env_config() {
             # Frontend Configuration
             export FRONTEND_DOMAIN_NAME="dev.autolabsolutions.com"
             export FRONTEND_HOSTED_ZONE_ID="Z060497817EUO8PSJGQHQ"
-            export FRONTEND_ACM_CERTIFICATE_ARN="arn:aws:acm:ap-southeast-2:899704476492:certificate/0511b552-8497-4b7e-a131-f972efbe0cdf"
+            export FRONTEND_ACM_CERTIFICATE_ARN="arn:aws:acm:us-east-1:899704476492:certificate/808b1a88-c14d-46f2-a9d2-e34ac47c0838"
             export ENABLE_CUSTOM_DOMAIN="true"
             export ENABLE_FRONTEND_WEBSITE="true"
             ;;
@@ -66,7 +66,7 @@ get_env_config() {
             # Frontend Configuration
             export FRONTEND_DOMAIN_NAME="autolabsolutions.com"
             export FRONTEND_HOSTED_ZONE_ID="Z060497817EUO8PSJGQHQ"
-            export FRONTEND_ACM_CERTIFICATE_ARN="arn:aws:acm:ap-southeast-2:899704476492:certificate/0511b552-8497-4b7e-a131-f972efbe0cdf"
+            export FRONTEND_ACM_CERTIFICATE_ARN="arn:aws:acm:us-east-1:899704476492:certificate/808b1a88-c14d-46f2-a9d2-e34ac47c0838"
             export ENABLE_CUSTOM_DOMAIN="true"
             export ENABLE_FRONTEND_WEBSITE="true"
             ;;

@@ -43,10 +43,7 @@ Resources:
   WebsiteBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !If 
-        - HasCustomDomain
-        - !Sub "${DomainName}-${Environment}"
-        - !Sub "auto-lab-frontend-${Environment}-${AWS::AccountId}"
+      BucketName: !Sub "auto-lab-frontend-${Environment}-${AWS::AccountId}"
       WebsiteConfiguration:
         IndexDocument: index.html
         ErrorDocument: error.html
