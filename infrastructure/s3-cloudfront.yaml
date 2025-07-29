@@ -53,7 +53,7 @@ Resources:
         HttpVersion: http2
         PriceClass: PriceClass_100
         DefaultCacheBehavior:
-          TargetOriginId: !Sub '${S3BucketName}-origin'
+          TargetOriginId: !Sub '${S3BucketName}-${AWS::AccountId}-${Environment}-origin'
           ViewerProtocolPolicy: redirect-to-https
           AllowedMethods: [GET, HEAD, OPTIONS]
           CachedMethods: [GET, HEAD]
