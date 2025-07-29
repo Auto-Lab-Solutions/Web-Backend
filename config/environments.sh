@@ -3,6 +3,16 @@
 # Environment Configuration for Auto Lab Solutions Backend
 # This script defines environment-specific configurations
 
+# Ensure AWS_ACCOUNT_ID is set
+if [ -z "$AWS_ACCOUNT_ID" ]; then
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null)
+    export AWS_ACCOUNT_ID
+    if [ -z "$AWS_ACCOUNT_ID" ]; then
+        echo "[ERROR] AWS_ACCOUNT_ID is not set and could not be determined automatically."
+        exit 1
+    fi
+fi
+
 # Function to validate environment name
 validate_environment() {
     local env=$1
