@@ -39,17 +39,17 @@ get_env_config() {
             export ENVIRONMENT="development"
             export AWS_REGION="ap-southeast-2"
             export STACK_NAME="auto-lab-backend-dev"
-            export S3_BUCKET_NAME="auto-lab-reports-${AWS_ACCOUNT_ID}-dev"
+            export S3_BUCKET_NAME="auto-lab-reports"
             export CLOUDFORMATION_BUCKET="auto-lab-cloudformation-templates-dev"
             export LOG_LEVEL="DEBUG"
             export LAMBDA_TIMEOUT="30"
             export LAMBDA_MEMORY="256"
             
             # Frontend Configuration
-            export FRONTEND_DOMAIN_NAME=""
-            export FRONTEND_HOSTED_ZONE_ID=""
-            export FRONTEND_ACM_CERTIFICATE_ARN=""
-            export ENABLE_CUSTOM_DOMAIN="false"
+            export FRONTEND_DOMAIN_NAME="dev.autolabsolutions.com"
+            export FRONTEND_HOSTED_ZONE_ID="Z060497817EUO8PSJGQHQ"
+            export FRONTEND_ACM_CERTIFICATE_ARN="arn:aws:acm:ap-southeast-2:899704476492:certificate/0511b552-8497-4b7e-a131-f972efbe0cdf"
+            export ENABLE_CUSTOM_DOMAIN="true"
             export ENABLE_FRONTEND_WEBSITE="true"
             ;;
         production)
@@ -57,17 +57,17 @@ get_env_config() {
             export ENVIRONMENT="production"
             export AWS_REGION="ap-southeast-2"
             export STACK_NAME="auto-lab-backend"
-            export S3_BUCKET_NAME="auto-lab-reports-${AWS_ACCOUNT_ID}-production"
+            export S3_BUCKET_NAME="auto-lab-reports"
             export CLOUDFORMATION_BUCKET="auto-lab-cloudformation-templates"
             export LOG_LEVEL="INFO"
             export LAMBDA_TIMEOUT="30"
             export LAMBDA_MEMORY="256"
             
             # Frontend Configuration
-            export FRONTEND_DOMAIN_NAME=""
-            export FRONTEND_HOSTED_ZONE_ID=""
-            export FRONTEND_ACM_CERTIFICATE_ARN=""
-            export ENABLE_CUSTOM_DOMAIN="false"
+            export FRONTEND_DOMAIN_NAME="autolabsolutions.com"
+            export FRONTEND_HOSTED_ZONE_ID="Z060497817EUO8PSJGQHQ"
+            export FRONTEND_ACM_CERTIFICATE_ARN="arn:aws:acm:ap-southeast-2:899704476492:certificate/0511b552-8497-4b7e-a131-f972efbe0cdf"
+            export ENABLE_CUSTOM_DOMAIN="true"
             export ENABLE_FRONTEND_WEBSITE="true"
             ;;
         *)
