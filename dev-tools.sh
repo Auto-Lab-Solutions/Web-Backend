@@ -309,6 +309,13 @@ show_endpoints() {
         --query 'Stacks[0].Outputs[?OutputKey==`FrontendCloudFrontDomainName`].OutputValue' \
         --output text \
         --region $AWS_REGION 2>/dev/null || echo "NOT_FOUND")
+
+    # Get Frontend CloudFront distribution ID
+    local frontend_cf_id=$(aws cloudformation describe-stacks \
+        --stack-name "$STACK_NAME" \
+        --query 'Stacks[0].Outputs[?OutputKey==`FrontendCloudFrontDistributionId`].OutputValue' \
+        --output text \
+        --region $AWS_REGION 2>/dev/null || echo "NOT_FOUND")
     
     echo ""
     print_success "API Endpoints:"
@@ -320,6 +327,7 @@ show_endpoints() {
     print_success "Frontend Website:"
     echo "  🏠 Website URL: $frontend_url"
     echo "  📦 CloudFront: https://$frontend_cf_domain"
+    echo "      ID: $frontend_cf_id"
     echo "  📊 Status: $([ "$frontend_url" != "NOT_FOUND" ] && echo "✅ Deployed" || echo "❌ Not Deployed")"
     echo ""
     
