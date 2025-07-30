@@ -62,6 +62,10 @@ Parameters:
   ConfirmCashPaymentArn:
     Type: String
     Description: Confirm Cash Payment Lambda ARN
+
+  ConfirmStripePaymentArn:
+    Type: String
+    Description: Confirm Stripe Payment Lambda ARN
   
   WebhookStripePaymentArn:
     Type: String
@@ -878,12 +882,58 @@ Resources:
             method.response.header.Access-Control-Allow-Headers: true
             method.response.header.Access-Control-Allow-Origin: true
 
-  StripePaymentWebhookResource:
+  ConfirmStripePaymentResource:
     Type: AWS::ApiGateway::Resource
     Properties:
       RestApiId: !Ref RestApi
       ParentId: !Ref StripeResource
       PathPart: confirm
+
+  ConfirmStripePaymentMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref ConfirmStripePaymentResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ConfirmStripePaymentArn}/invocations'
+
+  ConfirmStripePaymentOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref ConfirmStripePaymentResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            ResponseTemplates:
+              application/json: ''
+        PassthroughBehavior: WHEN_NO_MATCH
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  StripePaymentWebhookResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref StripeResource
+      PathPart: webhook
 
   StripePaymentWebhookMethod:
     Type: AWS::ApiGateway::Method
@@ -1017,6 +1067,14 @@ Resources:
     Type: AWS::Lambda::Permission
     Properties:
       FunctionName: !Ref CreatePaymentIntentArn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/*'
+
+  ConfirmStripePaymentPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ConfirmStripePaymentArn
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/*'
@@ -1171,6 +1229,8 @@ Resources:
       - ConfirmCashPaymentMethod
       - CreatePaymentIntentMethod
       - CreatePaymentIntentOptionsMethod
+      - ConfirmStripePaymentMethod
+      - ConfirmStripePaymentOptionsMethod
       - StripePaymentWebhookMethod
       - StripePaymentWebhookOptionsMethod
       - OrdersIdGetMethod

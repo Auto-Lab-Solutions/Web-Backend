@@ -463,6 +463,30 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
+  ApiConfirmStripePayment:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'api-confirm-stripe-payment-${Environment}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-confirm-stripe-payment.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          ORDERS_TABLE: !Ref OrdersTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          ENVIRONMENT: !Ref Environment
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
   ApiWebhookStripePayment:
     Type: AWS::Lambda::Function
     Properties:
@@ -866,6 +890,14 @@ Outputs:
     Description: Create Payment Intent Lambda ARN
     Value: !GetAtt ApiCreatePaymentIntent.Arn
 
+  ConfirmStripePaymentArn:
+    Description: Confirm Stripe Payment Lambda ARN
+    Value: !GetAtt ApiConfirmStripePayment.Arn
+
+  WebhookStripePaymentArn:
+    Description: Webhook Stripe Payment Lambda ARN
+    Value: !GetAtt ApiWebhookStripePayment.Arn
+
   GetInquiriesArn:
     Description: Get Inquiries Lambda ARN
     Value: !GetAtt ApiGetInquiries.Arn
@@ -930,6 +962,3 @@ Outputs:
     Description: WebSocket Staff Init Lambda ARN
     Value: !GetAtt WsStaffInit.Arn
 
-  WebhookStripePaymentArn:
-    Description: Webhook Stripe Payment Lambda ARN
-    Value: !GetAtt ApiWebhookStripePayment.Arn

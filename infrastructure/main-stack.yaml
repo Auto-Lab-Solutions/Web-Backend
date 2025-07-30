@@ -142,6 +142,7 @@ Resources:
         UpdateOrderArn: !GetAtt LambdaStack.Outputs.UpdateOrderArn
         ConfirmCashPaymentArn: !GetAtt LambdaStack.Outputs.ConfirmCashPaymentArn
         CreatePaymentIntentArn: !GetAtt LambdaStack.Outputs.CreatePaymentIntentArn
+        ConfirmStripePaymentArn: !GetAtt LambdaStack.Outputs.ConfirmStripePaymentArn
         WebhookStripePaymentArn: !GetAtt LambdaStack.Outputs.WebhookStripePaymentArn
         GetInquiriesArn: !GetAtt LambdaStack.Outputs.GetInquiriesArn
         CreateInquiryArn: !GetAtt LambdaStack.Outputs.CreateInquiryArn
