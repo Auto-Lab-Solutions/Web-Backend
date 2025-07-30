@@ -417,16 +417,16 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
-  ApiConfirmPayment:
+  ApiConfirmCashPayment:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub 'api-confirm-payment-${Environment}'
+      FunctionName: !Sub 'api-confirm-cash-payment-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
       Code:
         S3Bucket: !Ref CloudFormationBucket
-        S3Key: lambda/api-confirm-payment.zip
+        S3Key: lambda/api-confirm-cash-payment.zip
       Environment:
         Variables:
           STAFF_TABLE: !Ref StaffTable
@@ -453,7 +453,6 @@ Resources:
         S3Key: lambda/api-create-payment-intent.zip
       Environment:
         Variables:
-          STAFF_TABLE: !Ref StaffTable
           USERS_TABLE: !Ref UsersTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
           ORDERS_TABLE: !Ref OrdersTable
@@ -464,39 +463,16 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
-  ApiConfirmPaymentSuccess:
+  ApiWebhookStripePayment:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub 'api-confirm-payment-success-${Environment}'
+      FunctionName: !Sub 'api-webhook-stripe-payment-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
       Code:
         S3Bucket: !Ref CloudFormationBucket
-        S3Key: lambda/api-confirm-payment-success.zip
-      Environment:
-        Variables:
-          STAFF_TABLE: !Ref StaffTable
-          USERS_TABLE: !Ref UsersTable
-          APPOINTMENTS_TABLE: !Ref AppointmentsTable
-          ORDERS_TABLE: !Ref OrdersTable
-          PAYMENTS_TABLE: !Ref PaymentsTable
-          STRIPE_SECRET_KEY: !Ref StripeSecretKey
-          ENVIRONMENT: !Ref Environment
-      Tags:
-        - Key: Environment
-          Value: !Ref Environment
-
-  WebhookStripePayment:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: !Sub 'webhook-stripe-payment-${Environment}'
-      Runtime: python3.13
-      Handler: main.lambda_handler
-      Role: !GetAtt LambdaExecutionRole.Arn
-      Code:
-        S3Bucket: !Ref CloudFormationBucket
-        S3Key: lambda/webhook-stripe-payment.zip
+        S3Key: lambda/api-webhook-stripe-payment.zip
       Environment:
         Variables:
           STAFF_TABLE: !Ref StaffTable
@@ -882,17 +858,13 @@ Outputs:
     Description: Update Order Lambda ARN
     Value: !GetAtt ApiUpdateOrder.Arn
 
-  ConfirmPaymentArn:
-    Description: Confirm Payment Lambda ARN
-    Value: !GetAtt ApiConfirmPayment.Arn
+  ConfirmCashPaymentArn:
+    Description: Confirm Cash Payment Lambda ARN
+    Value: !GetAtt ApiConfirmCashPayment.Arn
 
   CreatePaymentIntentArn:
     Description: Create Payment Intent Lambda ARN
     Value: !GetAtt ApiCreatePaymentIntent.Arn
-
-  ConfirmPaymentSuccessArn:
-    Description: Confirm Payment Success Lambda ARN
-    Value: !GetAtt ApiConfirmPaymentSuccess.Arn
 
   GetInquiriesArn:
     Description: Get Inquiries Lambda ARN
@@ -960,4 +932,4 @@ Outputs:
 
   WebhookStripePaymentArn:
     Description: Webhook Stripe Payment Lambda ARN
-    Value: !GetAtt WebhookStripePayment.Arn
+    Value: !GetAtt ApiWebhookStripePayment.Arn

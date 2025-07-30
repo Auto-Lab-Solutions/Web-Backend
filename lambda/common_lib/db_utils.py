@@ -680,7 +680,7 @@ def build_appointment_data(appointment_id, service_id, plan_id, is_buyer, buyer_
         'createdUserId': {'S': created_user_id},
         'status': {'S': 'PENDING'},
         'price': {'N': str(price)},
-        'paymentCompleted': {'BOOL': False},
+        'paymentStatus': {'S': 'pending'},
         'postNotes': {'S': ''},
         'reports': {'L': []},
         'createdAt': {'N': str(current_time)},
@@ -698,11 +698,11 @@ def get_daily_unpaid_appointments_count(user_id, today):
             TableName=APPOINTMENTS_TABLE,
             IndexName='createdUserId-index',
             KeyConditionExpression='createdUserId = :uid',
-            FilterExpression='createdDate = :date AND paymentCompleted = :paid',
+            FilterExpression='createdDate = :date AND paymentStatus <> :paid',
             ExpressionAttributeValues={
                 ':uid': {'S': user_id},
                 ':date': {'S': today_str},
-                ':paid': {'BOOL': False}
+                ':paid': {'S': 'paid'}
             }
         )
         return result.get('Count', 0)
@@ -840,11 +840,11 @@ def get_daily_unpaid_orders_count(user_id, today):
             TableName=ORDERS_TABLE,
             IndexName='createdUserId-index',
             KeyConditionExpression='createdUserId = :uid',
-            FilterExpression='createdDate = :date AND paymentCompleted = :paid',
+            FilterExpression='createdDate = :date AND paymentStatus <> :paid',
             ExpressionAttributeValues={
                 ':uid': {'S': user_id},
                 ':date': {'S': today_str},
-                ':paid': {'BOOL': False}
+                ':paid': {'S': 'paid'}
             }
         )
         return result.get('Count', 0)
@@ -946,7 +946,7 @@ def build_order_data(order_id, items, customer_data, car_data, notes, delivery_l
         'createdUserId': {'S': created_user_id},
         'status': {'S': 'PENDING'},
         'totalPrice': {'N': str(total_price)},
-        'paymentCompleted': {'BOOL': False},
+        'paymentStatus': {'S': 'pending'},
         'postNotes': {'S': ''},
         'createdAt': {'N': str(current_time)},
         'createdDate': {'S': current_date},

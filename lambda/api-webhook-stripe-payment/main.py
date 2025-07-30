@@ -1,15 +1,15 @@
 import os
-import json
 import stripe
 import time
-import hmac
-import hashlib
 import db_utils as db
 import response_utils as resp
+import wsgw_utils as wsgw
 
 # Set Stripe configuration
 stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
 STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET')
+
+wsgw_client = wsgw.get_apigateway_client()
 
 def lambda_handler(event, context):
     try:
@@ -55,7 +55,7 @@ def handle_payment_succeeded(payment_intent):
         
         # Update payment record
         payment_update_data = {
-            'status': 'succeeded',
+            'status': 'paid',
             'receiptUrl': payment_intent.get('charges', {}).get('data', [{}])[0].get('receipt_url'),
             'stripePaymentMethodId': payment_intent.get('payment_method'),
             'updatedAt': int(time.time())
@@ -92,7 +92,7 @@ def handle_payment_succeeded(payment_intent):
         
         if success and record:
             # Send notification
-            send_payment_notification(record, payment_type, 'succeeded')
+            send_payment_notification(record, payment_type, 'paid')
         
     except Exception as e:
         print(f"Error handling payment succeeded: {str(e)}")
@@ -188,10 +188,29 @@ def handle_payment_canceled(payment_intent):
         print(f"Error handling payment canceled: {str(e)}")
 
 def send_payment_notification(record, record_type, status):
-    """Send payment status notification - placeholder for WebSocket integration"""
+    """Send payment status notification via WebSocket"""
     try:
         print(f"Payment notification: {record_type} {record.get(f'{record_type}Id')} status changed to {status}")
-        # TODO: Implement WebSocket notifications when WebSocket API is available
-        # This would send real-time notifications to connected clients
+        receiverConnections = []
+        # Notify customer
+        customer_user_id = record.get('createdUserId')
+        if customer_user_id:
+            customer_connection = db.get_connection_by_user_id(customer_user_id)
+            if customer_connection:
+                receiverConnections.append(customer_connection)
+        # Notify all staff
+        staff_connections = db.get_all_staff_connections()
+        receiverConnections.extend(staff_connections)
+
+        for connection in receiverConnections:
+            wsgw.send_notification(wsgw_client, connection.get('connectionId'), {
+                "type": record_type,
+                "subtype": "payment-status",
+                "success": True if status == 'paid' else False,
+                "referenceNumber": record.get(f'{record_type}Id'),
+                "paymentStatus": status
+            })
+
     except Exception as e:
         print(f"Error logging payment notification: {str(e)}")
+

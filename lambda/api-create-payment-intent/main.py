@@ -1,7 +1,6 @@
 import os
 import json
 import stripe
-import uuid
 import time
 import db_utils as db
 import response_utils as resp
@@ -13,14 +12,17 @@ stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
 
 def lambda_handler(event, context):
     try:
-        # Authenticate user
+        # Get user ID from request body 
         user_id = auth.get_user_id(event)
         if not user_id:
-            return resp.error_response("Authentication required", 401)
+            return resp.error_response("User Id is required for non-staff users.", 401)
+        user_record = db.get_user_record(user_id)
+        if not user_record:
+            return resp.error_response(f"No user record found for userId: {user_id}.")
         
         # Get request parameters
         amount = req.get_body_param(event, 'amount')
-        currency = req.get_body_param(event, 'currency', 'usd')
+        currency = req.get_body_param(event, 'currency', 'aud')
         reference_number = req.get_body_param(event, 'referenceNumber')
         payment_type = req.get_body_param(event, 'type')
         metadata = req.get_body_param(event, 'metadata', {})
@@ -40,8 +42,6 @@ def lambda_handler(event, context):
             record = db.get_appointment(reference_number)
             if not record:
                 return resp.error_response("Appointment not found", 404)
-            if record.get('createdUserId') != user_id:
-                return resp.error_response("Unauthorized access to appointment", 403)
             # Check if already paid
             if record.get('paymentStatus') == 'paid':
                 return resp.error_response("Payment already completed for this appointment")
@@ -49,8 +49,6 @@ def lambda_handler(event, context):
             record = db.get_order(reference_number)
             if not record:
                 return resp.error_response("Order not found", 404)
-            if record.get('createdUserId') != user_id:
-                return resp.error_response("Unauthorized access to order", 403)
             # Check if already paid
             if record.get('paymentStatus') == 'paid':
                 return resp.error_response("Payment already completed for this order")

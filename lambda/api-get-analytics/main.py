@@ -216,7 +216,7 @@ def get_daily_orders(parameters, user_context):
                 daily_data[date]['count'] += 1
                 daily_data[date]['revenue'] += float(order.get('totalPrice', 0))
                 
-                if order.get('paymentCompleted', False):
+                if order.get('paymentStatus', 'pending') == 'paid':
                     daily_data[date]['paid'] += 1
                 else:
                     daily_data[date]['unpaid'] += 1
@@ -238,7 +238,7 @@ def get_monthly_orders(parameters, user_context):
             monthly_data[month]['count'] += 1
             monthly_data[month]['revenue'] += float(order.get('totalPrice', 0))
             
-            if order.get('paymentCompleted', False):
+            if order.get('paymentStatus', 'pending') == 'paid':
                 monthly_data[month]['paid'] += 1
             else:
                 monthly_data[month]['unpaid'] += 1
@@ -266,7 +266,7 @@ def get_orders_revenue(parameters, user_context):
             total_revenue += revenue
             orders_count += 1
             
-            if order.get('paymentCompleted', False):
+            if order.get('paymentStatus', 'pending') == 'paid':
                 paid_revenue += revenue
             else:
                 unpaid_revenue += revenue
@@ -389,7 +389,7 @@ def get_daily_appointments(parameters, user_context):
                 daily_data[date]['count'] += 1
                 daily_data[date]['revenue'] += float(appointment.get('price', 0))
                 
-                if appointment.get('paymentCompleted', False):
+                if appointment.get('paymentStatus', 'pending') == 'paid':
                     daily_data[date]['paid'] += 1
                 else:
                     daily_data[date]['unpaid'] += 1
@@ -411,7 +411,7 @@ def get_monthly_appointments(parameters, user_context):
             monthly_data[month]['count'] += 1
             monthly_data[month]['revenue'] += float(appointment.get('price', 0))
             
-            if appointment.get('paymentCompleted', False):
+            if appointment.get('paymentStatus', 'pending') == 'paid':
                 monthly_data[month]['paid'] += 1
             else:
                 monthly_data[month]['unpaid'] += 1
@@ -439,7 +439,7 @@ def get_appointments_revenue(parameters, user_context):
             total_revenue += revenue
             appointments_count += 1
             
-            if appointment.get('paymentCompleted', False):
+            if appointment.get('paymentStatus', 'pending') == 'paid':
                 paid_revenue += revenue
             else:
                 unpaid_revenue += revenue
@@ -487,7 +487,7 @@ def get_daily_income(parameters, user_context):
                 daily_income[date]['total']['count'] += 1
                 daily_income[date]['total']['revenue'] += revenue
                 
-                if order.get('paymentCompleted', False):
+                if order.get('paymentStatus', 'pending') == 'paid':
                     daily_income[date]['orders']['paid'] += 1
                     daily_income[date]['total']['paid'] += 1
                 else:
@@ -505,7 +505,7 @@ def get_daily_income(parameters, user_context):
                 daily_income[date]['total']['count'] += 1
                 daily_income[date]['total']['revenue'] += revenue
                 
-                if appointment.get('paymentCompleted', False):
+                if appointment.get('paymentStatus', 'pending') == 'paid':
                     daily_income[date]['appointments']['paid'] += 1
                     daily_income[date]['total']['paid'] += 1
                 else:
@@ -539,7 +539,7 @@ def get_monthly_income(parameters, user_context):
             monthly_income[month]['total']['count'] += 1
             monthly_income[month]['total']['revenue'] += revenue
             
-            if order.get('paymentCompleted', False):
+            if order.get('paymentStatus', 'pending') == 'paid':
                 monthly_income[month]['orders']['paid'] += 1
                 monthly_income[month]['total']['paid'] += 1
             else:
@@ -558,7 +558,7 @@ def get_monthly_income(parameters, user_context):
             monthly_income[month]['total']['count'] += 1
             monthly_income[month]['total']['revenue'] += revenue
             
-            if appointment.get('paymentCompleted', False):
+            if appointment.get('paymentStatus', 'pending') == 'paid':
                 monthly_income[month]['appointments']['paid'] += 1
                 monthly_income[month]['total']['paid'] += 1
             else:
@@ -643,7 +643,7 @@ def get_revenue_breakdown(parameters, user_context):
             revenue = float(order.get('totalPrice', 0))
             breakdown['orders']['total'] += revenue
             
-            if order.get('paymentCompleted', False):
+            if order.get('paymentStatus', 'pending') == 'paid':
                 breakdown['orders']['paid'] += revenue
             else:
                 breakdown['orders']['unpaid'] += revenue
@@ -660,7 +660,7 @@ def get_revenue_breakdown(parameters, user_context):
             revenue = float(appointment.get('price', 0))
             breakdown['appointments']['total'] += revenue
             
-            if appointment.get('paymentCompleted', False):
+            if appointment.get('paymentStatus', 'pending') == 'paid':
                 breakdown['appointments']['paid'] += revenue
             else:
                 breakdown['appointments']['unpaid'] += revenue
@@ -1126,7 +1126,7 @@ def get_dashboard_summary(parameters, user_context):
             elif status in ['PENDING', 'IN_PROGRESS']:
                 summary['orders']['pending'] += 1
             
-            if order.get('paymentCompleted', False):
+            if order.get('paymentStatus', 'pending') == 'paid':
                 summary['orders']['paidRevenue'] += revenue
     
     # Process appointments
@@ -1142,7 +1142,7 @@ def get_dashboard_summary(parameters, user_context):
             elif status in ['PENDING', 'CONFIRMED', 'IN_PROGRESS']:
                 summary['appointments']['pending'] += 1
             
-            if appointment.get('paymentCompleted', False):
+            if appointment.get('paymentStatus', 'pending') == 'paid':
                 summary['appointments']['paidRevenue'] += revenue
     
     # Calculate revenue summary
@@ -1212,7 +1212,7 @@ def get_financial_summary(parameters, user_context):
             financial_summary['breakdown']['byStatus'][status]['orders'] += revenue
             financial_summary['breakdown']['byStatus'][status]['total'] += revenue
             
-            if order.get('paymentCompleted', False):
+            if order.get('paymentStatus', 'pending') == 'paid':
                 financial_summary['revenue']['orders']['paid'] += revenue
                 financial_summary['breakdown']['byPaymentStatus']['paid']['orders'] += revenue
                 financial_summary['breakdown']['byPaymentStatus']['paid']['total'] += revenue
@@ -1232,7 +1232,7 @@ def get_financial_summary(parameters, user_context):
             financial_summary['breakdown']['byStatus'][status]['appointments'] += revenue
             financial_summary['breakdown']['byStatus'][status]['total'] += revenue
             
-            if appointment.get('paymentCompleted', False):
+            if appointment.get('paymentStatus', 'pending') == 'paid':
                 financial_summary['revenue']['appointments']['paid'] += revenue
                 financial_summary['breakdown']['byPaymentStatus']['paid']['appointments'] += revenue
                 financial_summary['breakdown']['byPaymentStatus']['paid']['total'] += revenue

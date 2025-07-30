@@ -54,10 +54,6 @@ def lambda_handler(event, context):
             if not existing_record:
                 return resp.error_response("Order not found", 404)
         
-        # Verify the record belongs to the user
-        if existing_record.get('createdUserId') != user_id:
-            return resp.error_response("Unauthorized access to record", 403)
-        
         # Check if payment is already confirmed
         if existing_record.get('paymentStatus') == 'paid':
             return resp.error_response("Payment already confirmed for this record")

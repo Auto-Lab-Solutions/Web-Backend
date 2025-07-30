@@ -39,7 +39,7 @@ def lambda_handler(event, context):
         
         current_status = existing_order.get('status', '')
         assigned_mechanic_id = existing_order.get('assignedMechanicId', '')
-        payment_completed = existing_order.get('paymentCompleted', False)
+        payment_completed = existing_order.get('paymentStatus', 'pending') == 'paid'
         
         # Get request body
         body = req.get_body(event)
