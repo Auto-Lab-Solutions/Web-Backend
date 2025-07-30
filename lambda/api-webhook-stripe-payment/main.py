@@ -79,6 +79,7 @@ def handle_payment_succeeded(payment_intent):
         update_data = {
             'paymentStatus': 'paid',
             'paidAt': int(time.time()),
+            'paymentMethod': 'stripe',
             'paymentAmount': float(payment_intent['amount']) / 100,  # Convert cents to dollars
             'updatedAt': int(time.time())
         }

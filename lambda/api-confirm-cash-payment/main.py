@@ -1,15 +1,8 @@
-import os
 import time
-import json
-import stripe
 import db_utils as db
 import response_utils as resp
 import request_utils as req
 import wsgw_utils as wsgw
-import auth_utils as auth
-
-# Set Stripe secret key from environment
-stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
 
 PERMITTED_ROLE = 'ADMIN'
 
@@ -17,32 +10,39 @@ wsgw_client = wsgw.get_apigateway_client()
 
 def lambda_handler(event, context):
     try:
+        # Get staff user information
+        staff_user_email = req.get_staff_user_email(event)
+        if not staff_user_email:
+            return resp.error_response("Unauthorized: Staff authentication required", 401)
+        
+        staff_user_record = db.get_staff_record(staff_user_email)
+        if not staff_user_record:
+            return resp.error_response(f"No staff record found for email: {staff_user_email}", 404)
+        
+        # Convert decimals to handle DynamoDB Decimal objects
+        staff_user_record = resp.convert_decimal(staff_user_record)
+        
+        staff_roles = staff_user_record.get('roles', [])
+        staff_user_id = staff_user_record.get('userId')
+
+        if not staff_user_id or not staff_roles:
+            return resp.error_response("Unauthorized: Invalid staff user record.")
+
+        if PERMITTED_ROLE not in staff_roles:
+            return resp.error_response("Unauthorized: Insufficient permissions.")
+
         # Get request parameters
-        payment_intent_id = req.get_body_param(event, 'paymentIntentId')
         reference_number = req.get_body_param(event, 'referenceNumber')
         payment_type = req.get_body_param(event, 'type')
-        user_id = req.get_body_param(event, 'userId')
+        revert = req.get_body_param(event, 'revert', False)
         
         # Validate required parameters
-        if not payment_intent_id:
-            return resp.error_response("paymentIntentId is required")
         if not reference_number:
             return resp.error_response("referenceNumber is required")
         if not payment_type:
             return resp.error_response("type is required")
         if payment_type not in ['appointment', 'order']:
             return resp.error_response("type must be 'appointment' or 'order'")
-        if not user_id:
-            return resp.error_response("userId is required")
-
-        # Verify the payment intent with Stripe
-        try:
-            payment_intent = stripe.PaymentIntent.retrieve(payment_intent_id)
-            if payment_intent.status != 'succeeded':
-                return resp.error_response("Payment has not been completed successfully")
-        except stripe.error.StripeError as e:
-            print(f"Stripe error retrieving payment intent: {str(e)}")
-            return resp.error_response("Invalid payment intent", 400)
 
         # Get the existing record
         if payment_type == 'appointment':
@@ -58,26 +58,24 @@ def lambda_handler(event, context):
         if existing_record.get('paymentStatus') == 'paid':
             return resp.error_response("Payment already confirmed for this record")
         
-        # Verify the payment intent ID matches
-        if existing_record.get('paymentIntentId') != payment_intent_id:
-            return resp.error_response("Payment intent ID does not match record")
-        
-        # Update payment record in database
-        payment_update_data = {
-            'status': 'succeeded',
-            'updatedAt': int(time.time())
-        }
-        success = db.update_payment_by_intent_id(payment_intent_id, payment_update_data)
-        if not success:
-            print("Warning: Failed to update payment record")
-        
         # Update the appointment/order record
-        update_data = {
-            'paymentStatus': 'paid',
-            'paidAt': int(time.time()),
-            'paymentAmount': float(payment_intent.amount) / 100,  # Convert cents to dollars
-            'updatedAt': int(time.time())
-        }
+        if revert:
+            update_data = {
+                'paymentStatus': 'pending',
+                'paymentConfirmedBy': None,
+                'paymentConfirmedAt': None,
+                'paymentMethod': None,
+                'updatedAt': int(time.time())
+            }
+        else:
+            # Confirm cash payment
+            update_data = {
+                'paymentStatus': 'paid',
+                'paymentConfirmedBy': staff_user_id,
+                'paymentConfirmedAt': int(time.time()),
+                'paymentMethod': 'cash',
+                'updatedAt': int(time.time())
+            }
         
         if payment_type == 'appointment':
             success = db.update_appointment(reference_number, update_data)
@@ -90,12 +88,13 @@ def lambda_handler(event, context):
             return resp.error_response("Failed to confirm payment", 500)
         
         # Send payment confirmation notification
-        send_payment_confirmation_notification(updated_record, payment_type)
-        
+        send_payment_confirmation_notification(updated_record, payment_type, 'paid' if not revert else 'pending')
+
         return resp.success_response({
-            "message": "Payment confirmed successfully",
+            "message": "Payment status updated successfully",
             "referenceNumber": reference_number,
-            "paymentStatus": "paid",
+            "type": payment_type,
+            "paymentStatus": 'paid' if not revert else 'pending',
             "updatedAt": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
         })
         
@@ -103,7 +102,7 @@ def lambda_handler(event, context):
         print(f"Error in confirm payment lambda: {str(e)}")
         return resp.error_response("Internal server error", 500)
 
-def send_payment_confirmation_notification(record, record_type):
+def send_payment_confirmation_notification(record, record_type, status):
     """Send payment confirmation notification"""
     try:
         receiverConnections = []
@@ -122,11 +121,10 @@ def send_payment_confirmation_notification(record, record_type):
         for connection in receiverConnections:
             wsgw.send_notification(wsgw_client, connection.get('connectionId'), {
                 "type": record_type,
-                "subtype": "payment-confirmation",
-                "success": True,
+                "subtype": "payment-status",
+                "success": True if status == 'paid' else False,
                 "referenceNumber": record.get(f'{record_type}Id'),
-                f"{record_type}Data": resp.convert_decimal(record),
-                "paymentStatus": "paid"
+                "paymentStatus": status
             })
     except Exception as e:
         print(f"Error sending payment confirmation notification: {str(e)}")

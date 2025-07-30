@@ -54,18 +54,14 @@ Parameters:
   UpdateOrderArn:
     Type: String
     Description: Update Order Lambda ARN
-  
-  ConfirmPaymentArn:
-    Type: String
-    Description: Confirm Payment Lambda ARN
-  
+
   CreatePaymentIntentArn:
     Type: String
     Description: Create Payment Intent Lambda ARN
-  
-  ConfirmPaymentSuccessArn:
+
+  ConfirmCashPaymentArn:
     Type: String
-    Description: Confirm Payment Success Lambda ARN
+    Description: Confirm Cash Payment Lambda ARN
   
   WebhookStripePaymentArn:
     Type: String
@@ -215,7 +211,7 @@ Resources:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetUsersArn}/invocations'
-  # /users/online
+
   UsersOnlineResource:
     Type: AWS::ApiGateway::Resource
     Properties:
@@ -376,7 +372,6 @@ Resources:
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetUnavailableSlotsArn}/invocations'
 
-  # /unavailable-slots (POST)
   UnavailableSlotsPostMethod:
     Type: AWS::ApiGateway::Method
     Properties:
@@ -450,6 +445,7 @@ Resources:
             method.response.header.Access-Control-Allow-Methods: true
             method.response.header.Access-Control-Allow-Headers: true
             method.response.header.Access-Control-Allow-Origin: true
+  
   # /orders/{orderId}
   OrdersIdResource:
     Type: AWS::ApiGateway::Resource
@@ -511,54 +507,6 @@ Resources:
             method.response.header.Access-Control-Allow-Headers: true
             method.response.header.Access-Control-Allow-Origin: true
 
-  ConfirmPaymentResource:
-    Type: AWS::ApiGateway::Resource
-    Properties:
-      RestApiId: !Ref RestApi
-      ParentId: !GetAtt RestApi.RootResourceId
-      PathPart: confirm-payment
-
-  ConfirmPaymentMethod:
-    Type: AWS::ApiGateway::Method
-    Properties:
-      RestApiId: !Ref RestApi
-      ResourceId: !Ref ConfirmPaymentResource
-      HttpMethod: POST
-      AuthorizationType: CUSTOM
-      AuthorizerId: !Ref StaffAuthorizerOptional
-      Integration:
-        Type: AWS_PROXY
-        IntegrationHttpMethod: POST
-        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ConfirmPaymentArn}/invocations'
-
-  # /confirm-payment (OPTIONS)
-  ConfirmPaymentOptionsMethod:
-    Type: AWS::ApiGateway::Method
-    Properties:
-      RestApiId: !Ref RestApi
-      ResourceId: !Ref ConfirmPaymentResource
-      HttpMethod: OPTIONS
-      AuthorizationType: NONE
-      Integration:
-        Type: MOCK
-        RequestTemplates:
-          application/json: '{"statusCode": 200}'
-        IntegrationResponses:
-          - StatusCode: 200
-            ResponseParameters:
-              method.response.header.Access-Control-Allow-Methods: "'OPTIONS'"
-              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
-              method.response.header.Access-Control-Allow-Origin: "'*'"
-            ResponseTemplates:
-              application/json: ''
-        PassthroughBehavior: WHEN_NO_MATCH
-      MethodResponses:
-        - StatusCode: 200
-          ResponseParameters:
-            method.response.header.Access-Control-Allow-Methods: true
-            method.response.header.Access-Control-Allow-Headers: true
-            method.response.header.Access-Control-Allow-Origin: true
-
   InquiriesResource:
     Type: AWS::ApiGateway::Resource
     Properties:
@@ -590,7 +538,7 @@ Resources:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CreateInquiryArn}/invocations'
-  # /inquiries (OPTIONS)
+
   InquiriesOptionsMethod:
     Type: AWS::ApiGateway::Method
     Properties:
@@ -618,7 +566,6 @@ Resources:
             method.response.header.Access-Control-Allow-Headers: true
             method.response.header.Access-Control-Allow-Origin: true
 
-  # /report-upload-urls (POST)
   ReportUploadUrlsResource:
     Type: AWS::ApiGateway::Resource
     Properties:
@@ -638,8 +585,7 @@ Resources:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetReportUploadUrlArn}/invocations'
-        
-  # /report-upload-urls (OPTIONS)
+
   ReportUploadUrlsOptionsMethod:
     Type: AWS::ApiGateway::Method
     Properties:
@@ -674,7 +620,6 @@ Resources:
       ParentId: !GetAtt RestApi.RootResourceId
       PathPart: analytics
 
-  # /analytics (POST)
   AnalyticsPostMethod:
     Type: AWS::ApiGateway::Method
     Properties:
@@ -707,7 +652,6 @@ Resources:
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetStaffRolesArn}/invocations'
 
-  # /users/take
   UsersTakeResource:
     Type: AWS::ApiGateway::Resource
     Properties:
@@ -727,7 +671,6 @@ Resources:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${TakeUserArn}/invocations'
-
 
   MessagesResource:
     Type: AWS::ApiGateway::Resource
@@ -761,7 +704,6 @@ Resources:
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${SendMessageArn}/invocations'
 
-  # /messages (OPTIONS)
   MessagesOptionsMethod:
     Type: AWS::ApiGateway::Method
     Properties:
@@ -789,7 +731,6 @@ Resources:
             method.response.header.Access-Control-Allow-Headers: true
             method.response.header.Access-Control-Allow-Origin: true
 
-  # /messages/notify
   MessagesNotifyResource:
     Type: AWS::ApiGateway::Resource
     Properties:
@@ -810,7 +751,6 @@ Resources:
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${NotifyArn}/invocations'
 
-  # /messages/notify (OPTIONS)
   MessagesNotifyOptionsMethod:
     Type: AWS::ApiGateway::Method
     Properties:
@@ -858,7 +798,6 @@ Resources:
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetLastMessagesArn}/invocations'
 
-  # Payment Endpoints
   PaymentsResource:
     Type: AWS::ApiGateway::Resource
     Properties:
@@ -866,12 +805,39 @@ Resources:
       ParentId: !GetAtt RestApi.RootResourceId
       PathPart: payments
 
-  CreatePaymentIntentResource:
+  ConfirmCashPaymentResource:
     Type: AWS::ApiGateway::Resource
     Properties:
       RestApiId: !Ref RestApi
       ParentId: !Ref PaymentsResource
-      PathPart: create-intent
+      PathPart: confirm
+
+  ConfirmCashPaymentMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref ConfirmCashPaymentResource
+      HttpMethod: POST
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref StaffAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ConfirmCashPaymentArn}/invocations'
+
+  StripeResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref PaymentsResource
+      PathPart: stripe
+
+  CreatePaymentIntentResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref StripeResource
+      PathPart: intent
 
   CreatePaymentIntentMethod:
     Type: AWS::ApiGateway::Method
@@ -879,67 +845,45 @@ Resources:
       RestApiId: !Ref RestApi
       ResourceId: !Ref CreatePaymentIntentResource
       HttpMethod: POST
-      AuthorizationType: CUSTOM
-      AuthorizerId: !Ref StaffAuthorizerOptional
+      AuthorizationType: NONE
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${CreatePaymentIntentArn}/invocations'
-
-  ConfirmPaymentV2Resource:
-    Type: AWS::ApiGateway::Resource
-    Properties:
-      RestApiId: !Ref RestApi
-      ParentId: !Ref PaymentsResource
-      PathPart: confirm
-
-  ConfirmPaymentV2Method:
+  
+  CreatePaymentIntentOptionsMethod:
     Type: AWS::ApiGateway::Method
     Properties:
       RestApiId: !Ref RestApi
-      ResourceId: !Ref ConfirmPaymentV2Resource
-      HttpMethod: POST
-      AuthorizationType: CUSTOM
-      AuthorizerId: !Ref StaffAuthorizerOptional
+      ResourceId: !Ref CreatePaymentIntentResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
       Integration:
-        Type: AWS_PROXY
-        IntegrationHttpMethod: POST
-        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ConfirmPaymentArn}/invocations'
-
-  ConfirmPaymentSuccessResource:
-    Type: AWS::ApiGateway::Resource
-    Properties:
-      RestApiId: !Ref RestApi
-      ParentId: !Ref PaymentsResource
-      PathPart: confirm-success
-
-  ConfirmPaymentSuccessMethod:
-    Type: AWS::ApiGateway::Method
-    Properties:
-      RestApiId: !Ref RestApi
-      ResourceId: !Ref ConfirmPaymentSuccessResource
-      HttpMethod: POST
-      AuthorizationType: CUSTOM
-      AuthorizerId: !Ref StaffAuthorizerOptional
-      Integration:
-        Type: AWS_PROXY
-        IntegrationHttpMethod: POST
-        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ConfirmPaymentSuccessArn}/invocations'
-
-  # Webhook Endpoints
-  WebhooksResource:
-    Type: AWS::ApiGateway::Resource
-    Properties:
-      RestApiId: !Ref RestApi
-      ParentId: !GetAtt RestApi.RootResourceId
-      PathPart: webhooks
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            ResponseTemplates:
+              application/json: ''
+        PassthroughBehavior: WHEN_NO_MATCH
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
 
   StripePaymentWebhookResource:
     Type: AWS::ApiGateway::Resource
     Properties:
       RestApiId: !Ref RestApi
-      ParentId: !Ref WebhooksResource
-      PathPart: stripe-payment
+      ParentId: !Ref StripeResource
+      PathPart: confirm
 
   StripePaymentWebhookMethod:
     Type: AWS::ApiGateway::Method
@@ -952,6 +896,33 @@ Resources:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
         Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WebhookStripePaymentArn}/invocations'
+  
+  StripePaymentWebhookOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref StripePaymentWebhookResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            ResponseTemplates:
+              application/json: ''
+        PassthroughBehavior: WHEN_NO_MATCH
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
 
   # Lambda Permissions
   GetPricesPermission:
@@ -1034,26 +1005,18 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/*'
 
-  ConfirmPaymentPermission:
+  ConfirmCashPaymentPermission:
     Type: AWS::Lambda::Permission
     Properties:
-      FunctionName: !Ref ConfirmPaymentArn
+      FunctionName: !Ref ConfirmCashPaymentArn
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/*'
-
+  
   CreatePaymentIntentPermission:
     Type: AWS::Lambda::Permission
     Properties:
       FunctionName: !Ref CreatePaymentIntentArn
-      Action: lambda:InvokeFunction
-      Principal: apigateway.amazonaws.com
-      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/*'
-
-  ConfirmPaymentSuccessPermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !Ref ConfirmPaymentSuccessArn
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/*'
@@ -1195,37 +1158,29 @@ Resources:
       - OrdersGetMethod
       - OrdersPostMethod
       - OrdersIdPatchMethod
-      - ConfirmPaymentMethod
-      - ConfirmPaymentOptionsMethod
       - InquiriesGetMethod
       - InquiriesPostMethod
       - ReportUploadUrlsPostMethod
       - GetStaffRolesMethod
       - MessagesNotifyPostMethod
       - UsersTakePostMethod
-      # Removed ConnectionsMethod (no /connections endpoint)
       - MessagesGetMethod
       - MessagesPostMethod
+      - MessagesOptionsMethod
       - LastMessagesGetMethod
+      - ConfirmCashPaymentMethod
       - CreatePaymentIntentMethod
-      - ConfirmPaymentV2Method
-      - ConfirmPaymentSuccessMethod
+      - CreatePaymentIntentOptionsMethod
       - StripePaymentWebhookMethod
-      # --- NEW ENDPOINTS ---
+      - StripePaymentWebhookOptionsMethod
       - OrdersIdGetMethod
-      - OrdersIdPatchMethod
       - OrdersIdOptionsMethod
       - AppointmentsIdGetMethod
-      - AppointmentsIdPatchMethod
       - AppointmentsIdOptionsMethod
       - UsersOnlineGetMethod
-      - UsersTakePostMethod
-      - MessagesNotifyPostMethod
       - MessagesNotifyOptionsMethod
-      - ReportUploadUrlsPostMethod
       - ReportUploadUrlsOptionsMethod
       - AnalyticsPostMethod
-      - UnavailableSlotsPostMethod
       - InquiriesOptionsMethod
       - AppointmentsOptionsMethod
       - OrdersOptionsMethod
