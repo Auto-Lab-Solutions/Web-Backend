@@ -137,12 +137,12 @@ def validate_permissions(scenario, staff_roles, current_status, staff_user_id, a
         
     elif scenario == 'reports':
         # Scenario 4: Reports and post notes
-        if 'MECHANIC' not in staff_roles:
-            return {'allowed': False, 'message': 'Unauthorized: MECHANIC role required'}
+        if 'MECHANIC' not in staff_roles and 'CUSTOMER_SUPPORT' not in staff_roles:
+            return {'allowed': False, 'message': 'Unauthorized: MECHANIC or CUSTOMER_SUPPORT role required'}
+        if 'MECHANIC' in staff_roles and assigned_mechanic_id != staff_user_id:
+            return {'allowed': False, 'message': 'Unauthorized: You must be assigned to this appointment'}
         if current_status != 'COMPLETED':
             return {'allowed': False, 'message': f'Cannot update reports when status is {current_status}'}
-        if assigned_mechanic_id != staff_user_id:
-            return {'allowed': False, 'message': 'Unauthorized: You must be assigned to this appointment'}
     
     return {'allowed': True, 'message': ''}
 

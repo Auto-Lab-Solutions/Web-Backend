@@ -57,6 +57,9 @@ def lambda_handler(event, context):
         # Check if payment is already confirmed
         if existing_record.get('paymentStatus') == 'paid':
             return resp.error_response("Payment already confirmed for this record")
+        # Check status of the record
+        if existing_record.get('status') in ['PENDING', 'CANCELLED']:
+            return resp.error_response(f"{payment_type.capitalize()} must be confirmed before payment")
         
         # Update the appointment/order record
         if revert:

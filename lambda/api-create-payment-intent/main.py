@@ -42,16 +42,17 @@ def lambda_handler(event, context):
             record = db.get_appointment(reference_number)
             if not record:
                 return resp.error_response("Appointment not found", 404)
-            # Check if already paid
-            if record.get('paymentStatus') == 'paid':
-                return resp.error_response("Payment already completed for this appointment")
         else:  # order
             record = db.get_order(reference_number)
             if not record:
                 return resp.error_response("Order not found", 404)
-            # Check if already paid
-            if record.get('paymentStatus') == 'paid':
-                return resp.error_response("Payment already completed for this order")
+        
+        # Check if payment is already confirmed
+        if record.get('paymentStatus') == 'paid':
+            return resp.error_response("Payment already confirmed for this record")
+        # Check status of the record
+        if record.get('status') in ['PENDING', 'CANCELLED']:
+            return resp.error_response(f"{payment_type.capitalize()} must be confirmed before payment")
         
         # Ensure metadata includes required fields
         metadata.update({
