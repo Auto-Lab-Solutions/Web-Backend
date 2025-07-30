@@ -317,8 +317,8 @@ show_endpoints() {
         --output text \
         --region $AWS_REGION 2>/dev/null || echo "NOT_FOUND")
 
-    # Get Stripe Webhook URL (REST endpoint + /stripe/webhook)
-    local stripe_webhook_url="${rest_endpoint}/stripe/webhook"
+    # Get Stripe Webhook URL (REST endpoint + /payments/stripe/webhook)
+    local stripe_webhook_url="${rest_endpoint}/payments/stripe/webhook"
     
     echo ""
     print_success "API Endpoints:"
