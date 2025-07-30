@@ -1,0 +1,26 @@
+[
+  {
+    "serviceId": { "N": "1" },
+    "planId": { "N": "1" },
+    "planName": { "S": "Standard Pre Purchase Inspection" },
+    "price": { "N": "220" },
+    "serviceName": { "S": "Pre Purchase Inspection" },
+    "active": { "BOOL": true }
+  },
+  {
+    "serviceId": { "N": "1" },
+    "planId": { "N": "2" },
+    "planName": { "S": "Comprehensive Pre Purchase Inspection" },
+    "price": { "N": "280" },
+    "serviceName": { "S": "Pre Purchase Inspection" },
+    "active": { "BOOL": true }
+  },
+  {
+    "serviceId": { "N": "1" },
+    "planId": { "N": "3" },
+    "planName": { "S": "Advanced Diagnostic Inspection" },
+    "price": { "N": "350" },
+    "serviceName": { "S": "Pre Purchase Inspection" },
+    "active": { "BOOL": true }
+  }
+]

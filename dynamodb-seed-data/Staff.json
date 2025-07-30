@@ -1,0 +1,71 @@
+[
+  {
+    "userEmail": {
+      "S": "janithadharmasuriya@gmail.com"
+    },
+    "contactNumber": {
+      "S": "0451237048"
+    },
+    "roles": {
+      "L": [
+        {
+          "S": "ADMIN"
+        },
+        {
+          "S": "MECHANIC"
+        },
+        {
+          "S": "CUSTOMER_SUPPORT"
+        }
+      ]
+    },
+    "userId": {
+      "S": "c712121f-c47f-47cb-a115-7e3ce1cf3877"
+    },
+    "userName": {
+      "S": "Janitha"
+    }
+  },
+  {
+    "userEmail": {
+      "S": "sharadaw.21@cse.mrt.ac.lk"
+    },
+    "contactNumber": {
+      "S": "0451237048"
+    },
+    "roles": {
+      "L": [
+        {
+          "S": "MECHANIC"
+        }
+      ]
+    },
+    "userId": {
+      "S": "3f8a9e7c-31c3-4db8-b1f0-857a5f2cbf3e"
+    },
+    "userName": {
+      "S": "Sharada M"
+    }
+  },
+  {
+    "userEmail": {
+      "S": "sharadashehan6@gmail.com"
+    },
+    "contactNumber": {
+      "S": "0451237048"
+    },
+    "roles": {
+      "L": [
+        {
+          "S": "CUSTOMER_SUPPORT"
+        }
+      ]
+    },
+    "userId": {
+      "S": "d1bffd7e-90a7-4aa7-87f4-64090db149f0"
+    },
+    "userName": {
+      "S": "Sharada C"
+    }
+  }
+]

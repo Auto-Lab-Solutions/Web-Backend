@@ -1,0 +1,34 @@
+[
+  {
+    "categoryId": { "N": "1" },
+    "itemId": { "N": "1" },
+    "categoryName": { "S": "Engines & Parts" },
+    "itemName": { "S": "V8 Engine" },
+    "price": { "N": "150" },
+    "active": { "BOOL": true }
+  },
+  {
+    "categoryId": { "N": "1" },
+    "itemId": { "N": "2" },
+    "categoryName": { "S": "Engines & Parts" },
+    "itemName": { "S": "V10 Engine" },
+    "price": { "N": "120" },
+    "active": { "BOOL": true }
+  },
+  {
+    "categoryId": { "N": "2" },
+    "itemId": { "N": "1" },
+    "categoryName": { "S": "Tyres & Wheels" },
+    "itemName": { "S": "Alloy Wheels" },
+    "price": { "N": "200" },
+    "active": { "BOOL": true }
+  },
+  {
+    "categoryId": { "N": "2" },
+    "itemId": { "N": "2" },
+    "categoryName": { "S": "Tyres & Wheels" },
+    "itemName": { "S": "Winter Tyres" },
+    "price": { "N": "100" },
+    "active": { "BOOL": true }
+  }
+]

@@ -278,8 +278,12 @@ main() {
     
     update_auth0_config
     
+    # Initialize DynamoDB tables with required data
+    print_status "Initializing DynamoDB tables with default data..."
+    ./initialize-dynamodb-data.sh "$ENVIRONMENT"
+
     print_success "Deployment completed successfully!"
-    
+
     # Print important endpoints
     print_status "Important endpoints:"
     aws cloudformation describe-stacks \
