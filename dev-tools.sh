@@ -316,6 +316,9 @@ show_endpoints() {
         --query 'Stacks[0].Outputs[?OutputKey==`FrontendCloudFrontDistributionId`].OutputValue' \
         --output text \
         --region $AWS_REGION 2>/dev/null || echo "NOT_FOUND")
+
+    # Get Stripe Webhook URL (REST endpoint + /stripe/webhook)
+    local stripe_webhook_url="${rest_endpoint}/stripe/webhook"
     
     echo ""
     print_success "API Endpoints:"
@@ -330,7 +333,9 @@ show_endpoints() {
     echo "      ID: $frontend_cf_id"
     echo "  📊 Status: $([ "$frontend_url" != "NOT_FOUND" ] && echo "✅ Deployed" || echo "❌ Not Deployed")"
     echo ""
-    
+    print_success "Stripe Webhook URL:"
+    echo "  🔑 $stripe_webhook_url"
+    echo ""
     print_status "Sample API calls:"
     echo "  curl \"$rest_endpoint/get-staff-roles?email=test@example.com\""
     echo "  curl \"$rest_endpoint/prices\" -H \"Authorization: Bearer YOUR_TOKEN\""
