@@ -142,6 +142,7 @@ Resources:
       RestApiId: !Ref RestApi
       AuthorizerUri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${StaffAuthorizerArn}/invocations'
       AuthorizerCredentials: !GetAtt ApiGatewayExecutionRole.Arn
+      IdentitySource: method.request.header
 
   StaffAuthorizerOptional:
     Type: AWS::ApiGateway::Authorizer
@@ -151,6 +152,7 @@ Resources:
       RestApiId: !Ref RestApi
       AuthorizerUri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${StaffAuthorizerOptionalArn}/invocations'
       AuthorizerCredentials: !GetAtt ApiGatewayExecutionRole.Arn
+      IdentitySource: method.request.header
 
   # API Gateway Execution Role
   ApiGatewayExecutionRole:
