@@ -112,6 +112,9 @@ package_lambda() {
         print_error "Lambda directory not found: $lambda_dir"
         return 1
     fi
+    if [ "$lambda_dir" == "lambda/common_lib/" ]; then
+        continue  # Skip common library directory
+    fi
     
     print_status "Packaging $lambda_name..."
     
@@ -154,6 +157,10 @@ update_lambda_code() {
     local full_function_name="${lambda_name}-${ENVIRONMENT}"
     local zip_file="dist/lambda/$lambda_name.zip"
     
+    if [ "$lambda_name" == "common_lib" ]; then
+        print_warning "Skipping common library update"
+        return 0
+    fi
     if [ ! -f "$zip_file" ]; then
         print_error "ZIP file not found: $zip_file"
         return 1

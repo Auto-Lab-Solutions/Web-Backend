@@ -132,37 +132,43 @@ package_lambdas() {
     
     # Get list of all lambda directories
     for lambda_dir in lambda/*/; do
-        if [ -d "$lambda_dir" ]; then
-            lambda_name=$(basename "$lambda_dir")
-            print_status "Packaging $lambda_name..."
-            
-            # Create temp directory
-            temp_dir="dist/lambda/$lambda_name"
-            mkdir -p "$temp_dir"
-            
-            # Copy function code
-            cp "$lambda_dir"*.py "$temp_dir/"
-            
-            # Copy common library
-            if [ -d "lambda/common_lib" ]; then
-                cp lambda/common_lib/*.py "$temp_dir/"
-            fi
-            
-            # Install requirements if requirements.txt exists
-            if [ -f "$lambda_dir/requirements.txt" ]; then
-                pip3 install -r "$lambda_dir/requirements.txt" -t "$temp_dir/"
-            fi
-            
-            # Create ZIP file
-            cd "$temp_dir"
-            zip -r "../$lambda_name.zip" . -q
-            cd - > /dev/null
-            
-            # Upload to S3
-            aws s3 cp "dist/lambda/$lambda_name.zip" "s3://$CLOUDFORMATION_BUCKET/lambda/$lambda_name.zip"
-            
-            print_success "Packaged and uploaded $lambda_name"
+        if [ ! -d "$lambda_dir" ]; then
+            print_error "Lambda directory not found: $lambda_dir"
+            return 1
         fi
+        if [ "$lambda_dir" == "lambda/common_lib/" ]; then
+            continue  # Skip common library directory
+        fi
+
+        lambda_name=$(basename "$lambda_dir")
+        print_status "Packaging $lambda_name..."
+        
+        # Create temp directory
+        temp_dir="dist/lambda/$lambda_name"
+        mkdir -p "$temp_dir"
+        
+        # Copy function code
+        cp "$lambda_dir"*.py "$temp_dir/"
+        
+        # Copy common library
+        if [ -d "lambda/common_lib" ]; then
+            cp lambda/common_lib/*.py "$temp_dir/"
+        fi
+        
+        # Install requirements if requirements.txt exists
+        if [ -f "$lambda_dir/requirements.txt" ]; then
+            pip3 install -r "$lambda_dir/requirements.txt" -t "$temp_dir/"
+        fi
+        
+        # Create ZIP file
+        cd "$temp_dir"
+        zip -r "../$lambda_name.zip" . -q
+        cd - > /dev/null
+        
+        # Upload to S3
+        aws s3 cp "dist/lambda/$lambda_name.zip" "s3://$CLOUDFORMATION_BUCKET/lambda/$lambda_name.zip"
+        
+        print_success "Packaged and uploaded $lambda_name"
     done
 }
 
@@ -171,7 +177,11 @@ update_lambda_code() {
     local lambda_name=$1
     local full_function_name="${lambda_name}-${ENVIRONMENT}"
     local zip_file="dist/lambda/$lambda_name.zip"
-    
+
+    if [ "$lambda_name" == "common_lib" ]; then
+        print_warning "Skipping common library update"
+        return 0
+    fi
     if [ ! -f "$zip_file" ]; then
         print_error "ZIP file not found: $zip_file"
         return 1
