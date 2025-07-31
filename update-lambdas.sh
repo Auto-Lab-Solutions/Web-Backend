@@ -1,9 +1,6 @@
+
 #!/bin/bash
-
-# Update Lambda Functions Script
 # This script updates only Lambda function code without redeploying infrastructure
-
-set -e
 
 # Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
