@@ -79,7 +79,7 @@ for VAR_NAME in "${!ENV_VARS[@]}"; do
   VAR_ID=$(echo "$VARS_JSON" | jq -r ".variables[] | select(.name == \"$VAR_NAME\") | .id" || true)
 
   if [ -z "$VAR_ID" ] || [ "$VAR_ID" == "null" ]; then
-    # Create variable in environment
+    # Try to create variable in environment
     RESP=$(curl -s -w "%{http_code}" -o /tmp/gh_var_resp.json -X POST \
       -H "Authorization: Bearer $FRONTEND_GITHUB_TOKEN" \
       -H "Content-Type: application/json" \
@@ -88,9 +88,35 @@ for VAR_NAME in "${!ENV_VARS[@]}"; do
     if [ "$RESP" -ge 200 ] && [ "$RESP" -lt 300 ]; then
       echo "Created environment variable $VAR_NAME in $FRONTEND_REPO_NAME/$ENVIRONMENT."
     else
-      echo "Error: Failed to create environment variable $VAR_NAME. Response:"
-      cat /tmp/gh_var_resp.json
-      exit 1
+      # Check if error is 409 (already exists), then update instead
+      HTTP_STATUS=$(tail -c 3 /tmp/gh_var_resp.json | tr -d '\n')
+      if grep -q '"status": "409"' /tmp/gh_var_resp.json || grep -q 'Already exists' /tmp/gh_var_resp.json; then
+        # Get variable ID and update
+        VARS_JSON=$(curl -s -H "Authorization: Bearer $FRONTEND_GITHUB_TOKEN" \
+          "https://api.github.com/repos/$FRONTEND_REPO_OWNER/$FRONTEND_REPO_NAME/environments/$ENVIRONMENT/variables")
+        VAR_ID=$(echo "$VARS_JSON" | jq -r ".variables[] | select(.name == \"$VAR_NAME\") | .id" || true)
+        if [ -z "$VAR_ID" ] || [ "$VAR_ID" == "null" ]; then
+          echo "Error: Could not retrieve variable ID for $VAR_NAME after 409 conflict."
+          cat /tmp/gh_var_resp.json
+          exit 1
+        fi
+        RESP=$(curl -s -w "%{http_code}" -o /tmp/gh_var_resp.json -X PATCH \
+          -H "Authorization: Bearer $FRONTEND_GITHUB_TOKEN" \
+          -H "Content-Type: application/json" \
+          -d "{\"name\":\"$VAR_NAME\",\"value\":\"$VAR_VALUE\"}" \
+          "https://api.github.com/repos/$FRONTEND_REPO_OWNER/$FRONTEND_REPO_NAME/environments/$ENVIRONMENT/variables/$VAR_ID")
+        if [ "$RESP" -ge 200 ] && [ "$RESP" -lt 300 ]; then
+          echo "Updated environment variable $VAR_NAME in $FRONTEND_REPO_NAME/$ENVIRONMENT (after 409 conflict)."
+        else
+          echo "Error: Failed to update environment variable $VAR_NAME after 409 conflict. Response:"
+          cat /tmp/gh_var_resp.json
+          exit 1
+        fi
+      else
+        echo "Error: Failed to create environment variable $VAR_NAME. Response:"
+        cat /tmp/gh_var_resp.json
+        exit 1
+      fi
     fi
   else
     # Update variable in environment using variable ID
