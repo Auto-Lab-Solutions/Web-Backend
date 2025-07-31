@@ -128,26 +128,26 @@ jobs:
         echo "Setting up development environment configuration"
         export AUTO_LAB_ENV=development
 
-    - name: Deploy infrastructure
-      run: |
-        echo "Deploying to development environment"
-        ./deploy.sh development
-      env:
-        AUTO_LAB_ENV: development
+    # - name: Deploy infrastructure
+    #   run: |
+    #     echo "Deploying to development environment"
+    #     ./deploy.sh development
+    #   env:
+    #     AUTO_LAB_ENV: development
 
-    - name: Validate deployment
-      run: |
-        echo "Validating development deployment"
-        ./validate-deployment.sh --env development
-      env:
-        AUTO_LAB_ENV: development
+    # - name: Validate deployment
+    #   run: |
+    #     echo "Validating development deployment"
+    #     ./validate-deployment.sh --env development
+    #   env:
+    #     AUTO_LAB_ENV: development
 
-    - name: Update Stripe webhook endpoint
-      run: |
-        echo "Updating Stripe webhook endpoint for development"
-        ./update-stripe-webhook.sh
-      env:
-        AUTO_LAB_ENV: development
+    # - name: Update Stripe webhook endpoint
+    #   run: |
+    #     echo "Updating Stripe webhook endpoint for development"
+    #     ./update-stripe-webhook.sh
+    #   env:
+    #     AUTO_LAB_ENV: development
 
     - name: Update frontend environment variables
       run: |
