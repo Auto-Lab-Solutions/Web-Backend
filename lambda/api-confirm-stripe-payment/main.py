@@ -15,21 +15,8 @@ def lambda_handler(event, context):
     try:
         # Get request parameters
         payment_intent_id = req.get_body_param(event, 'paymentIntentId')
-        reference_number = req.get_body_param(event, 'referenceNumber')
-        payment_type = req.get_body_param(event, 'type')
-        user_id = req.get_body_param(event, 'userId')
-        
-        # Validate required parameters
         if not payment_intent_id:
             return resp.error_response("paymentIntentId is required")
-        if not reference_number:
-            return resp.error_response("referenceNumber is required")
-        if not payment_type:
-            return resp.error_response("type is required")
-        if payment_type not in ['appointment', 'order']:
-            return resp.error_response("type must be 'appointment' or 'order'")
-        if not user_id:
-            return resp.error_response("userId is required")
 
         # Verify the payment intent with Stripe
         try:
@@ -39,6 +26,15 @@ def lambda_handler(event, context):
         except stripe.error.StripeError as e:
             print(f"Stripe error retrieving payment intent: {str(e)}")
             return resp.error_response("Invalid payment intent", 400)
+        
+        # Get payment record from database
+        payment_record = db.get_payment_by_intent_id(payment_intent_id)
+        if not payment_record:
+            return resp.error_response("Payment record not found", 404)
+        
+        # Get the reference number and type from payment record
+        reference_number = payment_record.get('referenceNumber')
+        payment_type = payment_record.get('type')
 
         # Get the existing record
         if payment_type == 'appointment':
