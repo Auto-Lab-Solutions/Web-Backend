@@ -117,6 +117,13 @@ create_cf_bucket() {
     fi
 }
 
+# Function to check if Lambda function exists in AWS
+function_exists() {
+    local function_name=$1
+    local full_function_name="${function_name}-${ENVIRONMENT}"
+    aws lambda get-function --function-name "$full_function_name" --region $AWS_REGION &>/dev/null
+}
+
 # Package and upload Lambda functions
 package_lambdas() {
     print_status "Packaging Lambda functions..."
