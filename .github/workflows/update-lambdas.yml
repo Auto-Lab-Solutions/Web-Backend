@@ -24,6 +24,7 @@ jobs:
   update-lambdas:
     name: Update Lambda Functions
     runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
     
     steps:
     - name: Checkout code
@@ -34,11 +35,11 @@ jobs:
       with:
         python-version: '3.13'
 
-    - name: Configure AWS credentials
+    - name: Configure AWS credentials for validation
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        aws-access-key-id: ${{ github.event.inputs.environment == 'production' && secrets.PROD_AWS_ACCESS_KEY_ID || secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ github.event.inputs.environment == 'production' && secrets.PROD_AWS_SECRET_ACCESS_KEY || secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
 
     - name: Install dependencies
