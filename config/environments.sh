@@ -100,12 +100,17 @@ get_env_config() {
     # Auth0 configuration (if needed)
     export AUTH0_DOMAIN="${AUTH0_DOMAIN}"
     export AUTH0_AUDIENCE="${AUTH0_AUDIENCE}"
-    
+
+    # Frontend GitHub Repository Configuration
+    FRONTEND_REPO_OWNER="Auto-Lab-Solutions"
+    FRONTEND_REPO_NAME="Web-Frontend"
+    FRONTEND_GITHUB_TOKEN="${FRONTEND_GITHUB_TOKEN}"
 
     # Load secrets from environment variables (GitHub environments will provide correct values)
+    export STRIPE_WEBHOOK_ENDPOINT_ID="${STRIPE_WEBHOOK_ENDPOINT_ID}"
+    export STRIPE_PUBLISHABLE_KEY="${STRIPE_PUBLISHABLE_KEY}"
     export STRIPE_SECRET_KEY="${STRIPE_SECRET_KEY}"
     export STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK_SECRET}"
-    export STRIPE_WEBHOOK_ENDPOINT_ID="${STRIPE_WEBHOOK_ENDPOINT_ID}"
     export SHARED_KEY="${SHARED_KEY}"
     
     return 0
@@ -122,36 +127,9 @@ show_env_config() {
     echo "=========================================="
     echo "Environment Configuration: $ENVIRONMENT"
     echo "=========================================="
-    echo "AWS Region:              $AWS_REGION"
-    echo "Stack Name:              $STACK_NAME"
-    echo "S3 Bucket:               $S3_BUCKET_NAME"
-    echo "CloudFormation Bucket:   $CLOUDFORMATION_BUCKET"
-    echo "Auth0 Domain:            $AUTH0_DOMAIN"
-    echo "Auth0 Audience:          $AUTH0_AUDIENCE"
-    echo "Log Level:               $LOG_LEVEL"
-    echo "Lambda Timeout:          ${LAMBDA_TIMEOUT}s"
-    echo "Lambda Memory:           ${LAMBDA_MEMORY}MB"
-    echo ""
-    echo "DynamoDB Tables:"
-    echo "  Staff:                 $STAFF_TABLE"
-    echo "  Users:                 $USERS_TABLE"
-    echo "  Connections:           $CONNECTIONS_TABLE"
-    echo "  Messages:              $MESSAGES_TABLE"
-    echo "  UnavailableSlots:      $UNAVAILABLE_SLOTS_TABLE"
-    echo "  Appointments:          $APPOINTMENTS_TABLE"
-    echo "  ServicePrices:         $SERVICE_PRICES_TABLE"
-    echo "  Orders:                $ORDERS_TABLE"
-    echo "  ItemPrices:            $ITEM_PRICES_TABLE"
-    echo "  Inquiries:             $INQUIRIES_TABLE"
-    echo "  Payments:              $PAYMENTS_TABLE"
-    echo ""
-    echo "Additional Configuration:"
-    echo "  Reports Bucket:        $REPORTS_BUCKET_NAME"
-    echo ""
-    echo "Frontend Configuration:"
-    echo "  Domain Name:           $FRONTEND_DOMAIN_NAME"
-    echo "  Custom Domain:         $ENABLE_CUSTOM_DOMAIN"
-    echo "  Enable Website:        $ENABLE_FRONTEND_WEBSITE"
+    # Print all exported environment variables relevant to this script
+    echo "All Environment Variables (sorted):"
+    env | grep -E '^(AWS_|STACK_NAME|S3_BUCKET_NAME|CLOUDFORMATION_BUCKET|LOG_LEVEL|LAMBDA_TIMEOUT|LAMBDA_MEMORY|FRONTEND_DOMAIN_NAME|FRONTEND_HOSTED_ZONE_ID|FRONTEND_ACM_CERTIFICATE_ARN|ENABLE_CUSTOM_DOMAIN|ENABLE_FRONTEND_WEBSITE|PYTHON_VERSION|NODEJS_VERSION|STAFF_TABLE|USERS_TABLE|CONNECTIONS_TABLE|MESSAGES_TABLE|UNAVAILABLE_SLOTS_TABLE|APPOINTMENTS_TABLE|SERVICE_PRICES_TABLE|ORDERS_TABLE|ITEM_PRICES_TABLE|INQUIRIES_TABLE|PAYMENTS_TABLE|REPORTS_BUCKET_NAME|AUTH0_DOMAIN|AUTH0_AUDIENCE|FRONTEND_REPO_OWNER|FRONTEND_REPO_NAME|FRONTEND_GITHUB_TOKEN|STRIPE_WEBHOOK_ENDPOINT_ID|STRIPE_PUBLISHABLE_KEY|STRIPE_SECRET_KEY|STRIPE_WEBHOOK_SECRET|SHARED_KEY)=' | sort
     echo "=========================================="
 }
 

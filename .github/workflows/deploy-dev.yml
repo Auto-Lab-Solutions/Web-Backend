@@ -12,16 +12,12 @@ env:
   ENVIRONMENT: development
   AUTH0_DOMAIN: ${{ vars.AUTH0_DOMAIN }}
   AUTH0_AUDIENCE: ${{ vars.AUTH0_AUDIENCE }}
+  STRIPE_WEBHOOK_ENDPOINT_ID: ${{ vars.STRIPE_WEBHOOK_ENDPOINT_ID }}
+  STRIPE_PUBLISHABLE_KEY: ${{ vars.STRIPE_PUBLISHABLE_KEY }}
   STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
   STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
   SHARED_KEY: ${{ secrets.SHARED_KEY }}
-  STRIPE_WEBHOOK_ENDPOINT_ID: ${{ secrets.STRIPE_WEBHOOK_ENDPOINT_ID }}
-  # Frontend deployment settings for development
-  ENABLE_FRONTEND_WEBSITE: 'true'
-  ENABLE_CUSTOM_DOMAIN: 'false'
-  FRONTEND_DOMAIN_NAME: ''
-  FRONTEND_HOSTED_ZONE_ID: ''
-  FRONTEND_ACM_CERTIFICATE_ARN: ''
+  FRONTEND_GITHUB_TOKEN: ${{ secrets.FRONTEND_GITHUB_TOKEN }}
 
 jobs:
   validate:
@@ -143,6 +139,20 @@ jobs:
       run: |
         echo "Validating development deployment"
         ./validate-deployment.sh --env development
+      env:
+        AUTO_LAB_ENV: development
+
+    - name: Update Stripe webhook endpoint
+      run: |
+        echo "Updating Stripe webhook endpoint for development"
+        ./update-stripe-webhook.sh
+      env:
+        AUTO_LAB_ENV: development
+
+    - name: Update frontend environment variables
+      run: |
+        echo "Updating frontend environment variables for development"
+        ./update-frontend-env-vars.sh
       env:
         AUTO_LAB_ENV: development
 

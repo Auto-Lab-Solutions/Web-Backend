@@ -1,31 +1,58 @@
 #!/bin/bash
 # Script to update Stripe webhook endpoint destination after deployment
-# Usage: ./update-stripe-webhook.sh <WEBHOOK_ENDPOINT_ID> <NEW_DESTINATION_URL>
-# Or set STRIPE_API_KEY, WEBHOOK_ENDPOINT_ID, and NEW_DESTINATION_URL as environment variables
-
 set -e
 
-# Read from arguments or environment variables
-WEBHOOK_ENDPOINT_ID=${1:-$WEBHOOK_ENDPOINT_ID}
-NEW_DESTINATION_URL=${2:-$NEW_DESTINATION_URL}
-STRIPE_API_KEY=${STRIPE_API_KEY}
+# Show usage
+show_usage() {
+  echo "Usage: $0 [--help|-h]"
+  echo "\nUpdates the Stripe webhook endpoint destination URL after deployment."
+  echo "\nRequired environment variables:"
+  echo "  STACK_NAME                Name of the deployed CloudFormation stack."
+  echo "  AWS_REGION                AWS region where the stack is deployed."
+  echo "  STRIPE_SECRET_KEY         Stripe secret key (starts with sk_)."
+  echo "  STRIPE_WEBHOOK_ENDPOINT_ID  The Stripe webhook endpoint ID to update."
+  echo "\nThis script fetches the new webhook URL from CloudFormation outputs and updates the Stripe webhook endpoint."
+  echo "\nExample:"
+  echo "  STACK_NAME=your-stack AWS_REGION=us-east-1 STRIPE_SECRET_KEY=sk_test_... STRIPE_WEBHOOK_ENDPOINT_ID=we_... $0"
+}
 
-if [[ -z "$STRIPE_API_KEY" || -z "$WEBHOOK_ENDPOINT_ID" || -z "$NEW_DESTINATION_URL" ]]; then
-  echo "Usage: STRIPE_API_KEY=sk_live_xxx ./update-stripe-webhook.sh <WEBHOOK_ENDPOINT_ID> <NEW_DESTINATION_URL>"
-  echo "Or set STRIPE_API_KEY, WEBHOOK_ENDPOINT_ID, and NEW_DESTINATION_URL as environment variables."
+# Load environment configuration if available
+if [ -f config/environments.sh ]; then
+  source config/environments.sh
+fi
+
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+  show_usage
+  echo ""
+  exit 0
+fi
+
+STRIPE_WEBHOOK_DESTINATION_URL=$(aws cloudformation describe-stacks \
+  --stack-name "$STACK_NAME" \
+  --region "$AWS_REGION" \
+  --query 'Stacks[0].Outputs[?OutputKey==`ApiWebhookStripePaymentUrl`].OutputValue' \
+  --output text)
+
+if [[ -z "$STRIPE_SECRET_KEY" || -z "$STRIPE_WEBHOOK_ENDPOINT_ID" || -z "$STRIPE_WEBHOOK_DESTINATION_URL" || "$STRIPE_WEBHOOK_DESTINATION_URL" == "None" ]]; then
+  show_usage
+  echo "\nError: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_ENDPOINT_ID, and STRIPE_WEBHOOK_DESTINATION_URL (or STACK_NAME) are required."
   exit 1
 fi
 
 # Update the webhook endpoint using Stripe API
-response=$(curl -s -X POST https://api.stripe.com/v1/webhook_endpoints/$WEBHOOK_ENDPOINT_ID \
-  -u $STRIPE_API_KEY: \
-  -d url="$NEW_DESTINATION_URL")
+response=$(curl -s -X POST https://api.stripe.com/v1/webhook_endpoints/$STRIPE_WEBHOOK_ENDPOINT_ID \
+  -u $STRIPE_SECRET_KEY: \
+  -d url="$STRIPE_WEBHOOK_DESTINATION_URL")
 
 echo "Stripe response: $response"
 
 if echo "$response" | grep -q '"url":'; then
   echo "Webhook endpoint updated successfully."
+  exit 0
 else
   echo "Failed to update webhook endpoint."
   exit 2
 fi
+
+set -e
+
