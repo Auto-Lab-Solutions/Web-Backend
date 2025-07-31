@@ -282,6 +282,21 @@ main() {
     print_status "Initializing DynamoDB tables with default data..."
     ./initialize-dynamodb-data.sh "$ENVIRONMENT"
 
+    # Update Stripe webhook endpoint if configuration is present
+    API_WEBHOOK_STRIPE_PAYMENT_URL=$(aws cloudformation describe-stacks \
+        --stack-name $STACK_NAME \
+        --query 'Stacks[0].Outputs[?OutputKey==`ApiWebhookStripePaymentUrl`].OutputValue' \
+        --output text)
+
+    if [[ -z "$API_WEBHOOK_STRIPE_PAYMENT_URL" || "$API_WEBHOOK_STRIPE_PAYMENT_URL" == "None" ]]; then
+        print_warning "api-webhook-stripe-payment endpoint URL not found in stack outputs. Skipping Stripe webhook update."
+    elif [[ -n "$STRIPE_SECRET_KEY" && -n "$STRIPE_WEBHOOK_ENDPOINT_ID" ]]; then
+        print_status "Updating Stripe webhook endpoint to $API_WEBHOOK_STRIPE_PAYMENT_URL ..."
+        STRIPE_API_KEY="$STRIPE_SECRET_KEY" ./update-stripe-webhook.sh "$STRIPE_WEBHOOK_ENDPOINT_ID" "$API_WEBHOOK_STRIPE_PAYMENT_URL"
+    else
+        print_warning "Stripe webhook endpoint update skipped. Set STRIPE_SECRET_KEY and STRIPE_WEBHOOK_ENDPOINT_ID in your pipeline/environment."
+    fi
+
     print_success "Deployment completed successfully!"
 
     # Print important endpoints

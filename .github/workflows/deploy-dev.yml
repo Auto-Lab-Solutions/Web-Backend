@@ -15,6 +15,7 @@ env:
   STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
   STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
   SHARED_KEY: ${{ secrets.SHARED_KEY }}
+  STRIPE_WEBHOOK_ENDPOINT_ID: ${{ secrets.STRIPE_WEBHOOK_ENDPOINT_ID }}
   # Frontend deployment settings for development
   ENABLE_FRONTEND_WEBSITE: 'true'
   ENABLE_CUSTOM_DOMAIN: 'false'

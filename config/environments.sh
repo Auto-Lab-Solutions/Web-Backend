@@ -101,9 +101,11 @@ get_env_config() {
     export AUTH0_DOMAIN="${AUTH0_DOMAIN}"
     export AUTH0_AUDIENCE="${AUTH0_AUDIENCE}"
     
+
     # Load secrets from environment variables (GitHub environments will provide correct values)
     export STRIPE_SECRET_KEY="${STRIPE_SECRET_KEY}"
     export STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK_SECRET}"
+    export STRIPE_WEBHOOK_ENDPOINT_ID="${STRIPE_WEBHOOK_ENDPOINT_ID}"
     export SHARED_KEY="${SHARED_KEY}"
     
     return 0

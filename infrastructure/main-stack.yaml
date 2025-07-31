@@ -257,3 +257,9 @@ Outputs:
     Value: !GetAtt FrontendWebsiteStack.Outputs.CloudFrontDomainName
     Export:
       Name: !Sub '${AWS::StackName}-FrontendCloudFrontDomainName'
+
+  ApiWebhookStripePaymentUrl:
+    Description: Stripe Payment Webhook Public URL
+    Value: !Sub 'https://${ApiGatewayStack.Outputs.RestApiEndpoint}/stripe/webhook'
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiWebhookStripePaymentUrl'
