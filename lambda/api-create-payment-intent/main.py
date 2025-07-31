@@ -5,7 +5,6 @@ import time
 import db_utils as db
 import response_utils as resp
 import request_utils as req
-import auth_utils as auth
 
 # Set Stripe secret key from environment
 stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
@@ -13,7 +12,7 @@ stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
 def lambda_handler(event, context):
     try:
         # Get user ID from request body 
-        user_id = auth.get_user_id(event)
+        user_id = req.get_body_param(event, 'userId')
         if not user_id:
             return resp.error_response("User Id is required for non-staff users.", 401)
         user_record = db.get_user_record(user_id)
