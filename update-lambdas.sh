@@ -140,6 +140,9 @@ package_lambda() {
     cd "$temp_dir"
     zip -r "../$lambda_name.zip" . -q
     cd - > /dev/null
+
+    # Upload to S3
+    aws s3 cp "dist/lambda/$lambda_name.zip" "s3://$CLOUDFORMATION_BUCKET/lambda/$lambda_name.zip"
     
     print_success "Packaged $lambda_name"
     return 0

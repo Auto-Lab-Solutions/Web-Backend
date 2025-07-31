@@ -159,6 +159,56 @@ package_lambdas() {
     done
 }
 
+# Update Lambda function code
+update_lambda_code() {
+    local lambda_name=$1
+    local full_function_name="${lambda_name}-${ENVIRONMENT}"
+    local zip_file="dist/lambda/$lambda_name.zip"
+    
+    if [ ! -f "$zip_file" ]; then
+        print_error "ZIP file not found: $zip_file"
+        return 1
+    fi
+    
+    # Check if function exists
+    if ! function_exists "$lambda_name"; then
+        print_error "Lambda function '$full_function_name' does not exist in AWS"
+        print_warning "Please deploy infrastructure first using ./deploy.sh $ENVIRONMENT"
+        return 1
+    fi
+    
+    print_status "Updating Lambda function code: $full_function_name"
+    
+    # Update function code
+    aws lambda update-function-code \
+        --function-name "$full_function_name" \
+        --zip-file "fileb://$zip_file" \
+        --region $AWS_REGION > /dev/null
+    
+    # Wait for update to complete
+    print_status "Waiting for update to complete..."
+    aws lambda wait function-updated \
+        --function-name "$full_function_name" \
+        --region $AWS_REGION
+    
+    print_success "Updated $full_function_name"
+    return 0
+}
+
+update_all_lambdas() {
+    print_status "Updating all Lambda functions..."
+    
+    # Get list of all lambda directories
+    for lambda_dir in lambda/*/; do
+        if [ -d "$lambda_dir" ]; then
+            lambda_name=$(basename "$lambda_dir")
+            update_lambda_code "$lambda_name"
+        fi
+    done
+    
+    print_success "All Lambda functions updated successfully"
+}
+
 # Deploy CloudFormation stack
 deploy_stack() {
     print_status "Deploying CloudFormation stack..."
@@ -270,6 +320,7 @@ main() {
     
     package_lambdas
     deploy_stack
+    update_all_lambdas
     configure_api_gateway
     
     # Update WebSocket endpoints in Lambda functions
