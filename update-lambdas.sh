@@ -370,17 +370,8 @@ main() {
     
     if [ $exit_code -eq 0 ]; then
         print_success "All Lambda functions updated successfully! 🚀"
-
     else
         print_warning "Some Lambda functions failed to update. Check the output above."
-    fi
-
-    # Optionally initialize DynamoDB data after Lambda updates in pipeline/CI
-    if [[ "$AUTO_CONFIRM" == "true" || "$CI" == "true" || "$GITHUB_ACTIONS" == "true" ]]; then
-        if [ -f "initialize-dynamodb-data.sh" ]; then
-            print_status "Initializing DynamoDB tables with default data (pipeline mode)..."
-            ./initialize-dynamodb-data.sh "$ENVIRONMENT"
-        fi
     fi
 
     exit $exit_code

@@ -175,7 +175,7 @@ validate_deployment() {
         "api-get-prices" "api-get-users" "api-get-appointments" "api-create-appointment" "api-update-appointment"
         "api-get-unavailable-slots" "api-update-unavailable-slots"
         "api-get-orders" "api-create-order" "api-update-order" 
-        "api-confirm-cash-payment" "api-create-payment-intent"
+        "api-confirm-cash-payment" "api-create-payment-intent" "api-confirm-stripe-payment"
         "api-webhook-stripe-payment"
         "api-get-inquiries" "api-create-inquiry"
         "api-get-report-upload-url" "api-get-analytics" "api-get-staff-roles"
