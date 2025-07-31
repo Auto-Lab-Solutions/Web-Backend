@@ -22,9 +22,12 @@ if [[ "$1" == "--help" || "$1" == "-h" ]]; then
   exit 0
 fi
 
-# Load environment configuration if available
-if [ -f config/environments.sh ]; then
-  source config/environments.sh
+# Load environment configuration
+source config/environments.sh
+
+# Load environment configuration
+if ! load_environment "$ENVIRONMENT"; then
+    exit 1
 fi
 
 if [ -z "$FRONTEND_GITHUB_TOKEN" ] || [ -z "$REPO_OWNER" ] || [ -z "$REPO_NAME" ] || [ -z "$ENVIRONMENT" ] || [ -z "$STACK_NAME" ] || [ -z "$STRIPE_PUBLISHABLE_KEY" ]; then

@@ -16,15 +16,18 @@ show_usage() {
   echo "  STACK_NAME=your-stack AWS_REGION=us-east-1 STRIPE_SECRET_KEY=sk_test_... STRIPE_WEBHOOK_ENDPOINT_ID=we_... $0"
 }
 
-# Load environment configuration if available
-if [ -f config/environments.sh ]; then
-  source config/environments.sh
-fi
-
 if [[ "$1" == "--help" || "$1" == "-h" ]]; then
   show_usage
   echo ""
   exit 0
+fi
+
+# Load environment configuration
+source config/environments.sh
+
+# Load environment configuration
+if ! load_environment "$ENVIRONMENT"; then
+    exit 1
 fi
 
 STRIPE_WEBHOOK_DESTINATION_URL=$(aws cloudformation describe-stacks \
