@@ -35,7 +35,7 @@ def lambda_handler(event, context):
         # Get the reference number and type from payment record
         reference_number = payment_record.get('referenceNumber')
         payment_type = payment_record.get('type')
-
+        
         # Get the existing record
         if payment_type == 'appointment':
             existing_record = db.get_appointment(reference_number)
@@ -48,7 +48,9 @@ def lambda_handler(event, context):
         
         # Check if payment is already confirmed
         if existing_record.get('paymentStatus') == 'paid':
-            return resp.success_response("Payment already confirmed for this record", success=False)
+            return resp.success_response({
+                "message": "Payment already confirmed for this record",
+            }, success=False)
         
         # Verify the payment intent ID matches
         if existing_record.get('paymentIntentId') != payment_intent_id:

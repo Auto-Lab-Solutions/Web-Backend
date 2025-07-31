@@ -15,7 +15,7 @@ def lambda_handler(event, context):
     try:
         # Get the raw body and signature
         payload = event.get('body', '')
-        signature_header = event.get('headers', {}).get('stripe-signature', '')
+        signature_header = event.get('headers', {}).get('Stripe-Signature', '')
         
         if not payload or not signature_header:
             return resp.error_response("Missing payload or signature", 400)

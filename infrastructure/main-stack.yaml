@@ -260,6 +260,6 @@ Outputs:
 
   ApiWebhookStripePaymentUrl:
     Description: Stripe Payment Webhook Public URL
-    Value: !Sub '${ApiGatewayStack.Outputs.RestApiEndpoint}/stripe/webhook'
+    Value: !Sub '${ApiGatewayStack.Outputs.RestApiEndpoint}/payments/stripe/webhook'
     Export:
       Name: !Sub '${AWS::StackName}-ApiWebhookStripePaymentUrl'
