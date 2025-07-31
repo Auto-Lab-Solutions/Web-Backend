@@ -104,23 +104,12 @@ for VAR_NAME in "${!ENV_VARS[@]}"; do
             "https://api.github.com/repos/$FRONTEND_REPO_OWNER/$FRONTEND_REPO_NAME/environments/$ENVIRONMENT/variables/$VAR_NAME")
           if [ "$RESP" -ge 200 ] && [ "$RESP" -lt 300 ]; then
             echo "Updated environment variable $VAR_NAME in $FRONTEND_REPO_NAME/$ENVIRONMENT (using variable name as ID after 409 conflict)."
+            continue
           else
             echo "Error: Failed to update environment variable $VAR_NAME after 409 conflict, even with variable name as ID. Response:"
             cat /tmp/gh_var_resp.json
             exit 1
           fi
-        fi
-        RESP=$(curl -s -w "%{http_code}" -o /tmp/gh_var_resp.json -X PATCH \
-          -H "Authorization: Bearer $FRONTEND_GITHUB_TOKEN" \
-          -H "Content-Type: application/json" \
-          -d "{\"name\":\"$VAR_NAME\",\"value\":\"$VAR_VALUE\"}" \
-          "https://api.github.com/repos/$FRONTEND_REPO_OWNER/$FRONTEND_REPO_NAME/environments/$ENVIRONMENT/variables/$VAR_ID")
-        if [ "$RESP" -ge 200 ] && [ "$RESP" -lt 300 ]; then
-          echo "Updated environment variable $VAR_NAME in $FRONTEND_REPO_NAME/$ENVIRONMENT (after 409 conflict)."
-        else
-          echo "Error: Failed to update environment variable $VAR_NAME after 409 conflict. Response:"
-          cat /tmp/gh_var_resp.json
-          exit 1
         fi
       else
         echo "Error: Failed to create environment variable $VAR_NAME. Response:"
