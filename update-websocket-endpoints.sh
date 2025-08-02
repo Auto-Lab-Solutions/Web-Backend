@@ -178,11 +178,11 @@ update_lambda_websocket_env() {
         "api-webhook-stripe-payment-${ENVIRONMENT}"
         "api-confirm-cash-payment-${ENVIRONMENT}"
         "api-confirm-stripe-payment-${ENVIRONMENT}"
-        "ws-connect-${ENVIRONMENT}"
-        "ws-disconnect-${ENVIRONMENT}"
-        "ws-init-${ENVIRONMENT}"
-        "ws-ping-${ENVIRONMENT}"
-        "ws-staff-init-${ENVIRONMENT}"
+        "api-create-appointment-${ENVIRONMENT}"
+        "api-create-order-${ENVIRONMENT}"
+        "api-update-appointment-${ENVIRONMENT}"
+        "api-update-order-${ENVIRONMENT}"
+        "api-create-inquiry-${ENVIRONMENT}"
     )
     
     local updated_count=0
@@ -357,11 +357,11 @@ verify_websocket_endpoints() {
         "api-webhook-stripe-payment-${ENVIRONMENT}"
         "api-confirm-cash-payment-${ENVIRONMENT}"
         "api-confirm-stripe-payment-${ENVIRONMENT}"
-        "ws-connect-${ENVIRONMENT}"
-        "ws-disconnect-${ENVIRONMENT}"
-        "ws-init-${ENVIRONMENT}"
-        "ws-ping-${ENVIRONMENT}"
-        "ws-staff-init-${ENVIRONMENT}"
+        "api-create-appointment-${ENVIRONMENT}"
+        "api-create-order-${ENVIRONMENT}"
+        "api-update-appointment-${ENVIRONMENT}"
+        "api-update-order-${ENVIRONMENT}"
+        "api-create-inquiry-${ENVIRONMENT}"
     )
     
     local verified_count=0
@@ -405,11 +405,11 @@ list_expected_functions() {
         "api-webhook-stripe-payment-${ENVIRONMENT}"
         "api-confirm-cash-payment-${ENVIRONMENT}"
         "api-confirm-stripe-payment-${ENVIRONMENT}"
-        "ws-connect-${ENVIRONMENT}"
-        "ws-disconnect-${ENVIRONMENT}"
-        "ws-init-${ENVIRONMENT}"
-        "ws-ping-${ENVIRONMENT}"
-        "ws-staff-init-${ENVIRONMENT}"
+        "api-create-appointment-${ENVIRONMENT}"
+        "api-create-order-${ENVIRONMENT}"
+        "api-update-appointment-${ENVIRONMENT}"
+        "api-update-order-${ENVIRONMENT}"
+        "api-create-inquiry-${ENVIRONMENT}"
     )
     
     for func in "${websocket_functions[@]}"; do
