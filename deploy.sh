@@ -230,6 +230,15 @@ update_all_lambdas() {
 deploy_stack() {
     print_status "Deploying CloudFormation stack..."
     
+    # Construct frontend root URL for invoice generation
+    local FRONTEND_ROOT_URL=""
+    if [ "$ENABLE_FRONTEND_WEBSITE" = "true" ] && [ -n "$FRONTEND_DOMAIN_NAME" ]; then
+        FRONTEND_ROOT_URL="https://${FRONTEND_DOMAIN_NAME}"
+        print_status "Frontend root URL: $FRONTEND_ROOT_URL"
+    else
+        print_warning "Frontend website disabled or domain not set - invoice QR codes will use empty URL"
+    fi
+    
     aws cloudformation deploy \
         --template-file infrastructure/main-stack.yaml \
         --stack-name $STACK_NAME \
@@ -248,6 +257,7 @@ deploy_stack() {
             FrontendHostedZoneId="$FRONTEND_HOSTED_ZONE_ID" \
             FrontendAcmCertificateArn="$FRONTEND_ACM_CERTIFICATE_ARN" \
             EnableCustomDomain=$ENABLE_CUSTOM_DOMAIN \
+            FrontendRootUrl="$FRONTEND_ROOT_URL" \
         --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
         --region $AWS_REGION
     

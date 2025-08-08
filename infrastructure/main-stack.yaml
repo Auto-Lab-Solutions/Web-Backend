@@ -50,6 +50,11 @@ Parameters:
     Description: Shared key for internal communication
     Default: ""
 
+  FrontendRootUrl:
+    Type: String
+    Description: Frontend root URL for invoice links and QR codes
+    Default: ""
+
   # Frontend Website Parameters
   EnableFrontendWebsite:
     Type: String
@@ -119,10 +124,7 @@ Resources:
         Auth0Audience: !Ref Auth0Audience
         CloudFrontDomain: !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName
         ReportsBucketName: !Sub 'auto-lab-reports-${AWS::AccountId}-${Environment}'
-        FrontendRootUrl: !If
-          - ShouldDeployFrontend
-          - !GetAtt FrontendWebsiteStack.Outputs.WebsiteURL
-          - ""
+        FrontendRootUrl: !Ref FrontendRootUrl
         SharedKey: !Ref SharedKey
 
   # API Gateway
