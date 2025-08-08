@@ -66,6 +66,11 @@ Parameters:
     Type: String
     Description: S3 bucket name for storing reports and invoices
   
+  CloudFrontDomain:
+    Type: String
+    Description: CloudFront domain for file access
+    Default: ""
+  
   FrontendRootUrl:
     Type: String
     Description: Frontend root URL for invoice links and QR codes
@@ -94,12 +99,12 @@ Resources:
   InvoiceProcessorLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub 'lambda-process-invoice-queue-${EnvironmentName}'
+      FunctionName: !Sub 'sqs-process-invoice-queue-${EnvironmentName}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Code:
         S3Bucket: !Ref CloudFormationBucket
-        S3Key: lambda/api-process-invoice-queue.zip
+        S3Key: lambda/sqs-process-invoice-queue.zip
       Timeout: 300  # 5 minutes
       MemorySize: 512
       Environment:
@@ -118,7 +123,7 @@ Resources:
           PAYMENTS_TABLE: !Ref PaymentsTable
           INVOICES_TABLE: !Ref InvoicesTable
           REPORTS_BUCKET: !Ref ReportsBucketName
-          CLOUDFRONT_DOMAIN: !Sub '${ReportsBucketName}.s3.amazonaws.com'
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
       Role: !GetAtt InvoiceProcessorLambdaRole.Arn
 
@@ -228,10 +233,10 @@ Outputs:
     Description: 'ARN of the invoice processor Lambda function'
     Value: !GetAtt InvoiceProcessorLambda.Arn
     Export:
-      Name: !Sub 'lambda-invoice-processor-arn-${EnvironmentName}'
+      Name: !Sub 'sqs-invoice-processor-arn-${EnvironmentName}'
 
   InvoiceProcessorName:
     Description: 'Name of the invoice processor Lambda function'
     Value: !Ref InvoiceProcessorLambda
     Export:
-      Name: !Sub 'lambda-invoice-processor-name-${EnvironmentName}'
+      Name: !Sub 'sqs-invoice-processor-name-${EnvironmentName}'

@@ -220,7 +220,7 @@ update_all_lambdas() {
         if [ -d "$lambda_dir" ]; then
             lambda_name=$(basename "$lambda_dir")
             # Skip functions that are managed by other stacks
-            if [ "$lambda_name" = "api-process-invoice-queue" ]; then
+            if [ "$lambda_name" = "sqs-process-invoice-queue" ]; then
                 print_status "Skipping $lambda_name (managed by InvoiceQueueStack)"
                 continue
             fi

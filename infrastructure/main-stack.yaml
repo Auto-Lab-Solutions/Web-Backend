@@ -117,6 +117,7 @@ Resources:
         InvoicesTable: !GetAtt DynamoDBStack.Outputs.InvoicesTable
         CloudFormationBucket: !Ref CloudFormationBucket
         ReportsBucketName: !Sub 'auto-lab-reports-${AWS::AccountId}-${Environment}'
+        CloudFrontDomain: !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName
         FrontendRootUrl: !Ref FrontendRootUrl
 
   # Lambda Functions
