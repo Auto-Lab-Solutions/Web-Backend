@@ -195,7 +195,7 @@ Resources:
                 Action:
                   - sqs:SendMessage
                   - sqs:GetQueueAttributes
-                Resource: !Ref InvoiceQueueUrl
+                Resource: '*'
 
   # Staff Authorizer Lambda
   StaffAuthorizer:
