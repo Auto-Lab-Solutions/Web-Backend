@@ -75,7 +75,7 @@ Resources:
   InvoiceGenerationQueue:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub '${EnvironmentName}-invoice-generation-queue'
+      QueueName: !Sub 'sqs-invoice-generation-queue-${EnvironmentName}'
       VisibilityTimeout: 300  # 5 minutes (should be >= Lambda timeout)
       MessageRetentionPeriod: 1209600  # 14 days
       ReceiveMessageWaitTimeSeconds: 20  # Long polling
@@ -87,14 +87,14 @@ Resources:
   InvoiceGenerationDLQ:
     Type: AWS::SQS::Queue
     Properties:
-      QueueName: !Sub '${EnvironmentName}-invoice-generation-dlq'
+      QueueName: !Sub 'sqs-invoice-generation-dlq-${EnvironmentName}'
       MessageRetentionPeriod: 1209600  # 14 days
 
   # Lambda function to process invoice generation queue
   InvoiceProcessorLambda:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub '${EnvironmentName}-process-invoice-queue'
+      FunctionName: !Sub 'lambda-process-invoice-queue-${EnvironmentName}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Code:
@@ -126,7 +126,7 @@ Resources:
   InvoiceProcessorLambdaRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub '${EnvironmentName}-invoice-processor-lambda-role'
+      RoleName: !Sub 'iam-invoice-processor-lambda-role-${EnvironmentName}'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -210,28 +210,28 @@ Outputs:
     Description: 'URL of the invoice generation SQS queue'
     Value: !Ref InvoiceGenerationQueue
     Export:
-      Name: !Sub '${EnvironmentName}-invoice-queue-url'
+      Name: !Sub 'sqs-invoice-queue-url-${EnvironmentName}'
 
   InvoiceQueueArn:
     Description: 'ARN of the invoice generation SQS queue'
     Value: !GetAtt InvoiceGenerationQueue.Arn
     Export:
-      Name: !Sub '${EnvironmentName}-invoice-queue-arn'
+      Name: !Sub 'sqs-invoice-queue-arn-${EnvironmentName}'
 
   InvoiceDLQUrl:
     Description: 'URL of the invoice generation dead letter queue'
     Value: !Ref InvoiceGenerationDLQ
     Export:
-      Name: !Sub '${EnvironmentName}-invoice-dlq-url'
+      Name: !Sub 'sqs-invoice-dlq-url-${EnvironmentName}'
 
   InvoiceProcessorArn:
     Description: 'ARN of the invoice processor Lambda function'
     Value: !GetAtt InvoiceProcessorLambda.Arn
     Export:
-      Name: !Sub '${EnvironmentName}-invoice-processor-arn'
+      Name: !Sub 'lambda-invoice-processor-arn-${EnvironmentName}'
 
   InvoiceProcessorName:
     Description: 'Name of the invoice processor Lambda function'
     Value: !Ref InvoiceProcessorLambda
     Export:
-      Name: !Sub '${EnvironmentName}-invoice-processor-name'
+      Name: !Sub 'lambda-invoice-processor-name-${EnvironmentName}'

@@ -89,7 +89,7 @@ list_functions() {
 get_all_functions() {
     local functions=()
     for lambda_dir in lambda/*/; do
-        if [ -d "$lambda_dir" ] && [ "$(basename "$lambda_dir")" != "common_lib" ] && [ "$(basename "$lambda_dir")" != "tmp" ]; then
+        if [ -d "$lambda_dir" ] && [ "$(basename "$lambda_dir")" != "common_lib" ] && [ "$(basename "$lambda_dir")" != "tmp" ] && [ "$(basename "$lambda_dir")" != "api-process-invoice-queue" ]; then
             functions+=($(basename "$lambda_dir"))
         fi
     done
