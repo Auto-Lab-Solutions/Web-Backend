@@ -84,6 +84,27 @@ def lambda_handler(event, context):
         if not success:
             return resp.error_response("Failed to confirm payment", 500)
         
+        # Generate invoice after successful payment confirmation
+        invoice_url = None
+        if updated_record.get('paymentStatus') == 'paid':
+            try:
+                from invoice_utils import create_invoice_for_order_or_appointment
+                invoice_result = create_invoice_for_order_or_appointment(updated_record, payment_type, payment_intent_id)
+                
+                if invoice_result.get('success'):
+                    invoice_url = invoice_result.get('invoice_url')
+                    # Update the record with invoice URL
+                    invoice_update = {'invoiceUrl': invoice_url, 'updatedAt': int(time.time())}
+                    if payment_type == 'appointment':
+                        db.update_appointment(reference_number, invoice_update)
+                    else:
+                        db.update_order(reference_number, invoice_update)
+                    print(f"Invoice generated successfully: {invoice_url}")
+                else:
+                    print(f"Failed to generate invoice: {invoice_result.get('error')}")
+            except Exception as e:
+                print(f"Error generating invoice: {str(e)}")
+        
         # Send payment confirmation notification
         send_payment_confirmation_notification(updated_record, payment_type)
         
@@ -91,6 +112,7 @@ def lambda_handler(event, context):
             "message": "Payment confirmed successfully",
             "referenceNumber": reference_number,
             "paymentStatus": "paid",
+            "invoiceUrl": invoice_url,
             "updatedAt": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
         })
         

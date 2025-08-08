@@ -20,6 +20,7 @@ ORDERS_TABLE = os.environ.get('ORDERS_TABLE')
 ITEM_PRICES_TABLE = os.environ.get('ITEM_PRICES_TABLE')
 INQUIRIES_TABLE = os.environ.get('INQUIRIES_TABLE')
 PAYMENTS_TABLE = os.environ.get('PAYMENTS_TABLE')
+INVOICES_TABLE = os.environ.get('INVOICES_TABLE')
 
 # ------------------  Staff Table Functions ------------------
 
@@ -153,6 +154,10 @@ def get_all_users():
     except ClientError as e:
         print(f"Error scanning user records: {e.response['Error']['Message']}")
         return []
+
+def get_user_by_id(user_id):
+    """Get user by ID - alias for get_user_record for consistency"""
+    return get_user_record(user_id)
 
 # ------------------  Connection Table Functions ------------------
 
@@ -713,6 +718,24 @@ def get_daily_unpaid_appointments_count(user_id, today):
 
 # ------------------  Service Pricing Table Functions ------------------
 
+def get_service_plan_names(service_id, plan_id):
+    """Get service plan names by service_id and plan_id"""
+    try:
+        result = dynamodb.get_item(
+            TableName=SERVICE_PRICES_TABLE,
+            Key={
+                'serviceId': {'N': str(service_id)},
+                'planId': {'N': str(plan_id)}
+            }
+        )
+        if 'Item' in result:
+            item = deserialize_item(result['Item'])
+            return item.get('serviceName'), item.get('planName')
+        return None
+    except ClientError as e:
+        print(f"Error getting service plan name for service {service_id} and plan {plan_id}: {e}")
+        return None
+
 def get_service_pricing(service_id, plan_id):
     """Get service pricing by service_id and plan_id, return only the price field"""
     try:
@@ -958,6 +981,24 @@ def build_order_data(order_id, items, customer_data, car_data, notes, delivery_l
 
 # ------------------  Item Prices Table Functions ------------------
 
+def get_category_item_names(category_id, item_id):
+    """Get category item names by category_id and item_id"""
+    try:
+        result = dynamodb.get_item(
+            TableName=ITEM_PRICES_TABLE,
+            Key={
+                'categoryId': {'N': str(category_id)},
+                'itemId': {'N': str(item_id)}
+            }
+        )
+        if 'Item' in result:
+            item = deserialize_item(result['Item'])
+            return item.get('categoryName'), item.get('itemName')
+        return None
+    except ClientError as e:
+        print(f"Error getting item name for category {category_id} and item {item_id}: {e}")
+        return None
+
 def get_item_pricing(category_id, item_id):
     """Get item pricing by category_id and item_id, return only the price field"""
     try:
@@ -1161,6 +1202,152 @@ def build_update_expression_for_payment(update_data):
     else:
         return None, None, None
 
+# ------------------ Invoice Table Functions ------------------
+
+def create_invoice_record(invoice_data):
+    """Create a new invoice record in the database"""
+    try:
+        # Prepare item data
+        item = {
+            'invoiceId': {'S': invoice_data['invoiceId']},
+            'paymentIntentId': {'S': invoice_data['paymentIntentId']},
+            's3Key': {'S': invoice_data['s3Key']},
+            'fileUrl': {'S': invoice_data['fileUrl']},
+            'pdfSize': {'N': str(invoice_data['pdfSize'])},
+            'createdAt': {'N': str(invoice_data['createdAt'])},
+            'status': {'S': invoice_data.get('status', 'generated')},
+            'metadata': {'M': invoice_data.get('metadata', {})}
+        }
+        
+        dynamodb.put_item(
+            TableName=INVOICES_TABLE,
+            Item=item
+        )
+        print(f"Invoice {invoice_data['invoiceId']} created successfully")
+        return True
+    except ClientError as e:
+        print(f"Error creating invoice: {e}")
+        return False
+
+def get_invoice_by_id(invoice_id):
+    """Get an invoice record by invoice ID"""
+    try:
+        result = dynamodb.get_item(
+            TableName=INVOICES_TABLE,
+            Key={'invoiceId': {'S': invoice_id}}
+        )
+        if 'Item' in result:
+            return deserialize_item_json_safe(result['Item'])
+        return None
+    except ClientError as e:
+        print(f"Error getting invoice by ID {invoice_id}: {e}")
+        return None
+
+def get_invoice_by_payment_intent(payment_intent_id):
+    """Get an invoice record by payment intent ID"""
+    try:
+        result = dynamodb.query(
+            TableName=INVOICES_TABLE,
+            IndexName='paymentIntentId-index',
+            KeyConditionExpression='paymentIntentId = :pid',
+            ExpressionAttributeValues={':pid': {'S': payment_intent_id}}
+        )
+        if result.get('Count', 0) > 0:
+            return deserialize_item_json_safe(result['Items'][0])
+        return None
+    except ClientError as e:
+        print(f"Error getting invoice by payment intent ID {payment_intent_id}: {e}")
+        return None
+
+def get_invoices_by_user(user_id, limit=50):
+    """Get all invoices for a specific user"""
+    try:
+        result = dynamodb.query(
+            TableName=INVOICES_TABLE,
+            IndexName='userId-index',
+            KeyConditionExpression='userId = :uid',
+            ExpressionAttributeValues={':uid': {'S': user_id}},
+            ScanIndexForward=False,  # Order by createdAt descending
+            Limit=limit
+        )
+        return [deserialize_item_json_safe(item) for item in result.get('Items', [])]
+    except ClientError as e:
+        print(f"Error getting invoices by user {user_id}: {e}")
+        return []
+
+def update_invoice_status(invoice_id, status, additional_data=None):
+    """Update invoice status and optionally add additional data"""
+    try:
+        update_expression = "SET #status = :status, updatedAt = :updated_at"
+        expression_values = {
+            ':status': {'S': status},
+            ':updated_at': {'N': str(int(time.time()))}
+        }
+        expression_names = {
+            '#status': 'status'
+        }
+        
+        # Add additional data if provided
+        if additional_data:
+            for key, value in additional_data.items():
+                if value is not None:
+                    attr_name = f"#{key}"
+                    attr_value = f":{key}"
+                    update_expression += f", {attr_name} = {attr_value}"
+                    expression_names[attr_name] = key
+                    
+                    # Handle different data types
+                    if isinstance(value, str):
+                        expression_values[attr_value] = {'S': value}
+                    elif isinstance(value, (int, float, Decimal)):
+                        expression_values[attr_value] = {'N': str(value)}
+                    elif isinstance(value, bool):
+                        expression_values[attr_value] = {'BOOL': value}
+                    else:
+                        expression_values[attr_value] = {'S': str(value)}
+        
+        dynamodb.update_item(
+            TableName=INVOICES_TABLE,
+            Key={'invoiceId': {'S': invoice_id}},
+            UpdateExpression=update_expression,
+            ExpressionAttributeValues=expression_values,
+            ExpressionAttributeNames=expression_names
+        )
+        print(f"Invoice {invoice_id} status updated to {status}")
+        return True
+    except ClientError as e:
+        print(f"Error updating invoice status {invoice_id}: {e}")
+        return False
+
+def list_invoices_by_date_range(start_date, end_date, limit=100):
+    """List invoices within a date range (timestamps)"""
+    try:
+        result = dynamodb.scan(
+            TableName=INVOICES_TABLE,
+            FilterExpression='createdAt BETWEEN :start_date AND :end_date',
+            ExpressionAttributeValues={
+                ':start_date': {'N': str(start_date)},
+                ':end_date': {'N': str(end_date)}
+            },
+            Limit=limit
+        )
+        return [deserialize_item_json_safe(item) for item in result.get('Items', [])]
+    except ClientError as e:
+        print(f"Error listing invoices by date range: {e}")
+        return []
+
+def delete_invoice_record(invoice_id):
+    """Delete an invoice record (use with caution)"""
+    try:
+        dynamodb.delete_item(
+            TableName=INVOICES_TABLE,
+            Key={'invoiceId': {'S': invoice_id}}
+        )
+        print(f"Invoice {invoice_id} deleted successfully")
+        return True
+    except ClientError as e:
+        print(f"Error deleting invoice {invoice_id}: {e}")
+        return False
 # -------------------------------------------------------------
 
 def deserialize_item(item):

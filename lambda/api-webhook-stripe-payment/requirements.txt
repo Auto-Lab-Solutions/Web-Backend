@@ -1,1 +1,4 @@
 stripe==5.5.0
+weasyprint==60.2
+Pillow==10.0.0
+qrcode[pil]==7.4.2

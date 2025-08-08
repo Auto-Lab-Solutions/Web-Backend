@@ -112,12 +112,17 @@ Resources:
         ItemPricesTable: !GetAtt DynamoDBStack.Outputs.ItemPricesTable
         InquiriesTable: !GetAtt DynamoDBStack.Outputs.InquiriesTable
         PaymentsTable: !GetAtt DynamoDBStack.Outputs.PaymentsTable
+        InvoicesTable: !GetAtt DynamoDBStack.Outputs.InvoicesTable
         StripeSecretKey: !Ref StripeSecretKey
         StripeWebhookSecret: !Ref StripeWebhookSecret
         Auth0Domain: !Ref Auth0Domain
         Auth0Audience: !Ref Auth0Audience
         CloudFrontDomain: !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName
         ReportsBucketName: !Sub 'auto-lab-reports-${AWS::AccountId}-${Environment}'
+        FrontendRootUrl: !If
+          - ShouldDeployFrontend
+          - !GetAtt FrontendWebsiteStack.Outputs.WebsiteURL
+          - ""
         SharedKey: !Ref SharedKey
 
   # API Gateway

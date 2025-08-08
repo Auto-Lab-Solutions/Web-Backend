@@ -92,6 +92,26 @@ def handle_payment_succeeded(payment_intent):
             record = db.get_order(reference_number)
         
         if success and record:
+            # Generate invoice after successful payment confirmation
+            if record.get('paymentStatus') == 'paid':
+                try:
+                    from invoice_utils import create_invoice_for_order_or_appointment
+                    invoice_result = create_invoice_for_order_or_appointment(record, payment_type, payment_intent_id)
+                    
+                    if invoice_result.get('success'):
+                        invoice_url = invoice_result.get('invoice_url')
+                        # Update the record with invoice URL
+                        invoice_update = {'invoiceUrl': invoice_url, 'updatedAt': int(time.time())}
+                        if payment_type == 'appointment':
+                            db.update_appointment(reference_number, invoice_update)
+                        else:
+                            db.update_order(reference_number, invoice_update)
+                        print(f"Invoice generated successfully: {invoice_url}")
+                    else:
+                        print(f"Failed to generate invoice: {invoice_result.get('error')}")
+                except Exception as e:
+                    print(f"Error generating invoice: {str(e)}")
+            
             # Send notification
             send_payment_notification(record, payment_type, 'paid')
         

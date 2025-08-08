@@ -98,6 +98,15 @@ Parameters:
     Description: API Gateway stage name
     Default: "prod"
 
+  FrontendRootUrl:
+    Type: String
+    Description: Frontend root URL for invoice links
+    Default: ""
+
+  InvoicesTable:
+    Type: String
+    Description: Invoices Table Name
+
 Conditions:
   IsProduction: !Equals [!Ref Environment, 'production']
 
@@ -435,8 +444,12 @@ Resources:
           ORDERS_TABLE: !Ref OrdersTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
           PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
           STRIPE_SECRET_KEY: !Ref StripeSecretKey
           ENVIRONMENT: !Ref Environment
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -481,8 +494,12 @@ Resources:
           ORDERS_TABLE: !Ref OrdersTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
           PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
           STRIPE_SECRET_KEY: !Ref StripeSecretKey
           ENVIRONMENT: !Ref Environment
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -505,9 +522,13 @@ Resources:
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
           ORDERS_TABLE: !Ref OrdersTable
           PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
           STRIPE_SECRET_KEY: !Ref StripeSecretKey
           STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
           ENVIRONMENT: !Ref Environment
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
