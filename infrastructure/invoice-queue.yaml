@@ -99,7 +99,7 @@ Resources:
       Handler: main.lambda_handler
       Code:
         S3Bucket: !Ref CloudFormationBucket
-        S3Key: lambda-packages/api-process-invoice-queue.zip
+        S3Key: lambda/api-process-invoice-queue.zip
       Timeout: 300  # 5 minutes
       MemorySize: 512
       Environment:
