@@ -88,22 +88,29 @@ def lambda_handler(event, context):
         invoice_url = None
         if updated_record.get('paymentStatus') == 'paid':
             try:
-                from invoice_utils import create_invoice_for_order_or_appointment
-                invoice_result = create_invoice_for_order_or_appointment(updated_record, payment_type, payment_intent_id)
-                
-                if invoice_result.get('success'):
-                    invoice_url = invoice_result.get('invoice_url')
-                    # Update the record with invoice URL
-                    invoice_update = {'invoiceUrl': invoice_url, 'updatedAt': int(time.time())}
-                    if payment_type == 'appointment':
-                        db.update_appointment(reference_number, invoice_update)
+                # Import invoice_utils only when needed to avoid WeasyPrint import issues
+                try:
+                    import invoice_utils as invc
+                    
+                    invoice_result = invc.create_invoice_for_order_or_appointment(updated_record, payment_type, payment_intent_id)
+                    
+                    if invoice_result.get('success'):
+                        invoice_url = invoice_result.get('invoice_url')
+                        # Update the record with invoice URL
+                        invoice_update = {'invoiceUrl': invoice_url, 'updatedAt': int(time.time())}
+                        if payment_type == 'appointment':
+                            db.update_appointment(reference_number, invoice_update)
+                        else:
+                            db.update_order(reference_number, invoice_update)
+                        print(f"Invoice generated successfully: {invoice_url}")
                     else:
-                        db.update_order(reference_number, invoice_update)
-                    print(f"Invoice generated successfully: {invoice_url}")
-                else:
-                    print(f"Failed to generate invoice: {invoice_result.get('error')}")
+                        print(f"Failed to generate invoice: {invoice_result.get('error')}")
+                except ImportError as import_error:
+                    print(f"Invoice generation skipped due to import error: {import_error}")
+                except Exception as invoice_error:
+                    print(f"Error in invoice generation: {invoice_error}")
             except Exception as e:
-                print(f"Error generating invoice: {str(e)}")
+                print(f"Error in invoice generation wrapper: {str(e)}")
         
         # Send payment confirmation notification
         send_payment_confirmation_notification(updated_record, payment_type)

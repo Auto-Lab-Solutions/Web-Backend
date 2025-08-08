@@ -2,13 +2,10 @@ import boto3
 import os
 import uuid
 from datetime import datetime, timezone
-from weasyprint import HTML, CSS
 from io import BytesIO
 import base64
 from decimal import Decimal
 import json
-import qrcode
-from PIL import Image
 
 # AWS clients
 s3_client = boto3.client('s3')
@@ -63,28 +60,65 @@ class InvoiceGenerator:
             invoice_id = f"INV-{uuid.uuid4().hex[:8].upper()}"
             
             # Create HTML content
-            html_content = self._create_html_invoice(invoice_data, invoice_id)
+            try:
+                html_content = self._create_html_invoice(invoice_data, invoice_id)
+            except Exception as html_error:
+                print(f"ERROR in _create_html_invoice: {html_error}")
+                raise html_error
             
             # Generate PDF
-            pdf_bytes = self._html_to_pdf(html_content)
-            
-            # Upload to S3
-            s3_key = f"invoices/{datetime.now().year}/{datetime.now().month:02d}/{invoice_id}.pdf"
-            upload_result = self._upload_to_s3(pdf_bytes, s3_key)
-            
-            if upload_result['success']:
-                return {
-                    'success': True,
-                    'invoice_id': invoice_id,
-                    's3_key': s3_key,
-                    'file_url': upload_result['file_url'],
-                    'pdf_size': len(pdf_bytes)
-                }
-            else:
-                return {
-                    'success': False,
-                    'error': upload_result.get('error', 'Failed to upload to S3')
-                }
+            try:
+                pdf_bytes = self._html_to_pdf(html_content)
+                print(f"PDF generated successfully (size: {len(pdf_bytes)} bytes)")
+                
+                # Upload to S3
+                s3_key = f"invoices/{datetime.now().year}/{datetime.now().month:02d}/{invoice_id}.pdf"
+                upload_result = self._upload_to_s3(pdf_bytes, s3_key)
+                
+                if upload_result['success']:
+                    return {
+                        'success': True,
+                        'invoice_id': invoice_id,
+                        's3_key': s3_key,
+                        'file_url': upload_result['file_url'],
+                        'pdf_size': len(pdf_bytes),
+                        'format': 'pdf'
+                    }
+                else:
+                    return {
+                        'success': False,
+                        'error': upload_result.get('error', 'Failed to upload PDF to S3')
+                    }
+            except Exception as pdf_error:
+                print(f"PDF generation failed: {pdf_error}")
+                
+                # Fallback: Upload HTML content instead
+                try:
+                    html_bytes = html_content.encode('utf-8')
+                    s3_key = f"invoices/{datetime.now().year}/{datetime.now().month:02d}/{invoice_id}.html"
+                    
+                    upload_result = self._upload_html_to_s3(html_bytes, s3_key)
+                    
+                    if upload_result['success']:
+                        return {
+                            'success': True,
+                            'invoice_id': invoice_id,
+                            's3_key': s3_key,
+                            'file_url': upload_result['file_url'],
+                            'html_size': len(html_bytes),
+                            'format': 'html',
+                            'note': 'Generated as HTML due to PDF conversion limitations in Lambda environment'
+                        }
+                    else:
+                        return {
+                            'success': False,
+                            'error': f"Both PDF and HTML upload failed. PDF error: {pdf_error}. HTML error: {upload_result.get('error')}"
+                        }
+                except Exception as html_error:
+                    return {
+                        'success': False,
+                        'error': f"PDF generation failed: {pdf_error}. HTML fallback also failed: {html_error}"
+                    }
                 
         except Exception as e:
             print(f"Error generating invoice: {str(e)}")
@@ -117,37 +151,45 @@ class InvoiceGenerator:
             'description': 'Scan to access your information online'
         }
         
-        if qr_code_url:
-            qr_code_base64 = self._generate_qr_code(qr_code_url)
+        # Skip QR code generation in Lambda environment to avoid hanging
+        print("Skipping QR code generation to avoid import hang in Lambda environment")
+        print(f"QR code URL would have been: {qr_code_url}")
+        qr_code_base64 = None
             
-            # Determine context based on invoice type or URL pattern
-            invoice_type = invoice_data.get('invoice_type', '').lower()
-            
-            if invoice_type == 'order' or 'order' in qr_code_url.lower():
-                qr_context = {
-                    'title': 'Track Your Order',
-                    'description': 'Scan to view order status'
-                }
-            elif invoice_type == 'appointment' or 'appointment' in qr_code_url.lower():
-                qr_context = {
-                    'title': 'View Appointment',
-                    'description': 'Scan to view appointment status'
-                }
-            elif 'service' in qr_code_url.lower():
-                qr_context = {
-                    'title': 'Service Details',
-                    'description': 'Scan to view service details'
-                }
-            else:
-                # Generic fallback
-                qr_context = {
-                    'title': 'View Details Online',
-                    'description': 'Scan to access your information online'
-                }
+        print("Setting QR context based on invoice type...")
+        # Determine context based on invoice type or URL pattern
+        invoice_type = invoice_data.get('invoice_type', '').lower()
+        print(f"Invoice type: {invoice_type}")
         
+        if qr_code_url and invoice_type == 'order' or (qr_code_url and 'order' in qr_code_url.lower()):
+            qr_context = {
+                'title': 'Track Your Order',
+                'description': 'Scan to view order status'
+            }
+        elif qr_code_url and invoice_type == 'appointment' or (qr_code_url and 'appointment' in qr_code_url.lower()):
+            qr_context = {
+                'title': 'View Appointment',
+                'description': 'Scan to view appointment status'
+            }
+        elif qr_code_url and 'service' in qr_code_url.lower():
+            qr_context = {
+                'title': 'Service Details',
+                'description': 'Scan to view service details'
+            }
+        else:
+            # Generic fallback
+            qr_context = {
+                'title': 'View Details Online',
+                'description': 'Scan to access your information online'
+            }
+        print(f"QR context set: {qr_context}")
+        
+        print("Formatting current date...")
         # Format current date
         current_date = datetime.now().strftime('%d/%m/%Y')
+        print(f"Current date: {current_date}")
         
+        print("Creating HTML template...")
         html_template = f"""
         <!DOCTYPE html>
         <html>
@@ -580,17 +622,67 @@ class InvoiceGenerator:
         </html>
         """
         
+        print(f"HTML template created successfully (length: {len(html_template)} chars)")
         return html_template
     
     def _html_to_pdf(self, html_content):
         """Convert HTML to PDF using WeasyPrint"""
         try:
+            print("=== Starting HTML to PDF conversion ===")
+            print(f"HTML content length: {len(html_content)} chars")
+            
+            # Add timeout protection for WeasyPrint import
+            import signal
+            import sys
+            
+            def timeout_handler(signum, frame):
+                raise TimeoutError("WeasyPrint import timed out")
+            
+            # Set a 10-second timeout for the import
+            print("Setting timeout for WeasyPrint import...")
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(10)  # 10 second timeout
+            
+            try:
+                print("Importing WeasyPrint with timeout protection...")
+                from weasyprint import HTML
+                signal.alarm(0)  # Cancel the alarm
+                print("WeasyPrint imported successfully")
+            except TimeoutError:
+                signal.alarm(0)  # Cancel the alarm
+                error_msg = "WeasyPrint import timed out - this indicates missing system dependencies in Lambda environment"
+                print(error_msg)
+                raise ImportError(error_msg)
+            except ImportError as import_error:
+                signal.alarm(0)  # Cancel the alarm
+                error_msg = f"WeasyPrint not available: {str(import_error)}. This may be due to missing system dependencies."
+                print(error_msg)
+                raise ImportError(error_msg)
+            except Exception as import_error:
+                signal.alarm(0)  # Cancel the alarm
+                error_msg = f"WeasyPrint import failed: {str(import_error)}"
+                print(error_msg)
+                raise ImportError(error_msg)
+            
+            print("Creating HTML document object...")
             # Create PDF from HTML
             html_doc = HTML(string=html_content)
+            print("HTML document object created")
+            
+            print("Converting to PDF...")
             pdf_bytes = html_doc.write_pdf()
+            print(f"PDF conversion successful, size: {len(pdf_bytes)} bytes")
+            
             return pdf_bytes
+        except ImportError as e:
+            print(f"WeasyPrint import/dependency error: {str(e)}")
+            import traceback
+            print(f"WeasyPrint error traceback: {traceback.format_exc()}")
+            raise e
         except Exception as e:
             print(f"Error converting HTML to PDF: {str(e)}")
+            import traceback
+            print(f"PDF conversion traceback: {traceback.format_exc()}")
             raise e
     
     def _upload_to_s3(self, pdf_bytes, s3_key):
@@ -625,6 +717,40 @@ class InvoiceGenerator:
                 'error': str(e)
             }
     
+    def _upload_html_to_s3(self, html_bytes, s3_key):
+        """Upload HTML to S3 bucket as fallback when PDF generation fails"""
+        try:
+            if not REPORTS_BUCKET or not CLOUDFRONT_DOMAIN:
+                raise ValueError("REPORTS_BUCKET or CLOUDFRONT_DOMAIN environment variable not set")
+
+            s3_client.put_object(
+                Bucket=REPORTS_BUCKET,
+                Key=s3_key,
+                Body=html_bytes,
+                ContentType='text/html',
+                Metadata={
+                    'generated_at': datetime.now(timezone.utc).isoformat(),
+                    'generator': 'auto-lab-invoice-generator',
+                    'format': 'html-fallback',
+                    'reason': 'pdf-generation-failed'
+                }
+            )
+            
+            # Generate file URL (assuming CloudFront distribution)
+            file_url = f"https://{CLOUDFRONT_DOMAIN}/{s3_key}"
+
+            return {
+                'success': True,
+                'file_url': file_url
+            }
+            
+        except Exception as e:
+            print(f"Error uploading HTML to S3: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
     def generate_invoice_from_payment(self, payment_data, user_data=None, order_data=None):
         """
         Generate invoice from payment data
@@ -700,6 +826,35 @@ class InvoiceGenerator:
             str: Base64 encoded QR code image
         """
         try:
+            print(f"Starting QR code generation for URL: {url}")
+            
+            # Add timeout protection for qrcode import
+            import signal
+            import sys
+            
+            def timeout_handler(signum, frame):
+                raise TimeoutError("QR code import timed out")
+            
+            # Set a 5-second timeout for the import
+            print("Setting timeout for qrcode import...")
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(5)  # 5 second timeout
+            
+            try:
+                print("Importing qrcode module with timeout protection...")
+                import qrcode
+                signal.alarm(0)  # Cancel the alarm
+                print("qrcode module imported successfully")
+            except TimeoutError:
+                signal.alarm(0)  # Cancel the alarm
+                print("QR code import timed out - skipping QR code generation")
+                return None
+            except Exception as import_error:
+                signal.alarm(0)  # Cancel the alarm
+                print(f"QR code import failed: {import_error}")
+                return None
+            
+            print("Creating QRCode object...")
             # Create QR code
             qr = qrcode.QRCode(
                 version=1,
@@ -707,20 +862,33 @@ class InvoiceGenerator:
                 box_size=10,
                 border=4,
             )
-            qr.add_data(url)
-            qr.make(fit=True)
+            print("QRCode object created")
             
+            print("Adding data to QR code...")
+            qr.add_data(url)
+            print("Data added to QR code")
+            
+            print("Making QR code...")
+            qr.make(fit=True)
+            print("QR code made")
+            
+            print("Creating QR code image...")
             # Create image
             img = qr.make_image(fill_color="black", back_color="white")
+            print("QR code image created")
             
+            print("Converting to base64...")
             # Convert to base64
             buffered = BytesIO()
             img.save(buffered, format="PNG")
             img_str = base64.b64encode(buffered.getvalue()).decode()
+            print(f"QR code converted to base64 (length: {len(img_str)})")
             
             return img_str
         except Exception as e:
             print(f"Error generating QR code: {str(e)}")
+            import traceback
+            print(f"QR code generation traceback: {traceback.format_exc()}")
             return None
 
 def create_invoice_for_payment(payment_intent_id, user_data=None, order_data=None):
@@ -737,10 +905,10 @@ def create_invoice_for_payment(payment_intent_id, user_data=None, order_data=Non
     """
     try:
         # Import here to avoid circular imports
-        from .db_utils import get_payment_by_intent_id, create_invoice_record
+        import db_utils
         
         # Get payment data
-        payment_data = get_payment_by_intent_id(payment_intent_id)
+        payment_data = db_utils.get_payment_by_intent_id(payment_intent_id)
         if not payment_data:
             return {
                 'success': False,
@@ -763,7 +931,7 @@ def create_invoice_for_payment(payment_intent_id, user_data=None, order_data=Non
                 'status': 'generated'
             }
             
-            create_result = create_invoice_record(invoice_record)
+            create_result = db_utils.create_invoice_record(invoice_record)
             if not create_result:
                 print("Warning: Invoice generated but failed to save record to database")
         
@@ -789,12 +957,27 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
         dict: Invoice generation result with invoice_url for saving to record
     """
     try:
-        # Import db_utils here to avoid circular imports
-        import sys
+        # Debug environment variables
         import os
-        sys.path.append(os.path.dirname(__file__))
-        from .db_utils import get_category_item_names, get_service_plan_names, create_invoice_record
+        print("=== Environment Variables Debug ===")
+        required_vars = [
+            'STAFF_TABLE', 'USERS_TABLE', 'CONNECTIONS_TABLE', 'MESSAGES_TABLE',
+            'UNAVAILABLE_SLOTS_TABLE', 'APPOINTMENTS_TABLE', 'SERVICE_PRICES_TABLE',
+            'ORDERS_TABLE', 'ITEM_PRICES_TABLE', 'INQUIRIES_TABLE', 'PAYMENTS_TABLE',
+            'INVOICES_TABLE', 'REPORTS_BUCKET', 'CLOUDFRONT_DOMAIN', 'FRONTEND_ROOT_URL'
+        ]
+        
+        for var in required_vars:
+            value = os.environ.get(var, 'NOT_SET')
+            print(f"{var}: {value}")
+        print("=== End Environment Variables ===")
+        
+        # Import db_utils here to avoid circular imports
+        print("Importing db_utils...")
+        import db_utils
+        print("db_utils imported successfully")
 
+        print(f"Processing {record_type} record...")
         if record_type == 'order':
             user_data = {
                 'name': record.get('customerName', 'N/A'),
@@ -815,13 +998,26 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
                     'phone': record.get('sellerPhone', 'N/A')
                 }
         
+        print("User data extracted successfully")
+        
         # Extract items from record
         items = []
+        print("Extracting items from record...")
+        
         if record_type == 'order':
             # For orders, get items from the order
             order_items = record.get('items', [])
-            for item in order_items:
-                category_name, item_name = get_category_item_names(item.get('categoryId'), item.get('itemId'))
+            print(f"Found {len(order_items)} order items")
+            
+            for i, item in enumerate(order_items):
+                print(f"Processing item {i+1}: {item}")
+                try:
+                    print("Calling get_category_item_names...")
+                    category_name, item_name = db_utils.get_category_item_names(item.get('categoryId'), item.get('itemId'))
+                    print(f"Retrieved names: category='{category_name}', item='{item_name}'")
+                except Exception as e:
+                    print(f"Error getting category/item names: {e}")
+                    category_name, item_name = "Unknown Category", "Unknown Item"
                 vehicle_info = {
                     'make': record.get('carMake', 'N/A'),
                     'model': record.get('carModel', 'N/A'),
@@ -835,8 +1031,15 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
                     'amount': float(item.get('totalPrice', 0))
                 })
         else:  # appointment
+            print("Processing appointment record...")
             # For appointments, create a single item
-            service_name, plan_name = get_service_plan_names(record.get('serviceId'), record.get('planId'))
+            try:
+                print("Calling get_service_plan_names...")
+                service_name, plan_name = db_utils.get_service_plan_names(record.get('serviceId'), record.get('planId'))
+                print(f"Retrieved names: service='{service_name}', plan='{plan_name}'")
+            except Exception as e:
+                print(f"Error getting service/plan names: {e}")
+                service_name, plan_name = "Unknown Service", "Unknown Plan"
             vehicle_info = {
                 'make': record.get('carMake', 'N/A'),
                 'model': record.get('carModel', 'N/A'),
@@ -850,6 +1053,7 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
                 'amount': float(record.get('price', 0))
             })
         
+        print("Preparing invoice data...")
         # Payment information
         payment_info = {
             'method': record.get('paymentMethod', 'Unknown'),
@@ -874,11 +1078,15 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
             'invoice_type': record_type
         }
         
+        print("Creating InvoiceGenerator instance...")
         # Generate the invoice
         generator = InvoiceGenerator()
+        print("Calling generate_invoice...")
         result = generator.generate_invoice(invoice_data)
+        print(f"Invoice generation result: {result}")
         
         if result['success']:
+            print("Invoice generated successfully, saving to database...")
             # Save invoice record to database
             invoice_record = {
                 'invoiceId': result['invoice_id'],
@@ -887,10 +1095,15 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
                 'referenceType': record_type,
                 's3Key': result['s3_key'],
                 'fileUrl': result['file_url'],
-                'pdfSize': result['pdf_size'],
+                'fileSize': result.get('pdf_size') or result.get('html_size', 0),
+                'format': result.get('format', 'unknown'),
                 'createdAt': int(datetime.now().timestamp()),
                 'status': 'generated'
             }
+
+            # Add note if it's HTML fallback
+            if result.get('format') == 'html':
+                invoice_record['note'] = result.get('note', 'Generated as HTML due to system limitations')
 
             invoice_record['metadata'] = {
                 'userName': user_data.get('name', 'N/A'),
@@ -902,15 +1115,26 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
                 'items': [item['name'] for item in items],
                 'paymentMethod': payment_info['method'],
                 'paymentStatus': payment_info['status'],
-                'totalAmount': payment_info['amount']
+                'totalAmount': payment_info['amount'],
+                'invoiceFormat': result.get('format', 'unknown')
             }
             
-            create_result = create_invoice_record(invoice_record)
+            print("Calling create_invoice_record...")
+            try:
+                create_result = db_utils.create_invoice_record(invoice_record)
+                print(f"Invoice record creation result: {create_result}")
+            except Exception as db_error:
+                print(f"Error creating invoice record: {db_error}")
+                create_result = False
+                
             if not create_result:
                 print("Warning: Invoice generated but failed to save record to database")
             
             # Add invoice_url to result for updating the order/appointment record
             result['invoice_url'] = result['file_url']
+            print("Invoice processing completed successfully")
+        else:
+            print(f"Invoice generation failed: {result.get('error')}")
         
         return result
         

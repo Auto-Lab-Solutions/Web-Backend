@@ -159,6 +159,10 @@ def get_user_by_id(user_id):
     """Get user by ID - alias for get_user_record for consistency"""
     return get_user_record(user_id)
 
+def get_user(user_id):
+    """Get user by ID - alias for get_user_record for invoice generation"""
+    return get_user_record(user_id)
+
 # ------------------  Connection Table Functions ------------------
 
 def get_connection(connection_id):
@@ -621,6 +625,8 @@ def build_update_expression_for_appointment(data):
                 if isinstance(value, str):
                     expression_values[f':{key}'] = {'S': value}
                 elif isinstance(value, int):
+                    expression_values[f':{key}'] = {'N': str(value)}
+                elif isinstance(value, float):
                     expression_values[f':{key}'] = {'N': str(value)}
                 elif isinstance(value, bool):
                     expression_values[f':{key}'] = {'BOOL': value}
@@ -1207,17 +1213,36 @@ def build_update_expression_for_payment(update_data):
 def create_invoice_record(invoice_data):
     """Create a new invoice record in the database"""
     try:
-        # Prepare item data
+        # Prepare item data with required fields
         item = {
             'invoiceId': {'S': invoice_data['invoiceId']},
-            'paymentIntentId': {'S': invoice_data['paymentIntentId']},
             's3Key': {'S': invoice_data['s3Key']},
             'fileUrl': {'S': invoice_data['fileUrl']},
             'pdfSize': {'N': str(invoice_data['pdfSize'])},
             'createdAt': {'N': str(invoice_data['createdAt'])},
-            'status': {'S': invoice_data.get('status', 'generated')},
-            'metadata': {'M': invoice_data.get('metadata', {})}
+            'status': {'S': invoice_data.get('status', 'generated')}
         }
+        
+        # Add optional fields if present
+        if 'paymentIntentId' in invoice_data and invoice_data['paymentIntentId']:
+            item['paymentIntentId'] = {'S': invoice_data['paymentIntentId']}
+        
+        if 'userId' in invoice_data and invoice_data['userId']:
+            item['userId'] = {'S': invoice_data['userId']}
+            
+        if 'referenceNumber' in invoice_data and invoice_data['referenceNumber']:
+            item['referenceNumber'] = {'S': invoice_data['referenceNumber']}
+            
+        if 'referenceType' in invoice_data and invoice_data['referenceType']:
+            item['referenceType'] = {'S': invoice_data['referenceType']}
+        
+        if 'metadata' in invoice_data:
+            if isinstance(invoice_data['metadata'], dict):
+                # Convert dict to DynamoDB Map format if needed
+                if invoice_data['metadata']:  # Only add if not empty
+                    item['metadata'] = convert_to_dynamodb_format(invoice_data['metadata'])
+            else:
+                item['metadata'] = {'M': {}}
         
         dynamodb.put_item(
             TableName=INVOICES_TABLE,

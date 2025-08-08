@@ -441,8 +441,12 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           USERS_TABLE: !Ref UsersTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
-          ORDERS_TABLE: !Ref OrdersTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
           PAYMENTS_TABLE: !Ref PaymentsTable
           INVOICES_TABLE: !Ref InvoicesTable
           STRIPE_SECRET_KEY: !Ref StripeSecretKey
@@ -450,6 +454,7 @@ Resources:
           REPORTS_BUCKET: !Ref ReportsBucketName
           CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+      Timeout: 15  # Increased timeout for invoice generation
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -491,8 +496,12 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           USERS_TABLE: !Ref UsersTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
-          ORDERS_TABLE: !Ref OrdersTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
           PAYMENTS_TABLE: !Ref PaymentsTable
           INVOICES_TABLE: !Ref InvoicesTable
           STRIPE_SECRET_KEY: !Ref StripeSecretKey
@@ -500,6 +509,7 @@ Resources:
           REPORTS_BUCKET: !Ref ReportsBucketName
           CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+      Timeout: 15  # Increased timeout for invoice generation
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -519,8 +529,12 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           USERS_TABLE: !Ref UsersTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
           ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
           PAYMENTS_TABLE: !Ref PaymentsTable
           INVOICES_TABLE: !Ref InvoicesTable
           STRIPE_SECRET_KEY: !Ref StripeSecretKey
@@ -529,6 +543,7 @@ Resources:
           REPORTS_BUCKET: !Ref ReportsBucketName
           CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+      Timeout: 15  # Increased timeout for invoice generation
       Tags:
         - Key: Environment
           Value: !Ref Environment
