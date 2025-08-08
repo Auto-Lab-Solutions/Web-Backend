@@ -95,7 +95,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub '${EnvironmentName}-process-invoice-queue'
-      Runtime: python3.9
+      Runtime: python3.13
       Handler: main.lambda_handler
       Code:
         S3Bucket: !Ref CloudFormationBucket
@@ -189,6 +189,12 @@ Resources:
                   - s3:PutObjectAcl
                 Resource:
                   - !Sub 'arn:aws:s3:::${ReportsBucketName}/*'
+              # S3 permissions for CloudFormation bucket access
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  - !Sub 'arn:aws:s3:::${CloudFormationBucket}/*'
 
   # SQS Event Source Mapping for Lambda
   InvoiceQueueEventSourceMapping:
