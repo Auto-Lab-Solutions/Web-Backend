@@ -40,6 +40,7 @@ upload_templates() {
     
     # Upload all CloudFormation templates
     aws s3 cp infrastructure/dynamodb-tables.yaml s3://$CLOUDFORMATION_BUCKET/dynamodb-tables.yaml --region $AWS_REGION
+    aws s3 cp infrastructure/invoice-queue.yaml s3://$CLOUDFORMATION_BUCKET/invoice-queue.yaml --region $AWS_REGION
     aws s3 cp infrastructure/lambda-functions.yaml s3://$CLOUDFORMATION_BUCKET/lambda-functions.yaml --region $AWS_REGION
     aws s3 cp infrastructure/api-gateway.yaml s3://$CLOUDFORMATION_BUCKET/api-gateway.yaml --region $AWS_REGION
     aws s3 cp infrastructure/websocket-api.yaml s3://$CLOUDFORMATION_BUCKET/websocket-api.yaml --region $AWS_REGION
