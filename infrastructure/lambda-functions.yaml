@@ -470,7 +470,7 @@ Resources:
           REPORTS_BUCKET: !Ref ReportsBucketName
           CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
-      Timeout: 15  # Increased timeout for invoice generation
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -525,7 +525,7 @@ Resources:
           REPORTS_BUCKET: !Ref ReportsBucketName
           CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
-      Timeout: 15  # Increased timeout for invoice generation
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -560,7 +560,6 @@ Resources:
           CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
-      Timeout: 15  # Increased timeout for invoice generation
       Tags:
         - Key: Environment
           Value: !Ref Environment

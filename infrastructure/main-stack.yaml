@@ -297,3 +297,9 @@ Outputs:
     Value: !Sub '${ApiGatewayStack.Outputs.RestApiEndpoint}/payments/stripe/webhook'
     Export:
       Name: !Sub '${AWS::StackName}-ApiWebhookStripePaymentUrl'
+
+  InvoiceQueueUrl:
+    Description: SQS Invoice Queue URL for asynchronous processing
+    Value: !GetAtt InvoiceQueueStack.Outputs.InvoiceQueueUrl
+    Export:
+      Name: !Sub '${AWS::StackName}-InvoiceQueueUrl'

@@ -1,4 +1,3 @@
-
 #!/bin/bash
 # This script updates only Lambda function code without redeploying infrastructure
 
@@ -83,13 +82,33 @@ list_functions() {
             echo "  - $lambda_name"
         fi
     done
+    echo ""
+    echo "SQS Processing Functions:"
+    for lambda_dir in lambda/sqs-*/; do
+        if [ -d "$lambda_dir" ]; then
+            lambda_name=$(basename "$lambda_dir")
+            echo "  - $lambda_name"
+        fi
+    done
+    
+    echo ""
+    echo "Other Functions:"
+    for lambda_dir in lambda/*/; do
+        if [ -d "$lambda_dir" ]; then
+            lambda_name=$(basename "$lambda_dir")
+            # Skip already categorized functions and system directories
+            if [[ ! "$lambda_name" =~ ^api- ]] && [[ ! "$lambda_name" =~ ^ws- ]] && [[ ! "$lambda_name" =~ ^staff-authorizer ]] && [[ ! "$lambda_name" =~ ^sqs- ]] && [ "$lambda_name" != "common_lib" ] && [ "$lambda_name" != "tmp" ]; then
+                echo "  - $lambda_name"
+            fi
+        fi
+    done
 }
 
 # Function to get all Lambda function names
 get_all_functions() {
     local functions=()
     for lambda_dir in lambda/*/; do
-        if [ -d "$lambda_dir" ] && [ "$(basename "$lambda_dir")" != "common_lib" ] && [ "$(basename "$lambda_dir")" != "tmp" ] && [ "$(basename "$lambda_dir")" != "sqs-process-invoice-queue" ]; then
+        if [ -d "$lambda_dir" ] && [ "$(basename "$lambda_dir")" != "common_lib" ] && [ "$(basename "$lambda_dir")" != "tmp" ]; then
             functions+=($(basename "$lambda_dir"))
         fi
     done

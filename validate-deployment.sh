@@ -122,6 +122,24 @@ check_s3_bucket() {
     fi
 }
 
+# Function to check SQS queue
+check_sqs_queue() {
+    local queue_url=$1
+    
+    if [ -z "$queue_url" ]; then
+        print_warning "⚠ SQS queue URL not provided, skipping SQS validation"
+        return 0
+    fi
+    
+    if aws sqs get-queue-attributes --queue-url "$queue_url" --region $AWS_REGION &>/dev/null; then
+        print_success "✓ SQS queue '$queue_url' is accessible"
+        return 0
+    else
+        print_error "✗ SQS queue '$queue_url' not accessible"
+        return 1
+    fi
+}
+
 # Main validation function
 validate_deployment() {
     print_status "Starting deployment validation..."
@@ -151,6 +169,7 @@ validate_deployment() {
     WEBSOCKET_API_ID=$(get_stack_output "$STACK_NAME" "WebSocketApiId")
     WEBSOCKET_API_ENDPOINT=$(get_stack_output "$STACK_NAME" "WebSocketApiEndpoint")
     CLOUDFRONT_DOMAIN=$(get_stack_output "$STACK_NAME" "CloudFrontDomainName")
+    INVOICE_QUEUE_URL=$(get_stack_output "$STACK_NAME" "InvoiceQueueUrl")
     
     print_status "Stack Outputs:"
     echo "  REST API ID: $REST_API_ID"
@@ -158,6 +177,7 @@ validate_deployment() {
     echo "  WebSocket API ID: $WEBSOCKET_API_ID"
     echo "  WebSocket API Endpoint: $WEBSOCKET_API_ENDPOINT"
     echo "  CloudFront Domain: $CLOUDFRONT_DOMAIN"
+    echo "  Invoice Queue URL: $INVOICE_QUEUE_URL"
     echo
     
     # Check DynamoDB tables
@@ -181,6 +201,7 @@ validate_deployment() {
         "api-get-report-upload-url" "api-get-analytics" "api-get-staff-roles"
         "api-notify" "api-take-user" "api-get-connections" "api-get-messages" "api-get-last-messages" "api-send-message"
         "ws-connect" "ws-disconnect" "ws-init" "ws-ping" "ws-staff-init"
+        "sqs-process-invoice-queue"
     )
     
     for func in "${functions[@]}"; do
@@ -208,6 +229,11 @@ validate_deployment() {
     # Check S3 bucket
     print_status "Checking S3 bucket..."
     check_s3_bucket "${S3_BUCKET_NAME}-${AWS_ACCOUNT_ID}-${ENVIRONMENT}" || ((errors++))
+    echo
+    
+    # Check SQS queues
+    print_status "Checking SQS queues..."
+    check_sqs_queue "$INVOICE_QUEUE_URL" || ((errors++))
     echo
     
     # Test API endpoints (optional)

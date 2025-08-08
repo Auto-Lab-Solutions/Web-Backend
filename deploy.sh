@@ -212,6 +212,42 @@ update_lambda_code() {
     return 0
 }
 
+# Update Invoice Processor Lambda function code (managed by InvoiceQueueStack)
+update_invoice_processor_lambda() {
+    local lambda_name=$1
+    local full_function_name="${lambda_name}-${ENVIRONMENT}"
+    local zip_file="dist/lambda/$lambda_name.zip"
+
+    if [ ! -f "$zip_file" ]; then
+        print_error "ZIP file not found: $zip_file"
+        return 1
+    fi
+    
+    # Check if function exists
+    if ! aws lambda get-function --function-name "$full_function_name" --region $AWS_REGION &>/dev/null; then
+        print_error "Lambda function '$full_function_name' does not exist in AWS"
+        print_warning "Please deploy infrastructure first using ./deploy.sh $ENVIRONMENT"
+        return 1
+    fi
+    
+    print_status "Updating Invoice Processor Lambda function code: $full_function_name"
+    
+    # Update function code
+    aws lambda update-function-code \
+        --function-name "$full_function_name" \
+        --zip-file "fileb://$zip_file" \
+        --region $AWS_REGION > /dev/null
+    
+    # Wait for update to complete
+    print_status "Waiting for update to complete..."
+    aws lambda wait function-updated \
+        --function-name "$full_function_name" \
+        --region $AWS_REGION
+    
+    print_success "Updated $full_function_name"
+    return 0
+}
+
 update_all_lambdas() {
     print_status "Updating all Lambda functions..."
     
@@ -219,12 +255,14 @@ update_all_lambdas() {
     for lambda_dir in lambda/*/; do
         if [ -d "$lambda_dir" ]; then
             lambda_name=$(basename "$lambda_dir")
-            # Skip functions that are managed by other stacks
+            
+            # Handle invoice processing lambda differently since it's managed by InvoiceQueueStack
             if [ "$lambda_name" = "sqs-process-invoice-queue" ]; then
-                print_status "Skipping $lambda_name (managed by InvoiceQueueStack)"
-                continue
+                print_status "Updating $lambda_name (managed by InvoiceQueueStack)..."
+                update_invoice_processor_lambda "$lambda_name"
+            else
+                update_lambda_code "$lambda_name"
             fi
-            update_lambda_code "$lambda_name"
         fi
     done
     
@@ -371,14 +409,18 @@ main() {
     print_status "Important endpoints:"
     aws cloudformation describe-stacks \
         --stack-name $STACK_NAME \
-        --query 'Stacks[0].Outputs[?OutputKey==`RestApiEndpoint`||OutputKey==`WebSocketApiEndpoint`].[OutputKey,OutputValue]' \
+        --query 'Stacks[0].Outputs[?OutputKey==`RestApiEndpoint`||OutputKey==`WebSocketApiEndpoint`||OutputKey==`InvoiceQueueUrl`].[OutputKey,OutputValue]' \
         --output table
 
-    # Print new async invoice components
-    echo "New Async Invoice Components:"
-    echo "  - Invoice Queue (SQS)"
-    echo "  - Invoice Processor Lambda"
-    echo "  - Async webhook processing"
+    # Print async invoice processing status
+    echo ""
+    print_success "Async Invoice Processing Components Deployed:"
+    echo "  ✓ SQS Invoice Queue for asynchronous processing"
+    echo "  ✓ Invoice Processor Lambda (sqs-process-invoice-queue)"
+    echo "  ✓ Payment confirmation Lambdas updated with async support"
+    echo "  ✓ Shared sqs_utils library deployed to all functions"
+    echo ""
+    print_status "Payment processing now supports fast webhook responses with async invoice generation!"
 }
 
 # Check if script is being run directly
