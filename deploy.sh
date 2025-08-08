@@ -369,6 +369,11 @@ main() {
         --query 'Stacks[0].Outputs[?OutputKey==`RestApiEndpoint`||OutputKey==`WebSocketApiEndpoint`].[OutputKey,OutputValue]' \
         --output table
 
+    # Print new async invoice components
+    echo "New Async Invoice Components:"
+    echo "  - Invoice Queue (SQS)"
+    echo "  - Invoice Processor Lambda"
+    echo "  - Async webhook processing"
 }
 
 # Check if script is being run directly

@@ -129,16 +129,12 @@ class InvoiceGenerator:
         
         # Generate QR code if URL is provided
         if qr_code_url:
-            print(f"Generating QR code for URL: {qr_code_url}")
             qr_code_base64 = self._generate_qr_code(qr_code_url)
         else:
-            print("No QR code URL provided, skipping QR code generation")
             qr_code_base64 = None
             
-        print("Setting QR context based on invoice type...")
         # Determine context based on invoice type or URL pattern
         invoice_type = invoice_data.get('invoice_type', '').lower()
-        print(f"Invoice type: {invoice_type}")
         
         if qr_code_url and invoice_type == 'order' or (qr_code_url and 'order' in qr_code_url.lower()):
             qr_context = {
@@ -161,14 +157,9 @@ class InvoiceGenerator:
                 'title': 'View Details Online',
                 'description': 'Scan to access your information online'
             }
-        print(f"QR context set: {qr_context}")
         
-        print("Formatting current date...")
         # Format current date
         current_date = datetime.now().strftime('%d/%m/%Y')
-        print(f"Current date: {current_date}")
-        
-        print("Creating HTML template...")
         html_template = f"""
         <!DOCTYPE html>
         <html>
@@ -898,7 +889,6 @@ class InvoiceGenerator:
         </html>
         """
         
-        print(f"HTML template created successfully (length: {len(html_template)} chars)")
         return html_template
     
     def _upload_html_to_s3(self, html_bytes, s3_key):
@@ -1011,17 +1001,12 @@ class InvoiceGenerator:
             str: Base64 encoded QR code image or None if generation fails
         """
         try:
-            print(f"Starting QR code generation for URL: {url}")
-            
             # Import qrcode with error handling
             try:
                 import qrcode
-                print("qrcode module imported successfully")
             except ImportError as import_error:
-                print(f"QR code import failed: {import_error} - skipping QR code generation")
                 return None
             except Exception as import_error:
-                print(f"QR code import error: {import_error} - skipping QR code generation")
                 return None
             
             # Create QR code
@@ -1043,11 +1028,9 @@ class InvoiceGenerator:
             img.save(buffered, format="PNG")
             img_str = base64.b64encode(buffered.getvalue()).decode()
             
-            print(f"QR code generated successfully (base64 length: {len(img_str)})")
             return img_str
             
         except Exception as e:
-            print(f"Error generating QR code: {str(e)} - skipping QR code generation")
             return None
 
 def create_invoice_for_payment(payment_intent_id, user_data=None, order_data=None, qr_code_url=None):
@@ -1120,27 +1103,9 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
         dict: Invoice generation result with invoice_url for saving to record
     """
     try:
-        # Debug environment variables
-        import os
-        print("=== Environment Variables Debug ===")
-        required_vars = [
-            'STAFF_TABLE', 'USERS_TABLE', 'CONNECTIONS_TABLE', 'MESSAGES_TABLE',
-            'UNAVAILABLE_SLOTS_TABLE', 'APPOINTMENTS_TABLE', 'SERVICE_PRICES_TABLE',
-            'ORDERS_TABLE', 'ITEM_PRICES_TABLE', 'INQUIRIES_TABLE', 'PAYMENTS_TABLE',
-            'INVOICES_TABLE', 'REPORTS_BUCKET', 'CLOUDFRONT_DOMAIN', 'FRONTEND_ROOT_URL'
-        ]
-        
-        for var in required_vars:
-            value = os.environ.get(var, 'NOT_SET')
-            print(f"{var}: {value}")
-        print("=== End Environment Variables ===")
-        
         # Import db_utils here to avoid circular imports
-        print("Importing db_utils...")
         import db_utils
-        print("db_utils imported successfully")
 
-        print(f"Processing {record_type} record...")
         if record_type == 'order':
             user_data = {
                 'name': record.get('customerName', 'N/A'),
@@ -1161,25 +1126,17 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
                     'phone': record.get('sellerPhone', 'N/A')
                 }
         
-        print("User data extracted successfully")
-        
         # Extract items from record
         items = []
-        print("Extracting items from record...")
         
         if record_type == 'order':
             # For orders, get items from the order
             order_items = record.get('items', [])
-            print(f"Found {len(order_items)} order items")
             
             for i, item in enumerate(order_items):
-                print(f"Processing item {i+1}: {item}")
                 try:
-                    print("Calling get_category_item_names...")
                     category_name, item_name = db_utils.get_category_item_names(item.get('categoryId'), item.get('itemId'))
-                    print(f"Retrieved names: category='{category_name}', item='{item_name}'")
                 except Exception as e:
-                    print(f"Error getting category/item names: {e}")
                     category_name, item_name = "Unknown Category", "Unknown Item"
                 vehicle_info = {
                     'make': record.get('carMake', 'N/A'),
@@ -1194,14 +1151,10 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
                     'amount': float(item.get('totalPrice', 0))
                 })
         else:  # appointment
-            print("Processing appointment record...")
             # For appointments, create a single item
             try:
-                print("Calling get_service_plan_names...")
                 service_name, plan_name = db_utils.get_service_plan_names(record.get('serviceId'), record.get('planId'))
-                print(f"Retrieved names: service='{service_name}', plan='{plan_name}'")
             except Exception as e:
-                print(f"Error getting service/plan names: {e}")
                 service_name, plan_name = "Unknown Service", "Unknown Plan"
             vehicle_info = {
                 'make': record.get('carMake', 'N/A'),
@@ -1216,7 +1169,6 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
                 'amount': float(record.get('price', 0))
             })
         
-        print("Preparing invoice data...")
         # Payment information
         payment_info = {
             'method': record.get('paymentMethod', 'Unknown'),
@@ -1241,15 +1193,11 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
             'invoice_type': record_type
         }
         
-        print("Creating InvoiceGenerator instance...")
         # Generate the invoice
         generator = InvoiceGenerator()
-        print("Calling generate_invoice...")
         result = generator.generate_invoice(invoice_data)
-        print(f"Invoice generation result: {result}")
         
         if result['success']:
-            print("Invoice generated successfully, saving to database...")
             # Save invoice record to database
             invoice_record = {
                 'invoiceId': result['invoice_id'],
@@ -1279,12 +1227,9 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
                 'invoiceFormat': 'html'
             }
             
-            print("Calling create_invoice_record...")
             try:
                 create_result = db_utils.create_invoice_record(invoice_record)
-                print(f"Invoice record creation result: {create_result}")
             except Exception as db_error:
-                print(f"Error creating invoice record: {db_error}")
                 create_result = False
                 
             if not create_result:
@@ -1292,14 +1237,10 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
             
             # Add invoice_url to result for updating the order/appointment record
             result['invoice_url'] = result['file_url']
-            print("Invoice processing completed successfully")
-        else:
-            print(f"Invoice generation failed: {result.get('error')}")
         
         return result
         
     except Exception as e:
-        print(f"Error in create_invoice_for_order_or_appointment: {str(e)}")
         return {
             'success': False,
             'error': str(e)

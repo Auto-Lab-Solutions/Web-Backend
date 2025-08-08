@@ -95,12 +95,34 @@ Resources:
       Parameters:
         Environment: !Ref Environment
 
+  # Invoice Queue Infrastructure
+  InvoiceQueueStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: DynamoDBStack
+    Properties:
+      TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/invoice-queue.yaml'
+      Parameters:
+        EnvironmentName: !Ref Environment
+        StaffTable: !GetAtt DynamoDBStack.Outputs.StaffTable
+        UsersTable: !GetAtt DynamoDBStack.Outputs.UsersTable
+        ConnectionsTable: !GetAtt DynamoDBStack.Outputs.ConnectionsTable
+        AppointmentsTable: !GetAtt DynamoDBStack.Outputs.AppointmentsTable
+        ServicePricesTable: !GetAtt DynamoDBStack.Outputs.ServicePricesTable
+        OrdersTable: !GetAtt DynamoDBStack.Outputs.OrdersTable
+        ItemPricesTable: !GetAtt DynamoDBStack.Outputs.ItemPricesTable
+        PaymentsTable: !GetAtt DynamoDBStack.Outputs.PaymentsTable
+        InvoicesTable: !GetAtt DynamoDBStack.Outputs.InvoicesTable
+        CloudFormationBucket: !Ref CloudFormationBucket
+        ReportsBucketName: !Sub 'auto-lab-reports-${AWS::AccountId}-${Environment}'
+        FrontendRootUrl: !Ref FrontendRootUrl
+
   # Lambda Functions
   LambdaStack:
     Type: AWS::CloudFormation::Stack
     DependsOn: 
       - DynamoDBStack
       - S3CloudFrontStack
+      - InvoiceQueueStack
     Properties:
       TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/lambda-functions.yaml'
       Parameters:
@@ -126,6 +148,7 @@ Resources:
         ReportsBucketName: !Sub 'auto-lab-reports-${AWS::AccountId}-${Environment}'
         FrontendRootUrl: !Ref FrontendRootUrl
         SharedKey: !Ref SharedKey
+        InvoiceQueueUrl: !GetAtt InvoiceQueueStack.Outputs.InvoiceQueueUrl
 
   # API Gateway
   ApiGatewayStack:

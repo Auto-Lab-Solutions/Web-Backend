@@ -1,5 +1,7 @@
 import os
 import time
+import json
+import boto3
 
 # Import these at module level as they should be available
 try:
@@ -12,6 +14,10 @@ except ImportError as e:
     # Re-raise only if we're in AWS Lambda environment
     if os.environ.get('AWS_LAMBDA_FUNCTION_NAME'):
         raise
+
+# Initialize SQS client for async invoice generation
+sqs_client = boto3.client('sqs')
+INVOICE_QUEUE_URL = os.environ.get('INVOICE_QUEUE_URL')  # You'll need to set this
 
 # Set Stripe configuration (with error handling)
 try:
@@ -116,32 +122,13 @@ def handle_payment_succeeded(payment_intent):
         print("Success: ", success, "\nRecord: ", record, "\n")
         
         if success and record:
-            # Generate invoice after successful payment confirmation
+            # Queue invoice generation asynchronously for faster webhook response
             if record.get('paymentStatus') == 'paid':
                 try:
-                    # Import invoice_utils to generate HTML invoice
-                    try:
-                        import invoice_utils as invc
-                        
-                        invoice_result = invc.create_invoice_for_order_or_appointment(record, payment_type, payment_intent_id)
-                        
-                        if invoice_result.get('success'):
-                            invoice_url = invoice_result.get('invoice_url')
-                            # Update the record with invoice URL
-                            invoice_update = {'invoiceUrl': invoice_url, 'updatedAt': int(time.time())}
-                            if payment_type == 'appointment':
-                                db.update_appointment(reference_number, invoice_update)
-                            else:
-                                db.update_order(reference_number, invoice_update)
-                            print(f"Invoice generated successfully: {invoice_url}")
-                        else:
-                            print(f"Failed to generate invoice: {invoice_result.get('error')}")
-                    except ImportError as import_error:
-                        print(f"Invoice generation skipped due to import error: {import_error}")
-                    except Exception as invoice_error:
-                        print(f"Error in invoice generation: {invoice_error}")
+                    queue_invoice_generation(record, payment_type, payment_intent_id)
+                    print(f"Invoice generation queued for {payment_type} {reference_number}")
                 except Exception as e:
-                    print(f"Error in invoice generation wrapper: {str(e)}")
+                    print(f"Error queuing invoice generation: {str(e)}")
             
             # Send notification
             send_payment_notification(record, payment_type, 'paid')
@@ -265,4 +252,70 @@ def send_payment_notification(record, record_type, status):
 
     except Exception as e:
         print(f"Error logging payment notification: {str(e)}")
+
+def queue_invoice_generation(record, record_type, payment_intent_id):
+    """Queue invoice generation for asynchronous processing"""
+    try:
+        # Prepare message for SQS queue
+        message_body = {
+            'record': record,
+            'record_type': record_type,
+            'payment_intent_id': payment_intent_id,
+            'timestamp': int(time.time())
+        }
+        
+        # Send message to SQS queue
+        if INVOICE_QUEUE_URL:
+            response = sqs_client.send_message(
+                QueueUrl=INVOICE_QUEUE_URL,
+                MessageBody=json.dumps(message_body),
+                MessageAttributes={
+                    'RecordType': {
+                        'StringValue': record_type,
+                        'DataType': 'String'
+                    },
+                    'PaymentIntentId': {
+                        'StringValue': payment_intent_id,
+                        'DataType': 'String'
+                    }
+                }
+            )
+            print(f"Invoice generation queued with MessageId: {response.get('MessageId')}")
+            return True
+        else:
+            print("Warning: INVOICE_QUEUE_URL not configured, falling back to synchronous processing")
+            # Fallback to synchronous processing
+            return generate_invoice_synchronously(record, record_type, payment_intent_id)
+            
+    except Exception as e:
+        print(f"Error queuing invoice generation: {str(e)}")
+        # Fallback to synchronous processing on queue error
+        return generate_invoice_synchronously(record, record_type, payment_intent_id)
+
+def generate_invoice_synchronously(record, record_type, payment_intent_id):
+    """Fallback synchronous invoice generation"""
+    try:
+        import invoice_utils as invc
+        
+        invoice_result = invc.create_invoice_for_order_or_appointment(record, record_type, payment_intent_id)
+        
+        if invoice_result.get('success'):
+            invoice_url = invoice_result.get('invoice_url')
+            reference_number = record.get(f'{record_type}Id')
+            
+            # Update the record with invoice URL
+            invoice_update = {'invoiceUrl': invoice_url, 'updatedAt': int(time.time())}
+            if record_type == 'appointment':
+                db.update_appointment(reference_number, invoice_update)
+            else:
+                db.update_order(reference_number, invoice_update)
+            print(f"Invoice generated synchronously: {invoice_url}")
+            return True
+        else:
+            print(f"Failed to generate invoice: {invoice_result.get('error')}")
+            return False
+            
+    except Exception as e:
+        print(f"Error in synchronous invoice generation: {str(e)}")
+        return False
 

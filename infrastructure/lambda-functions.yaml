@@ -100,12 +100,17 @@ Parameters:
 
   FrontendRootUrl:
     Type: String
-    Description: Frontend root URL for invoice links
+    Description: Frontend root URL for invoice links and QR codes
     Default: ""
 
   InvoicesTable:
     Type: String
     Description: Invoices Table Name
+
+  InvoiceQueueUrl:
+    Type: String
+    Description: SQS Queue URL for asynchronous invoice processing
+    Default: ""
 
 Conditions:
   IsProduction: !Equals [!Ref Environment, 'production']
@@ -182,6 +187,15 @@ Resources:
                 Action:
                   - execute-api:ManageConnections
                 Resource: '*'
+        - PolicyName: SQSAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                  - sqs:GetQueueAttributes
+                Resource: !Ref InvoiceQueueUrl
 
   # Staff Authorizer Lambda
   StaffAuthorizer:
@@ -545,6 +559,7 @@ Resources:
           REPORTS_BUCKET: !Ref ReportsBucketName
           CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
       Timeout: 15  # Increased timeout for invoice generation
       Tags:
         - Key: Environment
