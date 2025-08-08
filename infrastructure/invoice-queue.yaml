@@ -199,22 +199,6 @@ Resources:
       BatchSize: 1  # Process one message at a time
       MaximumBatchingWindowInSeconds: 5  # Wait max 5 seconds before processing
 
-  # IAM Policy for webhook Lambda to send messages to SQS
-  WebhookSQSPolicy:
-    Type: AWS::IAM::Policy
-    Properties:
-      PolicyName: !Sub '${EnvironmentName}-webhook-sqs-policy'
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Action:
-              - sqs:SendMessage
-              - sqs:GetQueueAttributes
-            Resource: !GetAtt InvoiceGenerationQueue.Arn
-      Roles:
-        - !Sub '${EnvironmentName}-webhook-stripe-payment-role'
-
 Outputs:
   InvoiceQueueUrl:
     Description: 'URL of the invoice generation SQS queue'
