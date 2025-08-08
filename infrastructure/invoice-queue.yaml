@@ -76,7 +76,7 @@ Resources:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: !Sub '${EnvironmentName}-invoice-generation-queue'
-      VisibilityTimeoutSeconds: 300  # 5 minutes (should be >= Lambda timeout)
+      VisibilityTimeout: 300  # 5 minutes (should be >= Lambda timeout)
       MessageRetentionPeriod: 1209600  # 14 days
       ReceiveMessageWaitTimeSeconds: 20  # Long polling
       RedrivePolicy:
