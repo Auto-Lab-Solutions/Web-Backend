@@ -1,10 +1,12 @@
 import os
 import time
+import json
 import stripe
 import db_utils as db
 import response_utils as resp
 import request_utils as req
 import wsgw_utils as wsgw
+import sqs_utils as sqs
 
 # Set Stripe secret key from environment
 stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
@@ -88,29 +90,17 @@ def lambda_handler(event, context):
         invoice_url = None
         if updated_record.get('paymentStatus') == 'paid':
             try:
-                # Import invoice_utils to generate HTML invoice
-                try:
-                    import invoice_utils as invc
-                    
-                    invoice_result = invc.create_invoice_for_order_or_appointment(updated_record, payment_type, payment_intent_id)
-                    
-                    if invoice_result.get('success'):
-                        invoice_url = invoice_result.get('invoice_url')
-                        # Update the record with invoice URL
-                        invoice_update = {'invoiceUrl': invoice_url, 'updatedAt': int(time.time())}
-                        if payment_type == 'appointment':
-                            db.update_appointment(reference_number, invoice_update)
-                        else:
-                            db.update_order(reference_number, invoice_update)
-                        print(f"Invoice generated successfully: {invoice_url}")
-                    else:
-                        print(f"Failed to generate invoice: {invoice_result.get('error')}")
-                except ImportError as import_error:
-                    print(f"Invoice generation skipped due to import error: {import_error}")
-                except Exception as invoice_error:
-                    print(f"Error in invoice generation: {invoice_error}")
+                # Queue invoice generation asynchronously for faster response
+                sqs.queue_invoice_generation(updated_record, payment_type, payment_intent_id)
+                print(f"Invoice generation queued for {payment_type} {reference_number}")
             except Exception as e:
-                print(f"Error in invoice generation wrapper: {str(e)}")
+                print(f"Error queuing invoice generation: {str(e)}")
+                # Fallback to synchronous processing if queue fails
+                try:
+                    # Use shared utility for invoice generation
+                    sqs.generate_invoice_synchronously(updated_record, payment_type, payment_intent_id)
+                except Exception as sync_error:
+                    print(f"Error in synchronous invoice generation fallback: {str(sync_error)}")
         
         # Send payment confirmation notification
         send_payment_confirmation_notification(updated_record, payment_type)
@@ -151,3 +141,5 @@ def send_payment_confirmation_notification(record, record_type, status='paid'):
             })
     except Exception as e:
         print(f"Error sending payment confirmation notification: {str(e)}")
+
+
