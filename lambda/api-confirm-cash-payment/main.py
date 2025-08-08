@@ -12,6 +12,22 @@ PERMITTED_ROLE = 'ADMIN'
 wsgw_client = wsgw.get_apigateway_client()
 
 def lambda_handler(event, context):
+    """
+    Lambda function to confirm manual payments (cash and bank transfers) for appointments and orders.
+    
+    This function allows authorized staff to manually confirm payments that were made outside 
+    of the Stripe payment system, such as cash payments or bank transfers.
+    
+    Request Parameters:
+    - referenceNumber: The appointment or order ID
+    - type: 'appointment' or 'order'
+    - paymentMethod: 'cash' or 'bank_transfer' (defaults to 'cash' for backward compatibility)
+    - revert: Boolean to revert payment status to pending (optional, defaults to false)
+    
+    Returns:
+    - Success response with updated payment status and method
+    - Error response if validation fails or operation cannot be completed
+    """
     try:
         # Get staff user information
         staff_user_email = req.get_staff_user_email(event)
@@ -37,6 +53,7 @@ def lambda_handler(event, context):
         # Get request parameters
         reference_number = req.get_body_param(event, 'referenceNumber')
         payment_type = req.get_body_param(event, 'type')
+        payment_method = req.get_body_param(event, 'paymentMethod', 'cash')  # Default to cash for backward compatibility
         revert = req.get_body_param(event, 'revert', False)
         
         # Validate required parameters
@@ -46,6 +63,8 @@ def lambda_handler(event, context):
             return resp.error_response("type is required")
         if payment_type not in ['appointment', 'order']:
             return resp.error_response("type must be 'appointment' or 'order'")
+        if payment_method not in ['cash', 'bank_transfer']:
+            return resp.error_response("paymentMethod must be 'cash' or 'bank_transfer'")
 
         # Get the existing record
         if payment_type == 'appointment':
@@ -74,12 +93,12 @@ def lambda_handler(event, context):
                 'updatedAt': int(time.time())
             }
         else:
-            # Confirm cash payment
+            # Confirm payment with specified method
             update_data = {
                 'paymentStatus': 'paid',
                 'paymentConfirmedBy': staff_user_id,
                 'paymentConfirmedAt': int(time.time()),
-                'paymentMethod': 'cash',
+                'paymentMethod': payment_method,
                 'updatedAt': int(time.time())
             }
         
@@ -98,15 +117,15 @@ def lambda_handler(event, context):
         if not revert and updated_record.get('paymentStatus') == 'paid':
             try:
                 # Queue invoice generation asynchronously for faster response
-                # For cash payments, we don't have a payment_intent_id, so use reference number
-                payment_intent_id = f"cash_{reference_number}_{int(time.time())}"
+                # For manual payments, we create a unique payment_intent_id with method and reference
+                payment_intent_id = f"{payment_method}_{reference_number}_{int(time.time())}"
                 sqs.queue_invoice_generation(updated_record, payment_type, payment_intent_id)
-                print(f"Invoice generation queued for {payment_type} {reference_number}")
+                print(f"Invoice generation queued for {payment_type} {reference_number} (payment method: {payment_method})")
             except Exception as e:
                 print(f"Error queuing invoice generation: {str(e)}")
                 # Fallback to synchronous processing if queue fails
                 try:
-                    payment_intent_id = f"cash_{reference_number}_{int(time.time())}"
+                    payment_intent_id = f"{payment_method}_{reference_number}_{int(time.time())}"
                     # Use shared utility for invoice generation
                     sqs.generate_invoice_synchronously(updated_record, payment_type, payment_intent_id)
                 except Exception as sync_error:
@@ -120,6 +139,7 @@ def lambda_handler(event, context):
             "referenceNumber": reference_number,
             "type": payment_type,
             "paymentStatus": 'paid' if not revert else 'pending',
+            "paymentMethod": payment_method if not revert else None,
             "updatedAt": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
         })
         

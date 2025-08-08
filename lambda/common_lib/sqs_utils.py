@@ -52,8 +52,8 @@ def generate_invoice_synchronously(record, record_type, payment_intent_id):
         import invoice_utils as invc
         import db_utils as db
         
-        # For cash payments, we might not have payment_intent_id in the original function signature
-        if payment_intent_id and payment_intent_id.startswith('cash_'):
+        # For manual payments (cash, bank transfers), we might not have payment_intent_id in the original function signature
+        if payment_intent_id and (payment_intent_id.startswith('cash_') or payment_intent_id.startswith('bank_transfer_')):
             invoice_result = invc.create_invoice_for_order_or_appointment(record, record_type)
         else:
             invoice_result = invc.create_invoice_for_order_or_appointment(record, record_type, payment_intent_id)
