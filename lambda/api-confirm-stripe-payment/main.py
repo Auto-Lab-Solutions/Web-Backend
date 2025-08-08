@@ -88,7 +88,7 @@ def lambda_handler(event, context):
         invoice_url = None
         if updated_record.get('paymentStatus') == 'paid':
             try:
-                # Import invoice_utils only when needed to avoid WeasyPrint import issues
+                # Import invoice_utils to generate HTML invoice
                 try:
                     import invoice_utils as invc
                     

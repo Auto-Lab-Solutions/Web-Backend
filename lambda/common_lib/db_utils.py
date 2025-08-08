@@ -1218,7 +1218,8 @@ def create_invoice_record(invoice_data):
             'invoiceId': {'S': invoice_data['invoiceId']},
             's3Key': {'S': invoice_data['s3Key']},
             'fileUrl': {'S': invoice_data['fileUrl']},
-            'pdfSize': {'N': str(invoice_data['pdfSize'])},
+            'fileSize': {'N': str(invoice_data['fileSize'])},
+            'format': {'S': invoice_data.get('format', 'html')},
             'createdAt': {'N': str(invoice_data['createdAt'])},
             'status': {'S': invoice_data.get('status', 'generated')}
         }

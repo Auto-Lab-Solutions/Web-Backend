@@ -17,7 +17,7 @@ FRONTEND_ROOT_URL = os.environ.get('FRONTEND_ROOT_URL')
 
 class InvoiceGenerator:
     """
-    Invoice generator using WeasyPrint to create PDF invoices
+    Invoice generator creating professional HTML invoices optimized for web and mobile viewing
     """
     
     def __init__(self):
@@ -32,7 +32,7 @@ class InvoiceGenerator:
     
     def generate_invoice(self, invoice_data):
         """
-        Generate a PDF invoice and upload to S3
+        Generate an HTML invoice and upload to S3
         
         Args:
             invoice_data (dict): Invoice data containing:
@@ -52,6 +52,8 @@ class InvoiceGenerator:
                 'invoice_id': str,
                 's3_key': str,
                 'file_url': str,
+                'html_size': int,
+                'format': str,
                 'error': str (if any)
             }
         """
@@ -66,14 +68,12 @@ class InvoiceGenerator:
                 print(f"ERROR in _create_html_invoice: {html_error}")
                 raise html_error
             
-            # Generate PDF
+            # Generate HTML invoice
             try:
-                pdf_bytes = self._html_to_pdf(html_content)
-                print(f"PDF generated successfully (size: {len(pdf_bytes)} bytes)")
+                html_bytes = html_content.encode('utf-8')
+                s3_key = f"invoices/{datetime.now().year}/{datetime.now().month:02d}/{invoice_id}.html"
                 
-                # Upload to S3
-                s3_key = f"invoices/{datetime.now().year}/{datetime.now().month:02d}/{invoice_id}.pdf"
-                upload_result = self._upload_to_s3(pdf_bytes, s3_key)
+                upload_result = self._upload_html_to_s3(html_bytes, s3_key)
                 
                 if upload_result['success']:
                     return {
@@ -81,44 +81,20 @@ class InvoiceGenerator:
                         'invoice_id': invoice_id,
                         's3_key': s3_key,
                         'file_url': upload_result['file_url'],
-                        'pdf_size': len(pdf_bytes),
-                        'format': 'pdf'
+                        'html_size': len(html_bytes),
+                        'format': 'html'
                     }
                 else:
                     return {
                         'success': False,
-                        'error': upload_result.get('error', 'Failed to upload PDF to S3')
+                        'error': upload_result.get('error', 'Failed to upload HTML invoice to S3')
                     }
-            except Exception as pdf_error:
-                print(f"PDF generation failed: {pdf_error}")
-                
-                # Fallback: Upload HTML content instead
-                try:
-                    html_bytes = html_content.encode('utf-8')
-                    s3_key = f"invoices/{datetime.now().year}/{datetime.now().month:02d}/{invoice_id}.html"
                     
-                    upload_result = self._upload_html_to_s3(html_bytes, s3_key)
-                    
-                    if upload_result['success']:
-                        return {
-                            'success': True,
-                            'invoice_id': invoice_id,
-                            's3_key': s3_key,
-                            'file_url': upload_result['file_url'],
-                            'html_size': len(html_bytes),
-                            'format': 'html',
-                            'note': 'Generated as HTML due to PDF conversion limitations in Lambda environment'
-                        }
-                    else:
-                        return {
-                            'success': False,
-                            'error': f"Both PDF and HTML upload failed. PDF error: {pdf_error}. HTML error: {upload_result.get('error')}"
-                        }
-                except Exception as html_error:
-                    return {
-                        'success': False,
-                        'error': f"PDF generation failed: {pdf_error}. HTML fallback also failed: {html_error}"
-                    }
+            except Exception as html_error:
+                return {
+                    'success': False,
+                    'error': f"HTML invoice generation failed: {html_error}"
+                }
                 
         except Exception as e:
             print(f"Error generating invoice: {str(e)}")
@@ -151,10 +127,13 @@ class InvoiceGenerator:
             'description': 'Scan to access your information online'
         }
         
-        # Skip QR code generation in Lambda environment to avoid hanging
-        print("Skipping QR code generation to avoid import hang in Lambda environment")
-        print(f"QR code URL would have been: {qr_code_url}")
-        qr_code_base64 = None
+        # Generate QR code if URL is provided
+        if qr_code_url:
+            print(f"Generating QR code for URL: {qr_code_url}")
+            qr_code_base64 = self._generate_qr_code(qr_code_url)
+        else:
+            print("No QR code URL provided, skipping QR code generation")
+            qr_code_base64 = None
             
         print("Setting QR context based on invoice type...")
         # Determine context based on invoice type or URL pattern
@@ -195,6 +174,7 @@ class InvoiceGenerator:
         <html>
         <head>
             <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Invoice {invoice_id}</title>
             <style>
                 @page {{
@@ -204,25 +184,28 @@ class InvoiceGenerator:
                 
                 body {{
                     font-family: 'Arial', sans-serif;
-                    font-size: 12px;
+                    font-size: 14px;
                     line-height: 1.6;
                     color: #0F172A;
                     margin: 0;
-                    padding: 20px;
+                    padding: 15px;
                     background-color: #ffffff;
+                    min-height: 100vh;
+                    display: flex;
+                    flex-direction: column;
                 }}
                 
                 .header {{
                     display: flex;
                     justify-content: space-between;
                     align-items: flex-start;
-                    margin-bottom: 30px;
+                    margin-bottom: 20px;
                     border-bottom: 3px solid #18181B;
-                    padding-bottom: 20px;
                     background: linear-gradient(135deg, #27272a 0%, #18181B 100%);
                     color: #F3F4F6;
-                    padding: 25px;
-                    margin: -20px -20px 30px -20px;
+                    padding: 20px;
+                    margin: -15px -15px 20px -15px;
+                    gap: 20px;
                 }}
                 
                 .company-info {{
@@ -230,17 +213,18 @@ class InvoiceGenerator:
                 }}
                 
                 .company-name {{
-                    font-size: 26px;
+                    font-size: 38px;
                     font-weight: bold;
                     color: #22C55E;
-                    margin-bottom: 8px;
+                    margin-bottom: 6px;
                     text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+                    line-height: 1.2;
                 }}
                 
                 .company-details {{
-                    font-size: 11px;
+                    font-size: 14px;
                     color: #a1a1aa;
-                    line-height: 1.5;
+                    line-height: 1.4;
                 }}
                 
                 .invoice-info {{
@@ -249,36 +233,37 @@ class InvoiceGenerator:
                 }}
                 
                 .invoice-title {{
-                    font-size: 32px;
+                    font-size: 48px;
                     font-weight: bold;
                     color: #F59E0B;
-                    margin-bottom: 10px;
+                    margin-bottom: 8px;
                     text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+                    line-height: 1.1;
                 }}
                 
                 .invoice-number {{
-                    font-size: 15px;
+                    font-size: 20px;
                     color: #F3F4F6;
-                    margin-bottom: 5px;
+                    margin-bottom: 4px;
                     font-weight: 600;
                 }}
                 
                 .invoice-date {{
-                    font-size: 12px;
+                    font-size: 16px;
                     color: #a1a1aa;
                 }}
                 
                 .billing-section {{
                     display: flex;
                     justify-content: space-between;
-                    margin-bottom: 30px;
-                    gap: 30px;
+                    margin-bottom: 25px;
+                    gap: 20px;
                 }}
                 
                 .billing-info {{
                     flex: 1;
                     background-color: #f8f9fa;
-                    padding: 20px;
+                    padding: 16px;
                     border-radius: 8px;
                     border-left: 4px solid #22C55E;
                 }}
@@ -286,24 +271,34 @@ class InvoiceGenerator:
                 .payment-info {{
                     flex: 1;
                     background-color: #f8f9fa;
-                    padding: 20px;
+                    padding: 16px;
                     border-radius: 8px;
                     border-left: 4px solid #F59E0B;
                 }}
                 
                 .section-title {{
-                    font-size: 14px;
+                    font-size: 18px;
                     font-weight: bold;
                     color: #18181B;
-                    margin-bottom: 12px;
+                    margin-bottom: 10px;
                     border-bottom: 2px solid #3f3f46;
-                    padding-bottom: 6px;
+                    padding-bottom: 4px;
+                }}
+                
+                .billing-info div:not(.section-title) {{
+                    font-size: 17px;
+                    line-height: 1.5;
+                }}
+                
+                .payment-info div:not(.section-title) {{
+                    font-size: 17px;
+                    line-height: 1.5;
                 }}
                 
                 .items-table {{
                     width: 100%;
                     border-collapse: collapse;
-                    margin-bottom: 30px;
+                    margin-bottom: 25px;
                     border-radius: 8px;
                     overflow: hidden;
                     box-shadow: 0 2px 8px rgba(24, 24, 27, 0.1);
@@ -312,10 +307,10 @@ class InvoiceGenerator:
                 .items-table th {{
                     background: linear-gradient(135deg, #27272a 0%, #18181B 100%);
                     color: #F3F4F6;
-                    padding: 15px 12px;
+                    padding: 16px 14px;
                     text-align: left;
                     font-weight: bold;
-                    font-size: 13px;
+                    font-size: 18px;
                     letter-spacing: 0.5px;
                     vertical-align: middle;
                 }}
@@ -329,9 +324,10 @@ class InvoiceGenerator:
                 }}
                 
                 .items-table td {{
-                    padding: 12px 12px;
+                    padding: 16px 14px;
                     border-bottom: 1px solid #D1D5DB;
                     vertical-align: middle;
+                    font-size: 18px;
                 }}
                 
                 .items-table tr:nth-child(even) {{
@@ -352,14 +348,14 @@ class InvoiceGenerator:
                 
                 .totals-section {{
                     display: flex;
-                    justify-content: space-between;
+                    justify-content: flex-end;
                     align-items: flex-start;
-                    margin-bottom: 30px;
-                    gap: 30px;
+                    margin-bottom: 40px;
+                    gap: 25px;
                 }}
                 
                 .totals-table {{
-                    width: 320px;
+                    width: 350px;
                     border-collapse: collapse;
                     border-radius: 8px;
                     overflow: hidden;
@@ -367,14 +363,15 @@ class InvoiceGenerator:
                 }}
                 
                 .totals-table td {{
-                    padding: 12px 20px;
+                    padding: 14px 22px;
                     border-bottom: 1px solid #D1D5DB;
                     background-color: #f8f9fa;
+                    font-size: 18px;
                 }}
                 
                 .totals-table .total-row {{
                     font-weight: bold;
-                    font-size: 16px;
+                    font-size: 22px;
                     background: linear-gradient(135deg, #22C55E 0%, #16A34A 100%);
                     color: #000000;
                     text-shadow: none;
@@ -398,19 +395,19 @@ class InvoiceGenerator:
                 
                 .footer {{
                     margin-top: 40px;
-                    padding-top: 20px;
+                    padding-top: 18px;
                     border-top: 2px solid #D1D5DB;
                     font-size: 11px;
                     color: #71717A;
                     text-align: center;
                     background-color: #f8f9fa;
-                    padding: 20px;
+                    padding: 18px;
                     border-radius: 8px;
                 }}
                 
                 .note-section {{
-                    margin-top: 30px;
-                    padding: 20px;
+                    margin-top: 60px;
+                    padding: 18px;
                     background: linear-gradient(135deg, rgba(34, 197, 94, 0.05) 0%, rgba(34, 197, 94, 0.02) 100%);
                     border-left: 5px solid #22C55E;
                     border-radius: 0 8px 8px 0;
@@ -421,17 +418,17 @@ class InvoiceGenerator:
                     font-weight: bold;
                     color: #18181B;
                     margin-bottom: 8px;
-                    font-size: 13px;
+                    font-size: 14px;
                 }}
                 
-                .status-badge {{
-                    display: inline-block;
-                    padding: 4px 12px;
-                    background-color: #22C55E;
-                    color: white;
-                    border-radius: 20px;
-                    font-size: 11px;
-                    font-weight: bold;
+                .note-section div:not(.note-title) {{
+                    font-size: 14px;
+                }}
+                
+                .payment-status {{
+                    color: #22C55E;
+                    font-weight: 700;
+                    font-size: 17px;
                     text-transform: uppercase;
                     letter-spacing: 0.5px;
                 }}
@@ -442,13 +439,14 @@ class InvoiceGenerator:
                 }}
                 
                 .payment-method {{
-                    color: #F59E0B;
+                    color: #1D4ED8;
                     font-weight: 600;
+                    font-size: 17px;
                 }}
                 
                 .qr-code-section {{
-                    width: 180px;
-                    padding: 15px;
+                    width: 200px;
+                    padding: 18px;
                     background: linear-gradient(135deg, rgba(34, 197, 94, 0.05) 0%, rgba(34, 197, 94, 0.02) 100%);
                     border: 2px solid #22C55E;
                     border-radius: 8px;
@@ -459,8 +457,8 @@ class InvoiceGenerator:
                 .qr-code-title {{
                     font-weight: bold;
                     color: #18181B;
-                    margin-bottom: 10px;
-                    font-size: 11px;
+                    margin-bottom: 12px;
+                    font-size: 13px;
                     text-transform: uppercase;
                     letter-spacing: 0.5px;
                 }}
@@ -475,11 +473,279 @@ class InvoiceGenerator:
                 }}
                 
                 .qr-code-description {{
-                    font-size: 9px;
+                    font-size: 11px;
                     color: #71717A;
                     margin-top: 6px;
                     line-height: 1.3;
                     font-style: italic;
+                }}
+                
+                .main-content {{
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                }}
+                
+                .content-spacer {{
+                    flex: 1;
+                    min-height: 40px;
+                }}
+                
+                .company-details-mobile {{
+                    display: none;
+                }}
+                
+                .company-details-desktop {{
+                    display: block;
+                }}
+                
+                /* Mobile responsive styles */
+                @media screen and (max-width: 768px) {{
+                    body {{
+                        font-size: 12px !important;
+                        padding: 10px !important;
+                    }}
+                    
+                    .company-name {{
+                        font-size: 24px !important;
+                    }}
+                    
+                    .company-details {{
+                        font-size: 10px !important;
+                    }}
+                    
+                    .invoice-title {{
+                        font-size: 36px !important;
+                    }}
+                    
+                    .invoice-number {{
+                        font-size: 16px !important;
+                    }}
+                    
+                    .invoice-date {{
+                        font-size: 12px !important;
+                    }}
+                    
+                    .section-title {{
+                        font-size: 14px !important;
+                    }}
+                    
+                    .billing-info div:not(.section-title) {{
+                        font-size: 14px !important;
+                    }}
+                    
+                    .payment-info div:not(.section-title) {{
+                        font-size: 14px !important;
+                    }}
+                    
+                    .billing-info div:not(.section-title) span {{
+                        font-size: 14px !important;
+                    }}
+                    
+                    .payment-info div:not(.section-title) span {{
+                        font-size: 14px !important;
+                    }}
+                    
+                    .items-table th {{
+                        font-size: 14px !important;
+                        padding: 10px 12px !important;
+                        font-weight: 700 !important;
+                    }}
+                    
+                    .items-table td {{
+                        font-size: 12px !important;
+                        padding: 8px 12px !important;
+                    }}
+                    
+                    .item-name {{
+                        font-size: 16px !important;
+                        font-weight: 600 !important;
+                    }}
+                    
+                    .item-description {{
+                        font-size: 11px !important;
+                    }}
+                    
+                    .totals-table td {{
+                        font-size: 12px !important;
+                        padding: 8px 12px !important;
+                    }}
+                    
+                    .totals-table .total-row {{
+                        font-size: 16px !important;
+                    }}
+                    
+                    .payment-status {{
+                        font-size: 12px !important;
+                    }}
+                    
+                    .payment-method {{
+                        font-size: 12px !important;
+                    }}
+                    
+                    .qr-code-section {{
+                        width: 180px !important;
+                        padding: 20px !important;
+                    }}
+                    
+                    .qr-code-title {{
+                        font-size: 14px !important;
+                    }}
+                    
+                    .qr-code-description {{
+                        font-size: 12px !important;
+                    }}
+                    
+                    .qr-code-image img {{
+                        width: 100px !important;
+                        height: 100px !important;
+                    }}
+                    
+                    .footer {{
+                        font-size: 8px !important;
+                        padding: 12px !important;
+                    }}
+                    
+                    .note-section {{
+                        padding: 12px !important;
+                    }}
+                    
+                    .note-title {{
+                        font-size: 10px !important;
+                    }}
+                    
+                    .note-section div:not(.note-title) {{
+                        font-size: 9px !important;
+                    }}
+                    
+                    .header {{
+                        flex-direction: row !important;
+                        justify-content: space-between !important;
+                        align-items: flex-start !important;
+                        text-align: left !important;
+                        gap: 15px !important;
+                    }}
+                    
+                    .company-info {{
+                        flex: 1 !important;
+                        text-align: left !important;
+                        order: 1 !important;
+                    }}
+                    
+                    .invoice-info {{
+                        flex: 1 !important;
+                        text-align: right !important;
+                        order: 2 !important;
+                        margin-left: auto !important;
+                    }}
+                    
+                    .invoice-info * {{
+                        text-align: right !important;
+                    }}
+                    
+                    .company-details-mobile {{
+                        display: block !important;
+                    }}
+                    
+                    .company-details-desktop {{
+                        display: none !important;
+                    }}
+                    
+                    .billing-section {{
+                        flex-direction: column !important;
+                        gap: 15px !important;
+                    }}
+                    
+                    .totals-section {{
+                        flex-direction: column !important;
+                        align-items: flex-end !important;
+                        gap: 15px !important;
+                    }}
+                    
+                    .qr-code-section {{
+                        order: 2 !important;
+                        align-self: center !important;
+                    }}
+                    
+                    .totals-table {{
+                        order: 1 !important;
+                        width: 100% !important;
+                        max-width: 300px !important;
+                    }}
+                }}
+                
+                @media screen and (max-width: 480px) {{
+                    body {{
+                        font-size: 10px !important;
+                        padding: 5px !important;
+                    }}
+                    
+                    .company-name {{
+                        font-size: 18px !important;
+                    }}
+                    
+                    .invoice-title {{
+                        font-size: 32px !important;
+                    }}
+                    
+                    .items-table th {{
+                        font-size: 12px !important;
+                        padding: 8px 10px !important;
+                        font-weight: 700 !important;
+                    }}
+                    
+                    .items-table th,
+                    .items-table td {{
+                        font-size: 10px !important;
+                        padding: 6px 10px !important;
+                    }}
+                    
+                    .item-name {{
+                        font-size: 14px !important;
+                        font-weight: 600 !important;
+                    }}
+                    
+                    .item-description {{
+                        font-size: 10px !important;
+                    }}
+                    
+                    .totals-table td {{
+                        font-size: 10px !important;
+                        padding: 6px 8px !important;
+                    }}
+                    
+                    .totals-table .total-row {{
+                        font-size: 14px !important;
+                    }}
+                    
+                    .qr-code-section {{
+                        width: 160px !important;
+                        padding: 16px !important;
+                        order: 2 !important;
+                        align-self: center !important;
+                    }}
+                    
+                    .qr-code-title {{
+                        font-size: 12px !important;
+                    }}
+                    
+                    .qr-code-description {{
+                        font-size: 10px !important;
+                    }}
+                    
+                    .qr-code-image img {{
+                        width: 90px !important;
+                        height: 90px !important;
+                    }}
+                    
+                    .footer {{
+                        font-size: 7px !important;
+                        padding: 8px !important;
+                    }}
+                    
+                    .note-section div:not(.note-title) {{
+                        font-size: 8px !important;
+                    }}
                 }}
             </style>
         </head>
@@ -487,11 +753,17 @@ class InvoiceGenerator:
             <div class="header">
                 <div class="company-info">
                     <div class="company-name">{self.company_info['name']}</div>
-                    <div class="company-details">
+                    <div class="company-details company-details-desktop">
                         {self.company_info['address']}<br>
                         Phone: {self.company_info['phone']}<br>
                         Email: {self.company_info['email']}<br>
                         Website: {self.company_info['website']}
+                    </div>
+                    <div class="company-details company-details-mobile">
+                        {self.company_info['address']}<br>
+                        {self.company_info['phone']}<br>
+                        {self.company_info['email']}<br>
+                        {self.company_info['website']}
                     </div>
                 </div>
                 <div class="invoice-info">
@@ -499,33 +771,36 @@ class InvoiceGenerator:
                     <div class="invoice-number">#{invoice_id}</div>
                     <div class="invoice-date">Date: {current_date}</div>
                 </div>
-            </div>                <div class="billing-section">
-                <div class="billing-info">
-                    <div class="section-title">Billed To:</div>
-                    <div>
-                        <strong style="color: #18181B; font-size: 14px;">{invoice_data.get('user_info', {}).get('name', 'N/A')}</strong><br>
-                        <span style="color: #3f3f46;">{invoice_data.get('user_info', {}).get('email', 'N/A')}</span><br>
-                        <span style="color: #3f3f46;">{invoice_data.get('user_info', {}).get('phone', '')}</span><br>
-                    </div>
-                </div>
-                <div class="payment-info">
-                    <div class="section-title">Payment Information:</div>
-                    <div>
-                        Payment Method: <span class="payment-method">{invoice_data.get('payment_info', {}).get('method', 'N/A')}</span><br>
-                        Payment Status: <span class="status-badge">{invoice_data.get('payment_info', {}).get('status', 'N/A')}</span><br>
-                        Reference: <span style="color: #3f3f46; font-family: monospace; font-size: 11px;">{invoice_data.get('payment_intent_id', 'N/A')}</span><br>
-                        Transaction Date: <span style="color: #18181B; font-weight: 600;">{invoice_data.get('payment_info', {}).get('date', current_date)}</span>
-                    </div>
-                </div>
             </div>
+            
+            <div class="main-content">
+                <div class="billing-section">
+                    <div class="billing-info">
+                        <div class="section-title">Billed To:</div>
+                        <div>
+                            <strong style="color: #18181B; font-size: 17px;">{invoice_data.get('user_info', {}).get('name', 'N/A')}</strong><br>
+                            <span style="color: #3f3f46; font-size: 17px;">{invoice_data.get('user_info', {}).get('email', 'N/A')}</span><br>
+                            <span style="color: #3f3f46; font-size: 17px;">{invoice_data.get('user_info', {}).get('phone', '')}</span><br>
+                        </div>
+                    </div>
+                    <div class="payment-info">
+                        <div class="section-title">Payment Information:</div>
+                        <div>
+                            Payment Method: <span class="payment-method">{invoice_data.get('payment_info', {}).get('method', 'N/A').upper()}</span><br>
+                            Payment Status: <span class="payment-status">{invoice_data.get('payment_info', {}).get('status', 'N/A')}</span><br>
+                            Reference: <span style="color: #3f3f46; font-size: 17px;">{invoice_data.get('payment_intent_id', 'N/A')}</span><br>
+                            Transaction Date: <span style="color: #18181B; font-weight: 600; font-size: 17px;">{invoice_data.get('payment_info', {}).get('date', current_date)}</span>
+                        </div>
+                    </div>
+                </div>
             
             <table class="items-table">
                 <thead>
                     <tr>
                         <th style="width: 50%">Item/Service</th>
                         <th style="width: 15%" class="text-center">Quantity</th>
-                        <th style="width: 17.5%" class="text-right">Unit Price</th>
-                        <th style="width: 17.5%" class="text-right">Amount</th>
+                        <th style="width: 17.5%" class="text-right">Unit Price (A$)</th>
+                        <th style="width: 17.5%" class="text-right">Amount (A$)</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -540,16 +815,16 @@ class InvoiceGenerator:
             amount = Decimal(str(item.get('amount', 0)))
             
             if item_description:
-                item_display = f"{item_name}<br><small style='color: #71717A; font-style: italic;'>{item_description}</small>"
+                item_display = f"<span class='item-name'>{item_name}</span><br><small class='item-description' style='color: #71717A; font-style: italic; font-size: 16px;'>{item_description}</small>"
             else:
-                item_display = item_name
+                item_display = f"<span class='item-name'>{item_name}</span>"
             
             html_template += f"""
                     <tr>
-                        <td style="color: #18181B; font-weight: 500;">{item_display}</td>
-                        <td class="text-center" style="color: #3f3f46; font-weight: 600;">{quantity}</td>
-                        <td class="text-right" style="color: #18181B; font-weight: bold;">${unit_price:.2f}</td>
-                        <td class="text-right" style="color: #18181B; font-weight: bold;">${amount:.2f}</td>
+                        <td style="color: #18181B; font-weight: 500; font-size: 18px;">{item_display}</td>
+                        <td class="text-center" style="color: #3f3f46; font-weight: 600; font-size: 18px;">{quantity}</td>
+                        <td class="text-right" style="color: #18181B; font-weight: bold; font-size: 18px;">{unit_price:.2f}</td>
+                        <td class="text-right" style="color: #18181B; font-weight: bold; font-size: 18px;">{amount:.2f}</td>
                     </tr>
             """
         
@@ -576,7 +851,7 @@ class InvoiceGenerator:
                 <table class="totals-table">
                     <tr class="subtotal-row">
                         <td style="color: #18181B;">Subtotal:</td>
-                        <td class="text-right" style="color: #18181B; font-weight: bold;">${subtotal:.2f}</td>
+                        <td class="text-right" style="color: #18181B; font-weight: bold;">A$ {subtotal:.2f}</td>
                     </tr>"""
         
         # Add discount row only if there's a discount
@@ -589,23 +864,24 @@ class InvoiceGenerator:
             html_template += f"""
                     <tr class="discount-row">
                         <td style="color: #F59E0B;">{discount_label}</td>
-                        <td class="text-right" style="color: #F59E0B; font-weight: bold;">-${calculated_discount:.2f}</td>
+                        <td class="text-right" style="color: #F59E0B; font-weight: bold;">-A$ {calculated_discount:.2f}</td>
                     </tr>"""
         
         html_template += f"""
                     <tr class="total-row">
                         <td style="color: #000000; font-weight: bold;">TOTAL:</td>
-                        <td class="text-right" style="color: #000000; font-weight: bold;">${total_amount:.2f}</td>
+                        <td class="text-right" style="color: #000000; font-weight: bold;">A$ {total_amount:.2f}</td>
                     </tr>
                 </table>
             </div>
             
+            <div class="content-spacer"></div>
+            
             <div class="note-section">
                 <div class="note-title">Thank You for Your Business!</div>
                 <div style="color: #3f3f46;">Thank you for choosing <strong style="color: #22C55E;">{self.company_info['name']}</strong>! This invoice has been automatically generated for your payment. We appreciate your trust in our automotive services.</div>
-            </div>"""
-        
-        html_template += f"""
+            </div>
+            </div>
             
             <div class="footer">
                 <div style="margin-bottom: 10px;">
@@ -625,100 +901,8 @@ class InvoiceGenerator:
         print(f"HTML template created successfully (length: {len(html_template)} chars)")
         return html_template
     
-    def _html_to_pdf(self, html_content):
-        """Convert HTML to PDF using WeasyPrint"""
-        try:
-            print("=== Starting HTML to PDF conversion ===")
-            print(f"HTML content length: {len(html_content)} chars")
-            
-            # Add timeout protection for WeasyPrint import
-            import signal
-            import sys
-            
-            def timeout_handler(signum, frame):
-                raise TimeoutError("WeasyPrint import timed out")
-            
-            # Set a 10-second timeout for the import
-            print("Setting timeout for WeasyPrint import...")
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(10)  # 10 second timeout
-            
-            try:
-                print("Importing WeasyPrint with timeout protection...")
-                from weasyprint import HTML
-                signal.alarm(0)  # Cancel the alarm
-                print("WeasyPrint imported successfully")
-            except TimeoutError:
-                signal.alarm(0)  # Cancel the alarm
-                error_msg = "WeasyPrint import timed out - this indicates missing system dependencies in Lambda environment"
-                print(error_msg)
-                raise ImportError(error_msg)
-            except ImportError as import_error:
-                signal.alarm(0)  # Cancel the alarm
-                error_msg = f"WeasyPrint not available: {str(import_error)}. This may be due to missing system dependencies."
-                print(error_msg)
-                raise ImportError(error_msg)
-            except Exception as import_error:
-                signal.alarm(0)  # Cancel the alarm
-                error_msg = f"WeasyPrint import failed: {str(import_error)}"
-                print(error_msg)
-                raise ImportError(error_msg)
-            
-            print("Creating HTML document object...")
-            # Create PDF from HTML
-            html_doc = HTML(string=html_content)
-            print("HTML document object created")
-            
-            print("Converting to PDF...")
-            pdf_bytes = html_doc.write_pdf()
-            print(f"PDF conversion successful, size: {len(pdf_bytes)} bytes")
-            
-            return pdf_bytes
-        except ImportError as e:
-            print(f"WeasyPrint import/dependency error: {str(e)}")
-            import traceback
-            print(f"WeasyPrint error traceback: {traceback.format_exc()}")
-            raise e
-        except Exception as e:
-            print(f"Error converting HTML to PDF: {str(e)}")
-            import traceback
-            print(f"PDF conversion traceback: {traceback.format_exc()}")
-            raise e
-    
-    def _upload_to_s3(self, pdf_bytes, s3_key):
-        """Upload PDF to S3 bucket"""
-        try:
-            if not REPORTS_BUCKET or not CLOUDFRONT_DOMAIN:
-                raise ValueError("REPORTS_BUCKET or CLOUDFRONT_DOMAIN environment variable not set")
-
-            s3_client.put_object(
-                Bucket=REPORTS_BUCKET,
-                Key=s3_key,
-                Body=pdf_bytes,
-                ContentType='application/pdf',
-                Metadata={
-                    'generated_at': datetime.now(timezone.utc).isoformat(),
-                    'generator': 'auto-lab-invoice-generator'
-                }
-            )
-            
-            # Generate file URL (assuming CloudFront distribution)
-            file_url = f"https://{CLOUDFRONT_DOMAIN}/{s3_key}"
-
-            return {
-                'success': True,
-                'file_url': file_url
-            }
-            
-        except Exception as e:
-            print(f"Error uploading to S3: {str(e)}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
-    
     def _upload_html_to_s3(self, html_bytes, s3_key):
-        """Upload HTML to S3 bucket as fallback when PDF generation fails"""
+        """Upload HTML invoice to S3 bucket"""
         try:
             if not REPORTS_BUCKET or not CLOUDFRONT_DOMAIN:
                 raise ValueError("REPORTS_BUCKET or CLOUDFRONT_DOMAIN environment variable not set")
@@ -731,8 +915,7 @@ class InvoiceGenerator:
                 Metadata={
                     'generated_at': datetime.now(timezone.utc).isoformat(),
                     'generator': 'auto-lab-invoice-generator',
-                    'format': 'html-fallback',
-                    'reason': 'pdf-generation-failed'
+                    'format': 'html'
                 }
             )
             
@@ -751,7 +934,7 @@ class InvoiceGenerator:
                 'error': str(e)
             }
 
-    def generate_invoice_from_payment(self, payment_data, user_data=None, order_data=None):
+    def generate_invoice_from_payment(self, payment_data, user_data=None, order_data=None, qr_code_url=None):
         """
         Generate invoice from payment data
         
@@ -759,6 +942,7 @@ class InvoiceGenerator:
             payment_data (dict): Payment record from database
             user_data (dict, optional): User information
             order_data (dict, optional): Order information with items
+            qr_code_url (str, optional): URL to encode in QR code
             
         Returns:
             dict: Invoice generation result
@@ -783,7 +967,8 @@ class InvoiceGenerator:
                 },
                 'items': [],
                 'discount_amount': 0,  # Default no discount
-                'discount_percentage': 0  # Default no percentage discount
+                'discount_percentage': 0,  # Default no percentage discount
+                'qr_code_url': qr_code_url  # Include QR code URL if provided
             }
             
             # Add items from order data or payment metadata
@@ -823,38 +1008,22 @@ class InvoiceGenerator:
             url (str): The URL to encode in the QR code
             
         Returns:
-            str: Base64 encoded QR code image
+            str: Base64 encoded QR code image or None if generation fails
         """
         try:
             print(f"Starting QR code generation for URL: {url}")
             
-            # Add timeout protection for qrcode import
-            import signal
-            import sys
-            
-            def timeout_handler(signum, frame):
-                raise TimeoutError("QR code import timed out")
-            
-            # Set a 5-second timeout for the import
-            print("Setting timeout for qrcode import...")
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(5)  # 5 second timeout
-            
+            # Import qrcode with error handling
             try:
-                print("Importing qrcode module with timeout protection...")
                 import qrcode
-                signal.alarm(0)  # Cancel the alarm
                 print("qrcode module imported successfully")
-            except TimeoutError:
-                signal.alarm(0)  # Cancel the alarm
-                print("QR code import timed out - skipping QR code generation")
+            except ImportError as import_error:
+                print(f"QR code import failed: {import_error} - skipping QR code generation")
                 return None
             except Exception as import_error:
-                signal.alarm(0)  # Cancel the alarm
-                print(f"QR code import failed: {import_error}")
+                print(f"QR code import error: {import_error} - skipping QR code generation")
                 return None
             
-            print("Creating QRCode object...")
             # Create QR code
             qr = qrcode.QRCode(
                 version=1,
@@ -862,36 +1031,26 @@ class InvoiceGenerator:
                 box_size=10,
                 border=4,
             )
-            print("QRCode object created")
             
-            print("Adding data to QR code...")
             qr.add_data(url)
-            print("Data added to QR code")
-            
-            print("Making QR code...")
             qr.make(fit=True)
-            print("QR code made")
             
-            print("Creating QR code image...")
             # Create image
             img = qr.make_image(fill_color="black", back_color="white")
-            print("QR code image created")
             
-            print("Converting to base64...")
             # Convert to base64
             buffered = BytesIO()
             img.save(buffered, format="PNG")
             img_str = base64.b64encode(buffered.getvalue()).decode()
-            print(f"QR code converted to base64 (length: {len(img_str)})")
             
+            print(f"QR code generated successfully (base64 length: {len(img_str)})")
             return img_str
+            
         except Exception as e:
-            print(f"Error generating QR code: {str(e)}")
-            import traceback
-            print(f"QR code generation traceback: {traceback.format_exc()}")
+            print(f"Error generating QR code: {str(e)} - skipping QR code generation")
             return None
 
-def create_invoice_for_payment(payment_intent_id, user_data=None, order_data=None):
+def create_invoice_for_payment(payment_intent_id, user_data=None, order_data=None, qr_code_url=None):
     """
     Convenience function to create an invoice for a payment
     
@@ -899,6 +1058,7 @@ def create_invoice_for_payment(payment_intent_id, user_data=None, order_data=Non
         payment_intent_id (str): Payment intent ID
         user_data (dict, optional): User information
         order_data (dict, optional): Order information
+        qr_code_url (str, optional): URL to encode in QR code
         
     Returns:
         dict: Invoice generation result
@@ -917,16 +1077,19 @@ def create_invoice_for_payment(payment_intent_id, user_data=None, order_data=Non
         
         # Generate invoice
         generator = InvoiceGenerator()
-        result = generator.generate_invoice_from_payment(payment_data, user_data, order_data)
+        result = generator.generate_invoice_from_payment(payment_data, user_data, order_data, qr_code_url)
         
         if result['success']:
             # Save invoice record to database
+            file_size = result.get('html_size', 0)
+            
             invoice_record = {
                 'invoiceId': result['invoice_id'],
                 'paymentIntentId': payment_intent_id,
                 's3Key': result['s3_key'],
                 'fileUrl': result['file_url'],
-                'pdfSize': result['pdf_size'],
+                'fileSize': file_size,
+                'format': 'html',
                 'createdAt': int(datetime.now().timestamp()),
                 'status': 'generated'
             }
@@ -1095,16 +1258,13 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
                 'referenceType': record_type,
                 's3Key': result['s3_key'],
                 'fileUrl': result['file_url'],
-                'fileSize': result.get('pdf_size') or result.get('html_size', 0),
-                'format': result.get('format', 'unknown'),
+                'fileSize': result.get('html_size', 0),
+                'format': 'html',
                 'createdAt': int(datetime.now().timestamp()),
                 'status': 'generated'
             }
 
-            # Add note if it's HTML fallback
-            if result.get('format') == 'html':
-                invoice_record['note'] = result.get('note', 'Generated as HTML due to system limitations')
-
+            # Remove the note field and simplify metadata
             invoice_record['metadata'] = {
                 'userName': user_data.get('name', 'N/A'),
                 'userEmail': user_data.get('email', 'N/A'),
@@ -1116,7 +1276,7 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
                 'paymentMethod': payment_info['method'],
                 'paymentStatus': payment_info['status'],
                 'totalAmount': payment_info['amount'],
-                'invoiceFormat': result.get('format', 'unknown')
+                'invoiceFormat': 'html'
             }
             
             print("Calling create_invoice_record...")

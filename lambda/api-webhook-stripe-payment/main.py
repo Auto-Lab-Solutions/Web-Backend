@@ -1,18 +1,40 @@
 import os
-import stripe
 import time
-import db_utils as db
-import response_utils as resp
-import wsgw_utils as wsgw
 
-# Set Stripe configuration
-stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
-STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET')
+# Import these at module level as they should be available
+try:
+    import stripe
+    import db_utils as db
+    import response_utils as resp
+    import wsgw_utils as wsgw
+except ImportError as e:
+    print(f"Warning: Import error at module level: {e}")
+    # Re-raise only if we're in AWS Lambda environment
+    if os.environ.get('AWS_LAMBDA_FUNCTION_NAME'):
+        raise
 
-wsgw_client = wsgw.get_apigateway_client()
+# Set Stripe configuration (with error handling)
+try:
+    stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
+    STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET')
+    wsgw_client = wsgw.get_apigateway_client()
+except (NameError, AttributeError) as e:
+    print(f"Warning: Configuration error: {e}")
+    # Set defaults for local testing
+    STRIPE_WEBHOOK_SECRET = None
+    wsgw_client = None
 
 def lambda_handler(event, context):
     try:
+        # Check if required modules are available
+        if 'stripe' not in globals() or 'resp' not in globals():
+            error_msg = "Required modules not available - check Lambda layer configuration"
+            print(f"ERROR: {error_msg}")
+            return {
+                'statusCode': 500,
+                'body': '{"error": "Internal server error"}'
+            }
+            
         # Get the raw body and signature
         payload = event.get('body', '')
         signature_header = event.get('headers', {}).get('Stripe-Signature', '')
@@ -97,7 +119,7 @@ def handle_payment_succeeded(payment_intent):
             # Generate invoice after successful payment confirmation
             if record.get('paymentStatus') == 'paid':
                 try:
-                    # Import invoice_utils only when needed to avoid WeasyPrint import issues
+                    # Import invoice_utils to generate HTML invoice
                     try:
                         import invoice_utils as invc
                         
