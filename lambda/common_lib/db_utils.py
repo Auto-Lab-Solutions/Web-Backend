@@ -1355,6 +1355,93 @@ def create_invoice_record(invoice_data):
         return False
 
 
+# ------------------  Backup/Restore Utility Functions ------------------
+
+def scan_all_items(table_name):
+    """Scan all items from a DynamoDB table"""
+    try:
+        items = []
+        response = dynamodb.scan(TableName=table_name)
+        items.extend(response.get('Items', []))
+        
+        while 'LastEvaluatedKey' in response:
+            response = dynamodb.scan(
+                TableName=table_name,
+                ExclusiveStartKey=response['LastEvaluatedKey']
+            )
+            items.extend(response.get('Items', []))
+        
+        print(f"Scanned {len(items)} items from {table_name}")
+        return items
+    except ClientError as e:
+        print(f"Error scanning table {table_name}: {e}")
+        raise
+
+def get_table_key_schema(table_name):
+    """Get the key schema for a DynamoDB table"""
+    try:
+        response = dynamodb.describe_table(TableName=table_name)
+        return response['Table']['KeySchema']
+    except ClientError as e:
+        print(f"Error getting key schema for {table_name}: {e}")
+        raise
+
+def scan_table_keys_only(table_name, key_names):
+    """Scan table and return only the key attributes"""
+    try:
+        items = []
+        projection_expression = ', '.join(key_names)
+        
+        response = dynamodb.scan(
+            TableName=table_name,
+            ProjectionExpression=projection_expression
+        )
+        items.extend(response.get('Items', []))
+        
+        while 'LastEvaluatedKey' in response:
+            response = dynamodb.scan(
+                TableName=table_name,
+                ProjectionExpression=projection_expression,
+                ExclusiveStartKey=response['LastEvaluatedKey']
+            )
+            items.extend(response.get('Items', []))
+        
+        return items
+    except ClientError as e:
+        print(f"Error scanning keys from {table_name}: {e}")
+        raise
+
+def delete_item(table_name, key):
+    """Delete an item from DynamoDB table"""
+    try:
+        dynamodb.delete_item(TableName=table_name, Key=key)
+        return True
+    except ClientError as e:
+        print(f"Error deleting item from {table_name}: {e}")
+        raise
+
+def batch_write_items(table_name, items):
+    """Write items to DynamoDB table in batch"""
+    try:
+        request_items = {
+            table_name: [
+                {'PutRequest': {'Item': item}} for item in items
+            ]
+        }
+        
+        response = dynamodb.batch_write_item(RequestItems=request_items)
+        
+        # Handle unprocessed items
+        unprocessed = response.get('UnprocessedItems', {})
+        while unprocessed:
+            response = dynamodb.batch_write_item(RequestItems=unprocessed)
+            unprocessed = response.get('UnprocessedItems', {})
+        
+        return True
+    except ClientError as e:
+        print(f"Error batch writing items to {table_name}: {e}")
+        raise
+
 # -------------------------------------------------------------
 
 def deserialize_item(item):

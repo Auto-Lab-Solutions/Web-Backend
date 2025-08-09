@@ -1012,6 +1012,26 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
+  # Backup/Restore API Function
+  ApiBackupRestore:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'api-backup-restore-${Environment}'
+      Runtime: python3.11
+      Handler: main.lambda_handler
+      Role: !Sub 'arn:aws:iam::${AWS::AccountId}:role/auto-lab-backup-api-lambda-role-${Environment}'
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          BACKUP_FUNCTION_NAME: !Sub 'auto-lab-backup-${Environment}'
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: !Sub 'lambda-packages/api-backup-restore-${Environment}.zip'
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
 Outputs:
   StaffAuthorizerArn:
     Description: Staff Authorizer Lambda ARN
@@ -1152,4 +1172,10 @@ Outputs:
   ApiGenerateInvoiceArn:
     Description: Generate Invoice Lambda ARN
     Value: !GetAtt ApiGenerateInvoice.Arn
+
+  ApiBackupRestoreArn:
+    Description: Backup/Restore API Lambda ARN
+    Value: !GetAtt ApiBackupRestore.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiBackupRestoreArn'
 

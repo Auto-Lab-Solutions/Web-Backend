@@ -242,8 +242,8 @@ package_lambdas() {
         cd - > /dev/null
         
         # Upload to S3 - use different paths for different lambda types
-        if [[ "$lambda_name" == sqs-process-*-notification-queue ]]; then
-            # Notification processor lambdas use lambda-packages/ path
+        if [[ "$lambda_name" == sqs-process-*-notification-queue ]] || [[ "$lambda_name" == "backup-restore" ]] || [[ "$lambda_name" == "api-backup-restore" ]]; then
+            # Notification processor lambdas and backup lambdas use lambda-packages/ path
             aws s3 cp "dist/lambda/$lambda_name.zip" "s3://$CLOUDFORMATION_BUCKET/lambda-packages/$lambda_name.zip"
         else
             # Standard lambdas use lambda/ path
@@ -366,6 +366,42 @@ update_invoice_processor_lambda() {
     return 0
 }
 
+# Update Backup Lambda function code (managed by BackupSystemStack)
+update_backup_lambda() {
+    local lambda_name=$1
+    local full_function_name="${lambda_name}-${ENVIRONMENT}"
+    local zip_file="dist/lambda/$lambda_name.zip"
+
+    if [ ! -f "$zip_file" ]; then
+        print_error "ZIP file not found: $zip_file"
+        return 1
+    fi
+    
+    # Check if function exists
+    if ! aws lambda get-function --function-name "$full_function_name" --region $AWS_REGION &>/dev/null; then
+        print_error "Lambda function '$full_function_name' does not exist in AWS"
+        print_warning "Please deploy infrastructure first using ./deploy.sh $ENVIRONMENT"
+        return 1
+    fi
+    
+    print_status "Updating Backup Lambda function code: $full_function_name"
+    
+    # Update function code
+    aws lambda update-function-code \
+        --function-name "$full_function_name" \
+        --zip-file "fileb://$zip_file" \
+        --region $AWS_REGION > /dev/null
+    
+    # Wait for update to complete
+    print_status "Waiting for update to complete..."
+    aws lambda wait function-updated \
+        --function-name "$full_function_name" \
+        --region $AWS_REGION
+    
+    print_success "Updated $full_function_name"
+    return 0
+}
+
 update_all_lambdas() {
     print_status "Updating all Lambda functions..."
     
@@ -382,6 +418,10 @@ update_all_lambdas() {
             elif [ "$lambda_name" = "sqs-process-invoice-queue" ]; then
                 print_status "Updating $lambda_name (managed by InvoiceQueueStack)..."
                 update_invoice_processor_lambda "$lambda_name"
+            # Handle backup/restore lambdas differently since they're managed by BackupSystemStack
+            elif [[ "$lambda_name" == "backup-restore" || "$lambda_name" == "api-backup-restore" ]]; then
+                print_status "Updating $lambda_name (managed by BackupSystemStack)..."
+                update_backup_lambda "$lambda_name"
             else
                 update_lambda_code "$lambda_name"
             fi
@@ -469,6 +509,56 @@ update_auth0_config() {
     echo "Update the 'apiGwEndpoint' variable in auth0-actions/post-login-roles-assignment.js"
 }
 
+# Deploy backup system
+deploy_backup_system() {
+    print_status "Deploying backup system infrastructure..."
+    
+    # Note: Backup Lambda packages should already be uploaded by package_lambdas function
+    # This function focuses on deploying the backup system CloudFormation stack
+    
+    local backup_stack_name="auto-lab-backup-system-${ENVIRONMENT}"
+    
+    # Check if backup Lambda packages exist in S3
+    print_status "Verifying backup Lambda packages in S3..."
+    
+    if ! aws s3 ls "s3://$CLOUDFORMATION_BUCKET/lambda-packages/backup-restore.zip" --region "$AWS_REGION" &>/dev/null; then
+        print_warning "Backup Lambda package not found in S3. This should have been uploaded by package_lambdas."
+        print_warning "Backup system deployment may fail if packages are missing."
+    fi
+    
+    if ! aws s3 ls "s3://$CLOUDFORMATION_BUCKET/lambda-packages/api-backup-restore.zip" --region "$AWS_REGION" &>/dev/null; then
+        print_warning "API Backup Lambda package not found in S3. This should have been uploaded by package_lambdas."
+        print_warning "Backup system deployment may fail if packages are missing."
+    fi
+    
+    # Deploy backup system CloudFormation stack
+    print_status "Deploying backup system CloudFormation stack..."
+    
+    aws cloudformation deploy \
+        --template-file infrastructure/backup-system.yaml \
+        --stack-name "$backup_stack_name" \
+        --parameter-overrides \
+            Environment="$ENVIRONMENT" \
+            CloudFormationBucket="$CLOUDFORMATION_BUCKET" \
+            ReportsBucketName="$REPORTS_BUCKET_NAME" \
+        --capabilities CAPABILITY_NAMED_IAM \
+        --region "$AWS_REGION"
+    
+    if [ $? -eq 0 ]; then
+        print_success "Backup system deployed successfully"
+        
+        # Show backup system information
+        print_status "Backup system components:"
+        aws cloudformation describe-stacks \
+            --stack-name "$backup_stack_name" \
+            --query 'Stacks[0].Outputs[?OutputKey==`BackupLambdaFunctionArn`||OutputKey==`BackupScheduleRuleArn`||OutputKey==`BackupBucket`].[OutputKey,OutputValue]' \
+            --output table --region "$AWS_REGION" 2>/dev/null || print_warning "Could not retrieve backup system outputs"
+    else
+        print_error "Failed to deploy backup system"
+        return 1
+    fi
+}
+
 # Main deployment function
 main() {
     # Handle help flag
@@ -518,6 +608,11 @@ main() {
     
     package_lambdas
     deploy_stack
+    
+    # Deploy backup system
+    print_status "Deploying backup system..."
+    deploy_backup_system
+    
     update_all_lambdas
     configure_api_gateway
     
@@ -567,6 +662,22 @@ main() {
     echo "  ✓ Shared notification_utils library deployed to all functions"
     echo ""
     print_status "All notification processing is now asynchronous via SQS queues!"
+    
+    echo ""
+    print_success "Backup System Deployed:"
+    echo "  ✓ Automated backup Lambda function for scheduled backups"
+    echo "  ✓ Manual backup Lambda function for on-demand backups"
+    echo "  ✓ API backup/restore Lambda function for programmatic access"
+    echo "  ✓ Scheduled backups configured (daily at 2:00 AM UTC for production)"
+    echo "  ✓ Backup retention policies configured"
+    echo "  ✓ S3 backup storage with versioning enabled"
+    echo ""
+    print_status "Backup Management Commands:"
+    echo "  ./manage-backups.sh trigger-backup $ENVIRONMENT    # Trigger manual backup"
+    echo "  ./manage-backups.sh list-backups $ENVIRONMENT      # List available backups"
+    echo "  ./manage-backups.sh restore-info $ENVIRONMENT      # Show restore instructions"
+    echo ""
+    print_status "For full backup system documentation, see: BACKUP_SYSTEM_GUIDE.md"
 }
 
 # Check if script is being run directly

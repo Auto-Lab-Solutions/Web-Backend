@@ -123,6 +123,56 @@ Parameters:
     Type: String
     Description: Get Invoices Lambda ARN
 
+  # Rate Limiting Parameters
+  RateLimitBurst:
+    Type: Number
+    Default: 50
+    Description: The API request burst limit for throttling
+    
+  RateLimitRate:
+    Type: Number
+    Default: 25
+    Description: The API request steady-state rate limit for throttling
+
+Mappings:
+  EnvironmentSettings:
+    development:
+      QuotaLimit: 10000
+      QuotaPeriod: HOUR
+      ThrottleBurstLimit: 500
+      ThrottleRateLimit: 250
+      # Method-specific limits for development (per hour) - Higher for testing
+      AppointmentsBurst: 200
+      AppointmentsRate: 100
+      OrdersBurst: 150
+      OrdersRate: 75
+      PaymentsBurst: 100
+      PaymentsRate: 50
+      PublicBurst: 500
+      PublicRate: 250
+      AdminBurst: 100
+      AdminRate: 50
+      MessagingBurst: 200
+      MessagingRate: 100
+    production:
+      QuotaLimit: 1500
+      QuotaPeriod: HOUR
+      ThrottleBurstLimit: 50
+      ThrottleRateLimit: 25
+      # Method-specific limits for production (per hour) - Conservative for real customers
+      AppointmentsBurst: 30
+      AppointmentsRate: 15
+      OrdersBurst: 20
+      OrdersRate: 10
+      PaymentsBurst: 15
+      PaymentsRate: 8
+      PublicBurst: 50
+      PublicRate: 25
+      AdminBurst: 10
+      AdminRate: 5
+      MessagingBurst: 25
+      MessagingRate: 12
+
 Resources:
   # REST API
   RestApi:
@@ -1278,6 +1328,132 @@ Resources:
       DeploymentId: !Ref ApiDeploymentV2
       StageName: !Ref Environment
       Description: !Sub 'API Gateway stage for ${Environment}'
+      ThrottleSettings:
+        BurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, ThrottleBurstLimit]
+        RateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, ThrottleRateLimit]
+      MethodSettings:
+        # Appointment endpoints
+        - ResourcePath: "/appointments"
+          HttpMethod: "GET"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AppointmentsBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AppointmentsRate]
+        - ResourcePath: "/appointments"
+          HttpMethod: "POST"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AppointmentsBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AppointmentsRate]
+        - ResourcePath: "/appointments/{appointmentId}"
+          HttpMethod: "GET"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AppointmentsBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AppointmentsRate]
+        - ResourcePath: "/appointments/{appointmentId}"
+          HttpMethod: "PATCH"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AppointmentsBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AppointmentsRate]
+        # Order endpoints
+        - ResourcePath: "/orders"
+          HttpMethod: "GET"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, OrdersBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, OrdersRate]
+        - ResourcePath: "/orders"
+          HttpMethod: "POST"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, OrdersBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, OrdersRate]
+        - ResourcePath: "/orders/{orderId}"
+          HttpMethod: "GET"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, OrdersBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, OrdersRate]
+        - ResourcePath: "/orders/{orderId}"
+          HttpMethod: "PATCH"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, OrdersBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, OrdersRate]
+        # Payment endpoints
+        - ResourcePath: "/payments/stripe/intent"
+          HttpMethod: "POST"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, PaymentsBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, PaymentsRate]
+        - ResourcePath: "/payments/stripe/confirm"
+          HttpMethod: "POST"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, PaymentsBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, PaymentsRate]
+        - ResourcePath: "/payments/stripe/webhook"
+          HttpMethod: "POST"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, PaymentsBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, PaymentsRate]
+        - ResourcePath: "/payments/confirm"
+          HttpMethod: "POST"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, PaymentsBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, PaymentsRate]
+        - ResourcePath: "/payments/invoices"
+          HttpMethod: "GET"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, PaymentsBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, PaymentsRate]
+        - ResourcePath: "/payments/invoices"
+          HttpMethod: "POST"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, PaymentsBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, PaymentsRate]
+        # Public endpoints (higher limits)
+        - ResourcePath: "/unavailable-slots"
+          HttpMethod: "GET"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, PublicBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, PublicRate]
+        - ResourcePath: "/unavailable-slots"
+          HttpMethod: "POST"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, PublicBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, PublicRate]
+        - ResourcePath: "/inquiries"
+          HttpMethod: "POST"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, PublicBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, PublicRate]
+        - ResourcePath: "/get-staff-roles"
+          HttpMethod: "GET"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, PublicBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, PublicRate]
+        # Admin endpoints (more restrictive)
+        - ResourcePath: "/prices"
+          HttpMethod: "GET"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminRate]
+        - ResourcePath: "/users"
+          HttpMethod: "GET"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminRate]
+        - ResourcePath: "/users/online"
+          HttpMethod: "GET"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminRate]
+        - ResourcePath: "/users/take"
+          HttpMethod: "POST"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminRate]
+        - ResourcePath: "/analytics"
+          HttpMethod: "POST"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminRate]
+        - ResourcePath: "/inquiries"
+          HttpMethod: "GET"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminRate]
+        - ResourcePath: "/report-upload-urls"
+          HttpMethod: "POST"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminRate]
+        # Messaging endpoints
+        - ResourcePath: "/messages"
+          HttpMethod: "GET"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, MessagingBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, MessagingRate]
+        - ResourcePath: "/messages"
+          HttpMethod: "POST"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, MessagingBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, MessagingRate]
+        - ResourcePath: "/messages/notify"
+          HttpMethod: "POST"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, MessagingBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, MessagingRate]
+        - ResourcePath: "/messages/last"
+          HttpMethod: "GET"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, MessagingBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, MessagingRate]
       Variables:
         environment: !Ref Environment
 
@@ -1348,3 +1524,23 @@ Outputs:
     Value: !Sub 'arn:aws:apigateway:${AWS::Region}::/restapis/${RestApi}/stages/${Environment}'
     Export:
       Name: !Sub '${AWS::StackName}-ApiStageArn'
+
+  RateLimits:
+    Description: Rate limits configured for this environment
+    Value: !Sub |
+      Environment: ${Environment}
+      
+      Global Rate Limits (All Users Combined):
+        Hourly Quota: !FindInMap [EnvironmentSettings, !Ref Environment, QuotaLimit]
+        Burst Limit: !FindInMap [EnvironmentSettings, !Ref Environment, ThrottleBurstLimit]
+        Rate Limit: !FindInMap [EnvironmentSettings, !Ref Environment, ThrottleRateLimit]
+      
+      Endpoint-Specific Limits (Global):
+        Appointments: Burst=!FindInMap [EnvironmentSettings, !Ref Environment, AppointmentsBurst], Rate=!FindInMap [EnvironmentSettings, !Ref Environment, AppointmentsRate]
+        Orders: Burst=!FindInMap [EnvironmentSettings, !Ref Environment, OrdersBurst], Rate=!FindInMap [EnvironmentSettings, !Ref Environment, OrdersRate]
+        Payments: Burst=!FindInMap [EnvironmentSettings, !Ref Environment, PaymentsBurst], Rate=!FindInMap [EnvironmentSettings, !Ref Environment, PaymentsRate]
+        Public: Burst=!FindInMap [EnvironmentSettings, !Ref Environment, PublicBurst], Rate=!FindInMap [EnvironmentSettings, !Ref Environment, PublicRate]
+        Admin: Burst=!FindInMap [EnvironmentSettings, !Ref Environment, AdminBurst], Rate=!FindInMap [EnvironmentSettings, !Ref Environment, AdminRate]
+        Messaging: Burst=!FindInMap [EnvironmentSettings, !Ref Environment, MessagingBurst], Rate=!FindInMap [EnvironmentSettings, !Ref Environment, MessagingRate]
+    Export:
+      Name: !Sub '${AWS::StackName}-RateLimits'

@@ -305,6 +305,80 @@ validate_deployment() {
         fi
     fi
     
+    # Check backup system
+    print_status "Checking backup system..."
+    local backup_stack_name="auto-lab-backup-system-${ENVIRONMENT}"
+    if aws cloudformation describe-stacks --stack-name "$backup_stack_name" --region $AWS_REGION &>/dev/null; then
+        local backup_stack_status=$(aws cloudformation describe-stacks --stack-name "$backup_stack_name" --region $AWS_REGION --query 'Stacks[0].StackStatus' --output text)
+        if [ "$backup_stack_status" = "CREATE_COMPLETE" ] || [ "$backup_stack_status" = "UPDATE_COMPLETE" ]; then
+            print_success "✓ Backup system stack '$backup_stack_name' is in good state ($backup_stack_status)"
+            
+            # Check backup Lambda functions
+            local backup_functions=("backup-restore" "api-backup-restore")
+            for func in "${backup_functions[@]}"; do
+                check_lambda_function "$func" || ((errors++))
+            done
+            
+            # Check backup system outputs
+            local backup_function_arn=$(get_stack_output "$backup_stack_name" "BackupLambdaFunctionArn")
+            local manual_backup_arn=$(get_stack_output "$backup_stack_name" "ManualBackupLambdaFunctionArn")
+            local backup_bucket=$(get_stack_output "$backup_stack_name" "BackupBucket")
+            local backup_schedule_arn=$(get_stack_output "$backup_stack_name" "BackupScheduleRuleArn")
+            
+            if [ -n "$backup_function_arn" ]; then
+                print_success "✓ Automated backup function deployed: $(basename "$backup_function_arn")"
+            else
+                print_error "✗ Automated backup function not found"
+                ((errors++))
+            fi
+            
+            if [ -n "$manual_backup_arn" ]; then
+                print_success "✓ Manual backup function deployed: $(basename "$manual_backup_arn")"
+            else
+                print_error "✗ Manual backup function not found"
+                ((errors++))
+            fi
+            
+            if [ -n "$backup_bucket" ]; then
+                # Check if backup bucket exists
+                if aws s3 ls "s3://$backup_bucket" &>/dev/null; then
+                    print_success "✓ Backup S3 bucket exists: $backup_bucket"
+                else
+                    print_error "✗ Backup S3 bucket not accessible: $backup_bucket"
+                    ((errors++))
+                fi
+            else
+                print_error "✗ Backup S3 bucket not found in outputs"
+                ((errors++))
+            fi
+            
+            if [ -n "$backup_schedule_arn" ]; then
+                print_success "✓ Backup schedule configured: $(basename "$backup_schedule_arn")"
+                # Show schedule details based on environment
+                case $ENVIRONMENT in
+                    "development"|"dev")
+                        print_status "  Schedule: Daily at 4:00 AM UTC (dev environment)"
+                        ;;
+                    "production"|"prod")
+                        print_status "  Schedule: Daily at 2:00 AM UTC (production environment)"
+                        ;;
+                esac
+            else
+                print_error "✗ Backup schedule not found"
+                ((errors++))
+            fi
+            
+        else
+            print_error "✗ Backup system stack '$backup_stack_name' is in bad state ($backup_stack_status)"
+            ((errors++))
+        fi
+    else
+        print_warning "⚠ Backup system stack '$backup_stack_name' not found"
+        print_warning "Backup functionality is not available"
+        # Don't increment errors as backup system might be optional
+    fi
+    echo
+    
     # Summary
     echo
     print_status "=== VALIDATION SUMMARY ==="
@@ -316,9 +390,23 @@ validate_deployment() {
         echo "  1. Update Auth0 configuration with: $REST_API_ENDPOINT"
         echo "  2. Initialize DynamoDB tables with your data"
         echo "  3. Test your frontend integration"
+        echo "  4. Test backup system: ./manage-backups.sh trigger-backup $ENVIRONMENT"
+        echo ""
+        print_status "Backend services available:"
+        echo "  • REST API: $REST_API_ENDPOINT"
+        echo "  • WebSocket API: $WEBSOCKET_API_ENDPOINT"
+        if [ -n "$CLOUDFRONT_DOMAIN" ]; then
+            echo "  • CloudFront CDN: https://$CLOUDFRONT_DOMAIN"
+        fi
+        echo "  • Async processing via SQS queues"
+        echo "  • Automated backups (if backup system deployed)"
     else
         print_error "❌ Validation completed with $errors error(s)"
         print_status "Please check the errors above and re-run deployment if needed."
+        echo ""
+        print_status "Common fixes:"
+        echo "  • Re-run deployment: ./deploy.sh $ENVIRONMENT"
+        echo "  • Check AWS credentials and permissions"
     fi
     
     return $errors

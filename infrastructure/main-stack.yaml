@@ -334,6 +334,24 @@ Resources:
         AcmCertificateArn: !Ref FrontendAcmCertificateArn
         EnableCustomDomain: !Ref EnableCustomDomain
 
+  # Backup System Stack
+  BackupSystemStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: 
+      - DynamoDBStack
+      - S3CloudFrontStack
+    Properties:
+      TemplateURL: !Sub 'https://s3.amazonaws.com/${CloudFormationBucket}/backup-system.yaml'
+      Parameters:
+        Environment: !Ref Environment
+        CloudFormationBucket: !Ref CloudFormationBucket
+        ReportsBucketName: !GetAtt S3CloudFrontStack.Outputs.ReportsBucketName
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: BackupSystem
+
 Outputs:
   RestApiId:
     Description: REST API ID
@@ -430,3 +448,34 @@ Outputs:
     Value: !GetAtt NotificationQueueStack.Outputs.FirebaseNotificationQueueUrl
     Export:
       Name: !Sub '${AWS::StackName}-FirebaseNotificationQueueUrl'
+
+  # Backup System Outputs
+  BackupFunctionName:
+    Description: Name of the automated backup Lambda function
+    Value: !GetAtt BackupSystemStack.Outputs.BackupLambdaFunctionName
+    Export:
+      Name: !Sub '${AWS::StackName}-BackupFunctionName'
+
+  ManualBackupFunctionName:
+    Description: Name of the manual backup Lambda function
+    Value: !GetAtt BackupSystemStack.Outputs.ManualBackupLambdaFunctionName
+    Export:
+      Name: !Sub '${AWS::StackName}-ManualBackupFunctionName'
+
+  BackupLocation:
+    Description: S3 location where backups are stored
+    Value: !GetAtt BackupSystemStack.Outputs.BackupLocation
+    Export:
+      Name: !Sub '${AWS::StackName}-BackupLocation'
+
+  BackupNotificationsTopic:
+    Description: SNS topic for backup notifications
+    Value: !GetAtt BackupSystemStack.Outputs.BackupNotificationsTopicArn
+    Export:
+      Name: !Sub '${AWS::StackName}-BackupNotificationsTopic'
+
+  BackupInstructions:
+    Description: Instructions for manual backup and restoration
+    Value: !GetAtt BackupSystemStack.Outputs.BackupInstructions
+    Export:
+      Name: !Sub '${AWS::StackName}-BackupInstructions'

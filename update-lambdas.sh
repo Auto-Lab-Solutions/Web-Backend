@@ -164,8 +164,8 @@ package_lambda() {
     cd - > /dev/null
 
     # Upload to S3 - use different paths for different lambda types
-    if [[ "$lambda_name" == sqs-process-*-notification-queue ]]; then
-        # Notification processor lambdas use lambda-packages/ path
+    if [[ "$lambda_name" == sqs-process-*-notification-queue ]] || [[ "$lambda_name" == "backup-restore" ]] || [[ "$lambda_name" == "api-backup-restore" ]]; then
+        # Notification processor lambdas and backup lambdas use lambda-packages/ path
         aws s3 cp "dist/lambda/$lambda_name.zip" "s3://$CLOUDFORMATION_BUCKET/lambda-packages/$lambda_name.zip"
     else
         # Standard lambdas use lambda/ path
@@ -252,6 +252,42 @@ update_notification_processor_lambda() {
     return 0
 }
 
+# Function to update backup Lambda function code (managed by BackupSystemStack)
+update_backup_lambda() {
+    local lambda_name=$1
+    local full_function_name="${lambda_name}-${ENVIRONMENT}"
+    local zip_file="dist/lambda/$lambda_name.zip"
+
+    if [ ! -f "$zip_file" ]; then
+        print_error "ZIP file not found: $zip_file"
+        return 1
+    fi
+    
+    # Check if function exists
+    if ! aws lambda get-function --function-name "$full_function_name" --region $AWS_REGION &>/dev/null; then
+        print_error "Lambda function '$full_function_name' does not exist in AWS"
+        print_warning "Please deploy infrastructure first using ./deploy.sh $ENVIRONMENT"
+        return 1
+    fi
+    
+    print_status "Updating Backup Lambda function code: $full_function_name"
+    
+    # Update function code
+    aws lambda update-function-code \
+        --function-name "$full_function_name" \
+        --zip-file "fileb://$zip_file" \
+        --region $AWS_REGION > /dev/null
+    
+    # Wait for update to complete
+    print_status "Waiting for update to complete..."
+    aws lambda wait function-updated \
+        --function-name "$full_function_name" \
+        --region $AWS_REGION
+    
+    print_success "Updated $full_function_name"
+    return 0
+}
+
 # Function to update multiple Lambda functions
 update_functions() {
     local functions=("$@")
@@ -273,6 +309,13 @@ update_functions() {
             if [[ "$lambda_name" == sqs-process-*-notification-queue ]]; then
                 # Notification processor lambdas are managed by NotificationQueueStack
                 if update_notification_processor_lambda "$lambda_name"; then
+                    ((success_count++))
+                else
+                    ((error_count++))
+                fi
+            elif [[ "$lambda_name" == "backup-restore" ]] || [[ "$lambda_name" == "api-backup-restore" ]]; then
+                # Backup lambdas are managed by BackupSystemStack
+                if update_backup_lambda "$lambda_name"; then
                     ((success_count++))
                 else
                     ((error_count++))
