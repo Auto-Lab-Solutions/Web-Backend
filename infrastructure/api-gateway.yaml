@@ -119,6 +119,10 @@ Parameters:
     Type: String
     Description: Send Message Lambda ARN
 
+  GetInvoicesArn:
+    Type: String
+    Description: Get Invoices Lambda ARN
+
 Resources:
   # REST API
   RestApi:
@@ -986,6 +990,20 @@ Resources:
       ParentId: !Ref PaymentsResource
       PathPart: invoices
 
+  InvoicesGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref InvoicesResource
+      HttpMethod: GET
+      AuthorizationType: NONE
+      # AuthorizationType: CUSTOM
+      # AuthorizerId: !Ref StaffAuthorizerOptional
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GetInvoicesArn}/invocations'
+
   InvoicesGenerateMethod:
     Type: AWS::ApiGateway::Method
     Properties:
@@ -1014,7 +1032,7 @@ Resources:
         IntegrationResponses:
           - StatusCode: 200
             ResponseParameters:
-              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST'"
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,POST'"
               method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
               method.response.header.Access-Control-Allow-Origin: "'*'"
             ResponseTemplates:
@@ -1294,6 +1312,7 @@ Resources:
       - ConfirmStripePaymentOptionsMethod
       - StripePaymentWebhookMethod
       - StripePaymentWebhookOptionsMethod
+      - InvoicesGetMethod
       - InvoicesGenerateMethod
       - InvoicesGenerateOptionsMethod
       - OrdersIdGetMethod

@@ -53,90 +53,43 @@ def generate_invoice_synchronously(record, record_type, payment_intent_id):
     try:
         import invoice_utils as invc
         import db_utils as db
-        
-        # Check if this is a manual transaction (from api-generate-invoice)
+
         if record_type == "invoice" and payment_intent_id and (
             payment_intent_id.startswith('cash_') or 
             payment_intent_id.startswith('bank_transfer_')
         ):
-            # Use the new API data creation function for manual transactions
-            invoice_result = create_invoice_from_api_data(record)
-            
-            if invoice_result.get('success'):
-                print(f"Manual invoice generated synchronously: {invoice_result.get('file_url')}")
-                
-                # Return detailed invoice result for API responses
-                return {
-                    'success': True,
-                    'invoice_result': invoice_result
-                }
-            else:
-                print(f"Failed to generate manual invoice: {invoice_result.get('error')}")
-                return {
-                    'success': False,
-                    'error': invoice_result.get('error', 'Unknown error')
-                }
+            invoice_result = invc.generate_invoice_for_payment(record)
+        elif payment_intent_id and (payment_intent_id.startswith('cash_') or payment_intent_id.startswith('bank_transfer_')):
+            invoice_result = invc.create_invoice_for_order_or_appointment(record, record_type)
         else:
-            # Use existing logic for appointment/order records
-            if payment_intent_id and (payment_intent_id.startswith('cash_') or payment_intent_id.startswith('bank_transfer_')):
-                invoice_result = invc.create_invoice_for_order_or_appointment(record, record_type)
-            else:
-                invoice_result = invc.create_invoice_for_order_or_appointment(record, record_type, payment_intent_id)
+            invoice_result = invc.create_invoice_for_order_or_appointment(record, record_type, payment_intent_id)
+        
+        if invoice_result.get('success'):
+            invoice_url = invoice_result.get('invoice_url')
+            print(f"Invoice generated synchronously: {invoice_url}")
+            reference_number = record.get(f'{record_type}Id', '')
             
-            if invoice_result.get('success'):
-                invoice_url = invoice_result.get('invoice_url')
-                reference_number = record.get(f'{record_type}Id')
-                
+            if (record_type == 'appointment' or record_type == 'order') and reference_number:
                 # Update the record with invoice URL
                 invoice_update = {'invoiceUrl': invoice_url, 'updatedAt': int(time.time())}
                 if record_type == 'appointment':
                     db.update_appointment(reference_number, invoice_update)
                 else:
                     db.update_order(reference_number, invoice_update)
-                print(f"Invoice generated synchronously: {invoice_url}")
-                
-                # Return detailed invoice result for API responses
-                return {
-                    'success': True,
-                    'invoice_result': invoice_result
-                }
-            else:
-                print(f"Failed to generate invoice: {invoice_result.get('error')}")
-                return {
-                    'success': False,
-                    'error': invoice_result.get('error', 'Unknown error')
-                }
+            
+            return {
+                'success': True,
+                'invoice_result': invoice_result
+            }
+        else:
+            print(f"Failed to generate invoice: {invoice_result.get('error')}")
+            return {
+                'success': False,
+                'error': invoice_result.get('error', 'Unknown error')
+            }
             
     except Exception as e:
         print(f"Error in synchronous invoice generation: {str(e)}")
-        return {
-            'success': False,
-            'error': str(e)
-        }
-
-def create_invoice_from_api_data(record_data):
-    """
-    Create invoice directly from API record data structure
-    
-    Args:
-        record_data (dict): Record data from api-generate-invoice
-        
-    Returns:
-        dict: Invoice generation result
-    """
-    try:
-        import invoice_utils as invc
-        
-        # Create invoice generator
-        generator = invc.InvoiceGenerator()
-        
-        # Use generate_invoice_from_payment which now supports the API data structure
-        result = generator.generate_invoice_from_payment(record_data)
-        
-        return result
-        
-    except Exception as e:
-        print(f"Error creating invoice from API data: {str(e)}")
         return {
             'success': False,
             'error': str(e)

@@ -24,7 +24,7 @@ def lambda_handler(event, context):
         },
         "transaction_data": {
             "currency": "AUD",  # optional, defaults to AUD
-            "payment_date": "2025-08-08",  # optional, defaults to current date
+            "payment_date": "08/08/2025"  # optional, defaults to current date
         },
         "vehicle_data": {
             "make": "Toyota",
@@ -69,11 +69,6 @@ def lambda_handler(event, context):
             timestamp = int(time.time())
             reference_number = f"INV{timestamp}"
         
-        # Check if invoice already exists for this transaction
-        existing_check = check_existing_invoice(reference_number)
-        if existing_check["exists"]:
-            return existing_check["response"]
-        
         # Generate unique payment intent ID for manual transactions
         payment_intent_id = f"{payment_method}_{reference_number}_{int(time.time())}"
         
@@ -89,14 +84,14 @@ def lambda_handler(event, context):
         # Prepare record data in the format expected by invoice generation
         record_data = {
             "invoiceId": transaction_data['id'],
-            "invoiceDate": time.strftime('%Y-%m-%d'),
+            "invoiceDate": time.strftime('%d/%m/%Y'),
             "customerName": customer_data['name'],
             "customerEmail": customer_data.get('email', 'N/A'),
             "customerPhone": customer_data.get('phone', 'N/A'),
             "paymentMethod": payment_method,
             "paymentStatus": "completed",
             "paymentIntentId": payment_intent_id,
-            "paymentDate": transaction_data.get('payment_date', time.strftime('%Y-%m-%d')),
+            "paymentDate": transaction_data.get('payment_date', time.strftime('%d/%m/%Y')),
             "items": enhanced_items,
             "currency": transaction_data.get('currency', 'AUD'),
             "totalAmount": total_amount,
@@ -273,7 +268,7 @@ def set_transaction_defaults(transaction_data, reference_number):
     if 'currency' not in transaction_data:
         transaction_data['currency'] = 'AUD'
     if 'payment_date' not in transaction_data:
-        transaction_data['payment_date'] = time.strftime('%Y-%m-%d')
+        transaction_data['payment_date'] = time.strftime('%d/%m/%Y')
     if 'confirmation_reference' not in transaction_data:
         transaction_data['confirmation_reference'] = 'N/A'
     

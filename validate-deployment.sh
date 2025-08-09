@@ -196,7 +196,7 @@ validate_deployment() {
         "api-get-unavailable-slots" "api-update-unavailable-slots"
         "api-get-orders" "api-create-order" "api-update-order" 
         "api-confirm-cash-payment" "api-create-payment-intent" "api-confirm-stripe-payment"
-        "api-webhook-stripe-payment" "api-generate-invoice"
+        "api-webhook-stripe-payment" "api-get-invoices" "api-generate-invoice"
         "api-get-inquiries" "api-create-inquiry"
         "api-get-report-upload-url" "api-get-analytics" "api-get-staff-roles"
         "api-notify" "api-take-user" "api-get-connections" "api-get-messages" "api-get-last-messages" "api-send-message"

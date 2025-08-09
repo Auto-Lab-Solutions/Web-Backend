@@ -881,6 +881,25 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
+  ApiGetInvoices:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'api-get-invoices-${Environment}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-get-invoices.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          ENVIRONMENT: !Ref Environment
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
   ApiGenerateInvoice:
     Type: AWS::Lambda::Function
     Properties:
@@ -1035,6 +1054,10 @@ Outputs:
   WsStaffInitArn:
     Description: WebSocket Staff Init Lambda ARN
     Value: !GetAtt WsStaffInit.Arn
+
+  GetInvoicesArn:
+    Description: Get Invoices Lambda ARN
+    Value: !GetAtt ApiGetInvoices.Arn
 
   ApiGenerateInvoiceArn:
     Description: Generate Invoice Lambda ARN

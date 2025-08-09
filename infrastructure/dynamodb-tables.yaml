@@ -305,9 +305,18 @@ Resources:
       AttributeDefinitions:
         - AttributeName: invoiceId
           AttributeType: S
+        - AttributeName: invoiceDate
+          AttributeType: N
       KeySchema:
         - AttributeName: invoiceId
           KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: invoiceDate-index
+          KeySchema:
+            - AttributeName: invoiceDate
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
       BillingMode: PAY_PER_REQUEST
       Tags:
         - Key: Environment

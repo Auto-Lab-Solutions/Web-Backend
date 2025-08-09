@@ -168,7 +168,7 @@ class InvoiceGenerator:
             }
         
         # Format current date
-        current_date = datetime.now().strftime('%d/%m/%Y')
+        invoice_date = invoice_data.get('invoice_date', datetime.now().strftime('%d/%m/%Y'))
         html_template = f"""
         <!DOCTYPE html>
         <html>
@@ -769,7 +769,7 @@ class InvoiceGenerator:
                 <div class="invoice-info">
                     <div class="invoice-title">INVOICE</div>
                     <div class="invoice-number">#{invoice_id}</div>
-                    <div class="invoice-date">Date: {current_date}</div>
+                    <div class="invoice-date">Date: {invoice_date}</div>
                 </div>
             </div>
             
@@ -789,7 +789,7 @@ class InvoiceGenerator:
                             Payment Method: <span class="payment-method">{invoice_data.get('payment_info', {}).get('method', 'N/A').upper()}</span><br>
                             Payment Status: <span class="payment-status">{invoice_data.get('payment_info', {}).get('status', 'N/A')}</span><br>
                             Reference: <span style="color: #3f3f46; font-size: 17px;">{invoice_data.get('payment_intent_id', 'N/A')}</span><br>
-                            Transaction Date: <span style="color: #18181B; font-weight: 600; font-size: 17px;">{invoice_data.get('payment_info', {}).get('date', current_date)}</span>
+                            Transaction Date: <span style="color: #18181B; font-weight: 600; font-size: 17px;">{invoice_data.get('payment_info', {}).get('date', invoice_date)}</span>
                         </div>
                     </div>
                 </div>
@@ -933,73 +933,6 @@ class InvoiceGenerator:
                 'error': str(e)
             }
 
-    def generate_invoice_from_payment(self, record_data):
-        """
-        Generate invoice from record data
-        
-        Args:
-            record_data (dict): Record data from API
-
-        Returns:
-            dict: Invoice generation result
-        """
-        try:
-            # Prepare invoice data
-            invoice_data = {
-                'payment_intent_id': record_data.get('paymentIntentId'),
-                'currency': record_data.get('currency', 'AUD'),
-                'user_info': {
-                    'name': record_data.get('customerName', 'Valued Customer'),
-                    'email': record_data.get('customerEmail', ''),
-                    'phone': record_data.get('customerPhone', '')
-                },
-                'payment_info': {
-                    'method': record_data.get('paymentMethod', 'Card'),
-                    'status': record_data.get('paymentStatus', 'completed'),
-                    'date': record_data.get('paymentDate', record_data.get('invoiceDate', 
-                        datetime.fromtimestamp(
-                            int(record_data.get('createdAt', datetime.now().timestamp()))
-                        ).strftime('%d/%m/%Y'))),
-                    'amount': record_data.get('totalAmount', 0)
-                },
-                'items': [],
-                'discount_amount': 0,  # Default no discount
-                'discount_percentage': 0,  # Default no percentage discount
-            }
-            
-            # Add items from payment data (new API structure)
-            if record_data.get('items'):
-                processed_items = []
-                for item in record_data['items']:
-                    processed_item = {
-                        'name': item.get('name', 'Service'),
-                        'description': item.get('description', ''),
-                        'quantity': item.get('quantity', 1),
-                        'unit_price': float(item.get('unitPrice', item.get('totalAmount', 0))),
-                        'amount': float(item.get('totalAmount', 0))
-                    }
-                    processed_items.append(processed_item)
-                invoice_data['items'] = processed_items
-            else:
-                # Create a single line item from payment data
-                amount = float(record_data.get('totalAmount', 0))
-                invoice_data['items'] = [{
-                    'name': 'Auto Service',
-                    'description': f"Payment Reference: {record_data.get('invoiceId', 'N/A')}",
-                    'quantity': 1,
-                    'unit_price': amount,
-                    'amount': amount
-                }]
-            
-            return self.generate_invoice(invoice_data)
-            
-        except Exception as e:
-            print(f"Error generating invoice from payment: {str(e)}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
-
     def _generate_qr_code(self, url):
         """
         Generate a QR code for the given URL and return it as base64 encoded string
@@ -1075,22 +1008,22 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
 
         if record_type == 'order':
             user_data = {
-                'name': record.get('customerName', 'N/A'),
-                'email': record.get('customerEmail', 'N/A'),
-                'phone': record.get('customerPhone', 'N/A')
+                'name': record.get('customerName', 'Valued Customer'),
+                'email': record.get('customerEmail', ''),
+                'phone': record.get('customerPhone', '')
             }
         else:  # appointment
             if record.get('isBuyer'):
                 user_data = {
-                    'name': record.get('buyerName', 'N/A'),
-                    'email': record.get('buyerEmail', 'N/A'),
-                    'phone': record.get('buyerPhone', 'N/A')
+                    'name': record.get('buyerName', 'Valued Customer'),
+                    'email': record.get('buyerEmail', ''),
+                    'phone': record.get('buyerPhone', '')
                 }
             else:
                 user_data = {
-                    'name': record.get('sellerName', 'N/A'),
-                    'email': record.get('sellerEmail', 'N/A'),
-                    'phone': record.get('sellerPhone', 'N/A')
+                    'name': record.get('sellerName', 'Valued Customer'),
+                    'email': record.get('sellerEmail', ''),
+                    'phone': record.get('sellerPhone', '')
                 }
         
         # Extract items from record
@@ -1106,9 +1039,9 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
                 except Exception as e:
                     category_name, item_name = "Unknown Category", "Unknown Item"
                 vehicle_info = {
-                    'make': record.get('carMake', 'N/A'),
-                    'model': record.get('carModel', 'N/A'),
-                    'year': record.get('carYear', 'N/A')
+                    'make': record.get('carMake', '<Car Make>'),
+                    'model': record.get('carModel', '<Car Model>'),
+                    'year': record.get('carYear', '<Car Year>')
                 }
                 items.append({
                     'name': item_name,
@@ -1140,8 +1073,7 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
         payment_info = {
             'method': record.get('paymentMethod', 'Unknown'),
             'status': 'completed' if record.get('paymentStatus') == 'paid' else 'pending',
-            'date': datetime.now().strftime('%d/%m/%Y'),
-            'amount': float(record.get('totalAmount', 0)) if record_type == 'order' else float(record.get('price', 0))
+            'date': datetime.now().strftime('%d/%m/%Y')
         }
         
         # Generate QR code URL for order/appointment tracking
@@ -1151,13 +1083,15 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
         # Prepare invoice data
         invoice_data = {
             'payment_intent_id': payment_intent_id or 'N/A',
-            'user_info': user_data,
-            'items': items,
-            'payment_info': payment_info,
-            'discount_percentage': 0,
-            'discount_amount': 0,
+            'currency': record.get('currency', 'AUD'),
+            'invoice_date': datetime.now().strftime('%d/%m/%Y'),
+            'invoice_type': record_type,
             'qr_code_url': qr_code_url,
-            'invoice_type': record_type
+            'user_info': user_data,
+            'payment_info': payment_info,
+            'items': items,
+            'discount_amount': 0,
+            'discount_percentage': 0,
         }
         
         # Generate the invoice
@@ -1166,6 +1100,7 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
         
         if result['success']:
             # Save invoice record to database
+            current_timestamp = int(datetime.now().timestamp())
             invoice_record = {
                 'invoiceId': result['invoice_id'],
                 'paymentIntentId': payment_intent_id or 'N/A',
@@ -1175,7 +1110,8 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
                 'fileUrl': result['file_url'],
                 'fileSize': result.get('html_size', 0),
                 'format': 'html',
-                'createdAt': int(datetime.now().timestamp()),
+                'createdAt': current_timestamp,
+                'invoiceDate': datetime.fromtimestamp(current_timestamp).strftime('%d/%m/%Y'),
                 'status': 'generated'
             }
 
@@ -1208,6 +1144,126 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
         return result
         
     except Exception as e:
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+
+def generate_invoice_for_payment(record_data):
+    """
+    Generate invoice for payment data and save to database
+    Similar to create_invoice_for_order_or_appointment but for API payment data
+    
+    Args:
+        record_data (dict): Payment record data from API
+        
+    Returns:
+        dict: Invoice generation result with invoice_url for API response
+    """
+    try:
+        # Import db_utils here to avoid circular imports
+        import db_utils
+        
+        # Prepare invoice data
+        invoice_data = {
+            'payment_intent_id': record_data.get('paymentIntentId'),
+            'currency': record_data.get('currency', 'AUD'),
+            'invoice_date': record_data.get('invoiceDate', 
+                datetime.fromtimestamp(
+                    int(record_data.get('createdAt', datetime.now().timestamp()))
+                ).strftime('%d/%m/%Y')
+            ),
+            'user_info': {
+                'name': record_data.get('customerName', 'Valued Customer'),
+                'email': record_data.get('customerEmail', ''),
+                'phone': record_data.get('customerPhone', '')
+            },
+            'payment_info': {
+                'method': record_data.get('paymentMethod', 'Card'),
+                'status': record_data.get('paymentStatus', 'completed'),
+                'date': record_data.get('paymentDate', record_data.get('invoiceDate', 
+                    datetime.fromtimestamp(
+                        int(record_data.get('createdAt', datetime.now().timestamp()))
+                    ).strftime('%d/%m/%Y')
+                ))
+            },
+            'items': [],
+            'discount_amount': 0,  # Default no discount
+            'discount_percentage': 0,  # Default no percentage discount
+        }
+        
+        # Add items from payment data (new API structure)
+        if record_data.get('items'):
+            processed_items = []
+            for item in record_data['items']:
+                processed_item = {
+                    'name': item.get('name', 'Service'),
+                    'description': item.get('description', ''),
+                    'quantity': item.get('quantity', 1),
+                    'unit_price': float(item.get('unitPrice', item.get('totalAmount', 0))),
+                    'amount': float(item.get('totalAmount', 0))
+                }
+                processed_items.append(processed_item)
+            invoice_data['items'] = processed_items
+        else:
+            # Create a single line item from payment data
+            amount = float(record_data.get('totalAmount', 0))
+            invoice_data['items'] = [{
+                'name': 'Auto Service',
+                'description': f"Payment Reference: {record_data.get('invoiceId', 'N/A')}",
+                'quantity': 1,
+                'unit_price': amount,
+                'amount': amount
+            }]
+        
+        # Generate the invoice
+        generator = InvoiceGenerator()
+        result = generator.generate_invoice(invoice_data)
+        
+        if result['success']:
+            # Save invoice record to database
+            current_timestamp = int(datetime.now().timestamp())
+            invoice_record = {
+                'invoiceId': result['invoice_id'],
+                'paymentIntentId': record_data.get('paymentIntentId', 'N/A'),
+                'referenceNumber': record_data.get('invoiceId', result['invoice_id']),
+                'referenceType': 'api_generated',
+                's3Key': result['s3_key'],
+                'fileUrl': result['file_url'],
+                'fileSize': result.get('html_size', 0),
+                'format': 'html',
+                'createdAt': current_timestamp,
+                'invoiceDate': datetime.fromtimestamp(current_timestamp).strftime('%d/%m/%Y'),
+                'status': 'generated'
+            }
+            
+            # Add metadata for the manual invoice
+            invoice_record['metadata'] = {
+                'userName': record_data.get('customerName', 'N/A'),
+                'userEmail': record_data.get('customerEmail', 'N/A'),
+                'userPhone': record_data.get('customerPhone', 'N/A'),
+                'paymentMethod': record_data.get('paymentMethod', 'unknown'),
+                'paymentStatus': record_data.get('paymentStatus', 'completed'),
+                'totalAmount': record_data.get('totalAmount', 0),
+                'invoiceFormat': 'html',
+                'invoiceType': 'manual'
+            }
+            
+            try:
+                create_result = db_utils.create_invoice_record(invoice_record)
+                if not create_result:
+                    print("Warning: Invoice generated but failed to save record to database")
+            except Exception as db_error:
+                print(f"Warning: Invoice generated but failed to save record to database: {db_error}")
+            
+            # Add invoice_url to result for API response
+            result['invoice_url'] = result['file_url']
+        
+        return result
+        
+    except Exception as e:
+        print(f"Error generating invoice for payment: {str(e)}")
         return {
             'success': False,
             'error': str(e)
