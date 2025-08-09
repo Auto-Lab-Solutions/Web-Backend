@@ -306,7 +306,7 @@ Resources:
         - AttributeName: invoiceId
           AttributeType: S
         - AttributeName: invoiceDate
-          AttributeType: N
+          AttributeType: S
       KeySchema:
         - AttributeName: invoiceId
           KeyType: HASH
