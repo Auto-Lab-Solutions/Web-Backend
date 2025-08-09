@@ -1,7 +1,7 @@
 # SQS Queue Infrastructure for Asynchronous Invoice Generation
 
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'SQS Queue and Lambda for asynchronous invoice processing'
+Description: 'SQS Queue for asynchronous invoice processing in Auto Lab Solutions'
 
 Parameters:
   EnvironmentName:

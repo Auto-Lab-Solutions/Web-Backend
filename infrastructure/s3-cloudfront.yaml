@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'S3 + CloudFront (OAC) with dependency fix'
+Description: 'S3 Bucket and CloudFront Distribution for serving reports'
 
 Parameters:
   Environment:

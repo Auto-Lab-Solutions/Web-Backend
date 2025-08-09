@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Auto Lab Solutions - Frontend Static Website Infrastructure (S3 + CloudFront + Route53)'
+Description: 'Frontend Website Infrastructure for Auto Lab Solutions'
 
 Parameters:
   Environment:
