@@ -108,6 +108,33 @@ Parameters:
     Default: 'false'
     Description: Whether to enable custom domain for frontend
 
+  # API Gateway Custom Domain Parameters
+  EnableApiCustomDomains:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+    Description: Whether to enable custom domains for API Gateway endpoints
+
+  ApiDomainName:
+    Type: String
+    Description: The domain name for the REST API (e.g., api.autolabsolutions.com)
+    Default: ''
+
+  WebSocketDomainName:
+    Type: String
+    Description: The domain name for the WebSocket API (e.g., ws.autolabsolutions.com)
+    Default: ''
+
+  ApiHostedZoneId:
+    Type: String
+    Description: The ID of the Route53 hosted zone for API domains
+    Default: ''
+
+  ApiAcmCertificateArn:
+    Type: String
+    Description: ARN of the ACM certificate for API domains (must be in the same region)
+    Default: ''
+
   # Firebase Push Notification Parameters (Optional)
   EnableFirebaseNotifications:
     Type: String
@@ -129,6 +156,7 @@ Parameters:
 Conditions:
   ShouldDeployFrontend: !Equals [!Ref EnableFrontendWebsite, 'true']
   ShouldEnableFirebase: !Equals [!Ref EnableFirebaseNotifications, 'true']
+  ShouldEnableApiCustomDomains: !Equals [!Ref EnableApiCustomDomains, 'true']
 
 Resources:
   # DynamoDB Tables
@@ -242,6 +270,10 @@ Resources:
         GetMessagesArn: !GetAtt LambdaStack.Outputs.GetMessagesArn
         GetLastMessagesArn: !GetAtt LambdaStack.Outputs.GetLastMessagesArn
         SendMessageArn: !GetAtt LambdaStack.Outputs.SendMessageArn
+        EnableApiCustomDomains: !Ref EnableApiCustomDomains
+        ApiDomainName: !Ref ApiDomainName
+        ApiHostedZoneId: !Ref ApiHostedZoneId
+        ApiAcmCertificateArn: !Ref ApiAcmCertificateArn
 
   # WebSocket API
   WebSocketStack:
@@ -256,6 +288,10 @@ Resources:
         WsInitArn: !GetAtt LambdaStack.Outputs.WsInitArn
         WsPingArn: !GetAtt LambdaStack.Outputs.WsPingArn
         WsStaffInitArn: !GetAtt LambdaStack.Outputs.WsStaffInitArn
+        EnableApiCustomDomains: !Ref EnableApiCustomDomains
+        WebSocketDomainName: !Ref WebSocketDomainName
+        ApiHostedZoneId: !Ref ApiHostedZoneId
+        ApiAcmCertificateArn: !Ref ApiAcmCertificateArn
 
   # Invoice Queue Stack
   InvoiceQueueStack:

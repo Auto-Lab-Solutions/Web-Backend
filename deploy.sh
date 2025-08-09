@@ -468,6 +468,11 @@ deploy_stack() {
             EnableFirebaseNotifications="${ENABLE_FIREBASE_NOTIFICATIONS:-false}" \
             FirebaseProjectId="${FIREBASE_PROJECT_ID:-}" \
             FirebaseServiceAccountKey="${FIREBASE_SERVICE_ACCOUNT_KEY:-}" \
+            EnableApiCustomDomains="${ENABLE_API_CUSTOM_DOMAINS:-false}" \
+            ApiDomainName="${API_DOMAIN_NAME:-}" \
+            WebSocketDomainName="${WEBSOCKET_DOMAIN_NAME:-}" \
+            ApiHostedZoneId="${API_HOSTED_ZONE_ID:-}" \
+            ApiAcmCertificateArn="${API_ACM_CERTIFICATE_ARN:-}" \
         --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
         --region $AWS_REGION
     
@@ -500,13 +505,29 @@ update_auth0_config() {
     print_status "Auth0 configuration update required..."
     print_warning "Please manually update Auth0 Action with the new API Gateway endpoint:"
     
-    REST_API_ENDPOINT=$(aws cloudformation describe-stacks \
-        --stack-name $STACK_NAME \
-        --query 'Stacks[0].Outputs[?OutputKey==`RestApiEndpoint`].OutputValue' \
-        --output text)
+    # Get the appropriate API endpoint (custom domain if enabled, otherwise default)
+    if [ "${ENABLE_API_CUSTOM_DOMAINS:-false}" = "true" ] && [ -n "$API_DOMAIN_NAME" ]; then
+        REST_API_ENDPOINT="https://${API_DOMAIN_NAME}"
+        print_status "Using custom domain for Auth0 configuration"
+    else
+        REST_API_ENDPOINT=$(aws cloudformation describe-stacks \
+            --stack-name $STACK_NAME \
+            --query 'Stacks[0].Outputs[?OutputKey==`RestApiEndpoint`].OutputValue' \
+            --output text)
+        print_status "Using default AWS domain for Auth0 configuration"
+    fi
     
-    echo "New API Gateway endpoint: $REST_API_ENDPOINT"
+    echo "API Gateway endpoint for Auth0: $REST_API_ENDPOINT"
     echo "Update the 'apiGwEndpoint' variable in auth0-actions/post-login-roles-assignment.js"
+    
+    if [ "${ENABLE_API_CUSTOM_DOMAINS:-false}" = "true" ]; then
+        echo ""
+        print_status "Custom domain endpoints configured:"
+        echo "  REST API: https://${API_DOMAIN_NAME:-not-configured}"
+        echo "  WebSocket API: wss://${WEBSOCKET_DOMAIN_NAME:-not-configured}"
+        echo ""
+        print_warning "Make sure DNS records are propagated before testing the custom domains"
+    fi
 }
 
 # Deploy backup system

@@ -98,6 +98,31 @@ Parameters:
   NotifyArn:
     Type: String
     Description: Notify Lambda ARN
+
+  # Custom Domain Parameters
+  EnableApiCustomDomains:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+    Description: Whether to enable custom domains for API Gateway endpoints
+
+  ApiDomainName:
+    Type: String
+    Description: The domain name for the REST API (e.g., api.autolabsolutions.com)
+    Default: ''
+
+  ApiHostedZoneId:
+    Type: String
+    Description: The ID of the Route53 hosted zone for API domains
+    Default: ''
+
+  ApiAcmCertificateArn:
+    Type: String
+    Description: ARN of the ACM certificate for API domains (must be in the same region)
+    Default: ''
+
+Conditions:
+  ShouldEnableCustomDomain: !Equals [!Ref EnableApiCustomDomains, 'true']
   
   TakeUserArn:
     Type: String
@@ -1095,6 +1120,41 @@ Resources:
             method.response.header.Access-Control-Allow-Headers: true
             method.response.header.Access-Control-Allow-Origin: true
 
+  # Custom Domain Configuration for REST API
+  ApiCustomDomain:
+    Type: AWS::ApiGateway::DomainName
+    Condition: ShouldEnableCustomDomain
+    Properties:
+      DomainName: !Ref ApiDomainName
+      CertificateArn: !Ref ApiAcmCertificateArn
+      SecurityPolicy: TLS_1_2
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  # Base Path Mapping for REST API
+  ApiBasePathMapping:
+    Type: AWS::ApiGateway::BasePathMapping
+    Condition: ShouldEnableCustomDomain
+    DependsOn: ApiDeployment
+    Properties:
+      DomainName: !Ref ApiCustomDomain
+      RestApiId: !Ref RestApi
+      Stage: !Ref Environment
+
+  # Route53 Record for REST API
+  ApiRoute53Record:
+    Type: AWS::Route53::RecordSet
+    Condition: ShouldEnableCustomDomain
+    Properties:
+      HostedZoneId: !Ref ApiHostedZoneId
+      Name: !Ref ApiDomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt ApiCustomDomain.RegionalDomainName
+        HostedZoneId: !GetAtt ApiCustomDomain.RegionalHostedZoneId
+        EvaluateTargetHealth: false
+
   # Lambda Permissions
   GetPricesPermission:
     Type: AWS::Lambda::Permission
@@ -1515,9 +1575,24 @@ Outputs:
 
   RestApiEndpoint:
     Description: REST API Endpoint
-    Value: !Sub 'https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
+    Value: !If 
+      - ShouldEnableCustomDomain
+      - !Sub 'https://${ApiDomainName}'
+      - !Sub 'https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
     Export:
       Name: !Sub '${AWS::StackName}-RestApiEndpoint'
+
+  RestApiDefaultEndpoint:
+    Description: REST API Default AWS Endpoint
+    Value: !Sub 'https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
+    Export:
+      Name: !Sub '${AWS::StackName}-RestApiDefaultEndpoint'
+
+  RestApiCustomDomain:
+    Description: REST API Custom Domain (if enabled)
+    Value: !If [ShouldEnableCustomDomain, !Ref ApiDomainName, 'Not configured']
+    Export:
+      Name: !Sub '${AWS::StackName}-RestApiCustomDomain'
 
   ApiStageArn:
     Description: API Gateway Stage ARN

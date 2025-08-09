@@ -52,6 +52,13 @@ get_env_config() {
             export ENABLE_CUSTOM_DOMAIN="true"
             export ENABLE_FRONTEND_WEBSITE="true"
 
+            # API Gateway Custom Domain Configuration
+            export ENABLE_API_CUSTOM_DOMAINS="true"
+            export API_DOMAIN_NAME="api-dev.autolabsolutions.com"
+            export WEBSOCKET_DOMAIN_NAME="ws-dev.autolabsolutions.com"
+            export API_HOSTED_ZONE_ID="Z060497817EUO8PSJGQHQ"
+            export API_ACM_CERTIFICATE_ARN="arn:aws:acm:ap-southeast-2:899704476492:certificate/your-regional-cert-arn"
+
             # SES Configuration
             export FROM_EMAIL="noreply@dev.autolabsolutions.com"
             export SES_REGION="${AWS_REGION}"
@@ -80,6 +87,13 @@ get_env_config() {
             export FRONTEND_ACM_CERTIFICATE_ARN="arn:aws:acm:us-east-1:899704476492:certificate/808b1a88-c14d-46f2-a9d2-e34ac47c0838"
             export ENABLE_CUSTOM_DOMAIN="true"
             export ENABLE_FRONTEND_WEBSITE="true"
+
+            # API Gateway Custom Domain Configuration
+            export ENABLE_API_CUSTOM_DOMAINS="true"
+            export API_DOMAIN_NAME="api.autolabsolutions.com"
+            export WEBSOCKET_DOMAIN_NAME="ws.autolabsolutions.com"
+            export API_HOSTED_ZONE_ID="Z060497817EUO8PSJGQHQ"
+            export API_ACM_CERTIFICATE_ARN="arn:aws:acm:ap-southeast-2:899704476492:certificate/your-regional-cert-arn"
 
             # SES Configuration
             export FROM_EMAIL="noreply@autolabsolutions.com"

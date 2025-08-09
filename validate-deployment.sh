@@ -140,6 +140,168 @@ check_sqs_queue() {
     fi
 }
 
+# Function to check custom domain configuration
+check_custom_domain() {
+    local domain_name=$1
+    local api_type=$2
+    
+    if [ -z "$domain_name" ]; then
+        print_status "✓ Custom domain not configured for $api_type API (using default endpoints)"
+        return 0
+    fi
+    
+    print_status "Checking custom domain '$domain_name' for $api_type API..."
+    
+    # Check if custom domain exists in API Gateway
+    if [ "$api_type" = "rest" ]; then
+        if aws apigateway get-domain-name --domain-name "$domain_name" --region $AWS_REGION &>/dev/null; then
+            local domain_status=$(aws apigateway get-domain-name --domain-name "$domain_name" --region $AWS_REGION --query 'DomainNameStatus' --output text)
+            if [ "$domain_status" = "AVAILABLE" ]; then
+                print_success "✓ REST API custom domain '$domain_name' is available"
+            else
+                print_warning "⚠ REST API custom domain '$domain_name' status: $domain_status"
+                return 1
+            fi
+        else
+            print_error "✗ REST API custom domain '$domain_name' not found"
+            return 1
+        fi
+    elif [ "$api_type" = "websocket" ]; then
+        if aws apigatewayv2 get-domain-name --domain-name "$domain_name" --region $AWS_REGION &>/dev/null; then
+            local domain_status=$(aws apigatewayv2 get-domain-name --domain-name "$domain_name" --region $AWS_REGION --query 'DomainNameConfigurations[0].DomainNameStatus' --output text)
+            if [ "$domain_status" = "AVAILABLE" ]; then
+                print_success "✓ WebSocket API custom domain '$domain_name' is available"
+            else
+                print_warning "⚠ WebSocket API custom domain '$domain_name' status: $domain_status"
+                return 1
+            fi
+        else
+            print_error "✗ WebSocket API custom domain '$domain_name' not found"
+            return 1
+        fi
+    fi
+    
+    return 0
+}
+
+# Function to check DNS resolution
+check_dns_resolution() {
+    local domain_name=$1
+    local api_type=$2
+    
+    if [ -z "$domain_name" ]; then
+        return 0
+    fi
+    
+    print_status "Checking DNS resolution for '$domain_name'..."
+    
+    # Use nslookup to check if domain resolves
+    if command -v nslookup >/dev/null 2>&1; then
+        if nslookup "$domain_name" >/dev/null 2>&1; then
+            local resolved_ip=$(nslookup "$domain_name" | grep -A1 "Name:" | tail -1 | awk '{print $2}' 2>/dev/null || echo "")
+            if [ -n "$resolved_ip" ]; then
+                print_success "✓ DNS resolution successful for '$domain_name' (resolves to: $resolved_ip)"
+            else
+                print_success "✓ DNS resolution successful for '$domain_name'"
+            fi
+        else
+            print_warning "⚠ DNS resolution failed for '$domain_name'"
+            print_warning "  Domain may not be fully propagated yet"
+            return 1
+        fi
+    else
+        print_warning "⚠ nslookup command not available, skipping DNS resolution check"
+    fi
+    
+    return 0
+}
+
+# Function to check Route53 hosted zone
+check_hosted_zone() {
+    local hosted_zone_id=$1
+    local domain_name=$2
+    
+    if [ -z "$hosted_zone_id" ] || [ -z "$domain_name" ]; then
+        print_status "✓ Route53 hosted zone not configured"
+        return 0
+    fi
+    
+    print_status "Checking Route53 hosted zone '$hosted_zone_id'..."
+    
+    # Check if hosted zone exists
+    if aws route53 get-hosted-zone --id "$hosted_zone_id" --region $AWS_REGION &>/dev/null; then
+        local zone_name=$(aws route53 get-hosted-zone --id "$hosted_zone_id" --region $AWS_REGION --query 'HostedZone.Name' --output text)
+        # Remove trailing dot from zone name for comparison
+        zone_name=${zone_name%.}
+        
+        # Check if domain matches hosted zone
+        if [[ "$domain_name" == *"$zone_name" ]]; then
+            print_success "✓ Route53 hosted zone '$hosted_zone_id' is valid for domain '$domain_name'"
+            
+            # Check if A record exists for the domain
+            local record_sets=$(aws route53 list-resource-record-sets --hosted-zone-id "$hosted_zone_id" --region $AWS_REGION --query "ResourceRecordSets[?Name=='${domain_name}.']" --output text)
+            if [ -n "$record_sets" ]; then
+                print_success "✓ DNS record found for '$domain_name' in hosted zone"
+            else
+                print_warning "⚠ No DNS record found for '$domain_name' in hosted zone '$hosted_zone_id'"
+                return 1
+            fi
+        else
+            print_error "✗ Domain '$domain_name' does not match hosted zone '$zone_name'"
+            return 1
+        fi
+    else
+        print_error "✗ Route53 hosted zone '$hosted_zone_id' not found"
+        return 1
+    fi
+    
+    return 0
+}
+
+# Function to check ACM certificate
+check_acm_certificate() {
+    local cert_arn=$1
+    local domain_name=$2
+    
+    if [ -z "$cert_arn" ]; then
+        print_status "✓ ACM certificate not configured"
+        return 0
+    fi
+    
+    print_status "Checking ACM certificate..."
+    
+    # Extract certificate ARN region
+    local cert_region=$(echo "$cert_arn" | cut -d: -f4)
+    
+    # Check if certificate exists
+    if aws acm describe-certificate --certificate-arn "$cert_arn" --region "$cert_region" &>/dev/null; then
+        local cert_status=$(aws acm describe-certificate --certificate-arn "$cert_arn" --region "$cert_region" --query 'Certificate.Status' --output text)
+        local cert_domain=$(aws acm describe-certificate --certificate-arn "$cert_arn" --region "$cert_region" --query 'Certificate.DomainName' --output text)
+        
+        if [ "$cert_status" = "ISSUED" ]; then
+            print_success "✓ ACM certificate is issued and valid"
+            
+            # Check if certificate covers the domain
+            if [ -n "$domain_name" ]; then
+                if [ "$cert_domain" = "$domain_name" ] || [[ "$cert_domain" == "*."* && "$domain_name" == *"${cert_domain#*.}" ]]; then
+                    print_success "✓ ACM certificate covers domain '$domain_name'"
+                else
+                    print_warning "⚠ ACM certificate domain '$cert_domain' may not cover '$domain_name'"
+                    return 1
+                fi
+            fi
+        else
+            print_error "✗ ACM certificate status: $cert_status"
+            return 1
+        fi
+    else
+        print_error "✗ ACM certificate not found: $cert_arn"
+        return 1
+    fi
+    
+    return 0
+}
+
 # Main validation function
 validate_deployment() {
     print_status "Starting deployment validation..."
@@ -171,11 +333,21 @@ validate_deployment() {
     CLOUDFRONT_DOMAIN=$(get_stack_output "$STACK_NAME" "CloudFrontDomainName")
     INVOICE_QUEUE_URL=$(get_stack_output "$STACK_NAME" "InvoiceQueueUrl")
     
+    # Get custom domain outputs (may be empty if not configured)
+    REST_API_CUSTOM_DOMAIN=$(get_stack_output "$STACK_NAME" "RestApiCustomDomainName")
+    WEBSOCKET_API_CUSTOM_DOMAIN=$(get_stack_output "$STACK_NAME" "WebSocketApiCustomDomainName")
+    
     print_status "Stack Outputs:"
     echo "  REST API ID: $REST_API_ID"
     echo "  REST API Endpoint: $REST_API_ENDPOINT"
+    if [ -n "$REST_API_CUSTOM_DOMAIN" ]; then
+        echo "  REST API Custom Domain: $REST_API_CUSTOM_DOMAIN"
+    fi
     echo "  WebSocket API ID: $WEBSOCKET_API_ID"
     echo "  WebSocket API Endpoint: $WEBSOCKET_API_ENDPOINT"
+    if [ -n "$WEBSOCKET_API_CUSTOM_DOMAIN" ]; then
+        echo "  WebSocket API Custom Domain: $WEBSOCKET_API_CUSTOM_DOMAIN"
+    fi
     echo "  CloudFront Domain: $CLOUDFRONT_DOMAIN"
     echo "  Invoice Queue URL: $INVOICE_QUEUE_URL"
     echo
@@ -223,6 +395,32 @@ validate_deployment() {
     else
         print_error "✗ WebSocket API ID not found in stack outputs"
         ((errors++))
+    fi
+    echo
+    
+    # Check custom domains and DNS configuration
+    print_status "Checking custom domain configuration..."
+    
+    # Check ACM certificate (if configured)
+    if [ -n "$API_CERTIFICATE_ARN" ]; then
+        check_acm_certificate "$API_CERTIFICATE_ARN" "$API_DOMAIN_NAME" || ((errors++))
+    fi
+    
+    # Check Route53 hosted zone (if configured)
+    if [ -n "$HOSTED_ZONE_ID" ] && [ -n "$API_DOMAIN_NAME" ]; then
+        check_hosted_zone "$HOSTED_ZONE_ID" "$API_DOMAIN_NAME" || ((errors++))
+    fi
+    
+    # Check REST API custom domain
+    check_custom_domain "$REST_API_CUSTOM_DOMAIN" "rest" || ((errors++))
+    if [ -n "$REST_API_CUSTOM_DOMAIN" ]; then
+        check_dns_resolution "$REST_API_CUSTOM_DOMAIN" "rest" || ((errors++))
+    fi
+    
+    # Check WebSocket API custom domain  
+    check_custom_domain "$WEBSOCKET_API_CUSTOM_DOMAIN" "websocket" || ((errors++))
+    if [ -n "$WEBSOCKET_API_CUSTOM_DOMAIN" ]; then
+        check_dns_resolution "$WEBSOCKET_API_CUSTOM_DOMAIN" "websocket" || ((errors++))
     fi
     echo
     
@@ -296,10 +494,17 @@ validate_deployment() {
     
     # Test API endpoints (optional)
     print_status "Testing API endpoints..."
-    if [ -n "$REST_API_ENDPOINT" ]; then
+    local api_endpoint_to_test=""
+    if [ -n "$REST_API_CUSTOM_DOMAIN" ]; then
+        api_endpoint_to_test="https://$REST_API_CUSTOM_DOMAIN"
+    elif [ -n "$REST_API_ENDPOINT" ]; then
+        api_endpoint_to_test="$REST_API_ENDPOINT"
+    fi
+    
+    if [ -n "$api_endpoint_to_test" ]; then
         # Test a simple endpoint that doesn't require authentication
-        if curl -s --max-time 10 "$REST_API_ENDPOINT/get-staff-roles?email=test@example.com" > /dev/null; then
-            print_success "✓ REST API endpoint is responding"
+        if curl -s --max-time 10 "$api_endpoint_to_test/get-staff-roles?email=test@example.com" > /dev/null; then
+            print_success "✓ REST API endpoint is responding ($api_endpoint_to_test)"
         else
             print_warning "⚠ REST API endpoint test failed (may require authentication)"
         fi
@@ -387,14 +592,26 @@ validate_deployment() {
         print_status "Your Auto Lab Solutions backend is ready for use."
         echo
         print_status "Next steps:"
-        echo "  1. Update Auth0 configuration with: $REST_API_ENDPOINT"
+        if [ -n "$REST_API_CUSTOM_DOMAIN" ]; then
+            echo "  1. Update Auth0 configuration with: https://$REST_API_CUSTOM_DOMAIN"
+        else
+            echo "  1. Update Auth0 configuration with: $REST_API_ENDPOINT"
+        fi
         echo "  2. Initialize DynamoDB tables with your data"
         echo "  3. Test your frontend integration"
         echo "  4. Test backup system: ./manage-backups.sh trigger-backup $ENVIRONMENT"
         echo ""
         print_status "Backend services available:"
-        echo "  • REST API: $REST_API_ENDPOINT"
-        echo "  • WebSocket API: $WEBSOCKET_API_ENDPOINT"
+        if [ -n "$REST_API_CUSTOM_DOMAIN" ]; then
+            echo "  • REST API: https://$REST_API_CUSTOM_DOMAIN (custom domain)"
+        else
+            echo "  • REST API: $REST_API_ENDPOINT"
+        fi
+        if [ -n "$WEBSOCKET_API_CUSTOM_DOMAIN" ]; then
+            echo "  • WebSocket API: wss://$WEBSOCKET_API_CUSTOM_DOMAIN (custom domain)"
+        else
+            echo "  • WebSocket API: $WEBSOCKET_API_ENDPOINT"
+        fi
         if [ -n "$CLOUDFRONT_DOMAIN" ]; then
             echo "  • CloudFront CDN: https://$CLOUDFRONT_DOMAIN"
         fi
