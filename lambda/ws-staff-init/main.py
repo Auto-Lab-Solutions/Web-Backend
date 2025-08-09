@@ -2,7 +2,7 @@ import db_utils as db
 import auth_utils as auth
 import wsgw_utils as wsgw
 
-PERMITTED_ROLE = 'CUSTOMER_SUPPORT'
+PERMITTED_ROLES = ['CUSTOMER_SUPPORT', 'CLERK']
 
 def lambda_handler(event, context):
     connection_id = event.get('connectionId')
@@ -63,7 +63,7 @@ def lambda_handler(event, context):
         )
         return {}
 
-    if PERMITTED_ROLE not in staff_roles:
+    if not any(role in staff_roles for role in PERMITTED_ROLES):
         wsgw.send_notification(
             wsgw_client,
             connection_id,

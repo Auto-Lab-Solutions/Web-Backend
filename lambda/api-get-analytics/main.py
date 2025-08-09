@@ -30,8 +30,8 @@ def lambda_handler(event, context):
             staff_roles = staff_user_record.get('roles', [])
             staff_user_id = staff_user_record.get('userId')
             
-            # Check if user has analytics access (assuming CUSTOMER_SUPPORT or ADMIN roles can access analytics)
-            if not any(role in staff_roles for role in ['CUSTOMER_SUPPORT', 'ADMIN', 'MANAGER']):
+            # Check if user has analytics access (assuming CUSTOMER_SUPPORT, CLERK, or ADMIN roles can access analytics)
+            if not any(role in staff_roles for role in ['CUSTOMER_SUPPORT', 'CLERK', 'ADMIN', 'MANAGER']):
                 return resp.error_response("Unauthorized: Analytics access requires appropriate staff role", 403)
             
             user_context = {

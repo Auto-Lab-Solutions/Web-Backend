@@ -2,7 +2,7 @@ import db_utils as db
 import response_utils as resp
 import request_utils as req
 
-PERMITTED_ROLE = 'CUSTOMER_SUPPORT'
+PERMITTED_ROLES = ['CUSTOMER_SUPPORT', 'CLERK']
 
 def lambda_handler(event, context):
     staff_user_email = req.get_staff_user_email(event)
@@ -19,8 +19,8 @@ def lambda_handler(event, context):
     if not staff_user_id or not staff_roles:
         return resp.error_response("Unauthorized: Invalid staff user record.")
 
-    if PERMITTED_ROLE not in staff_roles:
-        return resp.error_response("Unauthorized: Insufficient permissions.")
+    if not any(role in staff_roles for role in PERMITTED_ROLES):
+        return resp.error_response("Unauthorized: CUSTOMER_SUPPORT or CLERK role required", 403)
 
     latest_messages = sorted(get_latest_messages_by_user(staff_user_id), key=lambda x: int(x['createdAt']), reverse=True)
 

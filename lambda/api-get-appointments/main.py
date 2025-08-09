@@ -30,8 +30,8 @@ def lambda_handler(event, context):
                 })
             else:
                 # Get multiple appointments based on role
-                if 'CUSTOMER_SUPPORT' in staff_roles:
-                    # Scenario 1: CUSTOMER_SUPPORT - get all appointments
+                if 'CUSTOMER_SUPPORT' in staff_roles or 'CLERK' in staff_roles:
+                    # Scenario 1: CUSTOMER_SUPPORT or CLERK - get all appointments
                     appointments = db.get_all_appointments()
                 elif 'MECHANIC' in staff_roles:
                     # Scenario 2: MECHANIC - get appointments assigned to them

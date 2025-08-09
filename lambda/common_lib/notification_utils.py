@@ -293,8 +293,8 @@ def queue_order_firebase_notification(order_id, scenario, staff_user_ids=None):
     if staff_user_ids:
         return queue_firebase_notification('order_update', title, body, data, 'user', staff_user_ids)
     else:
-        # Broadcast to all customer support staff
-        return queue_firebase_notification('order_update', title, body, data, 'broadcast', roles=['CUSTOMER_SUPPORT'])
+        # Broadcast to all customer support and clerk staff
+        return queue_firebase_notification('order_update', title, body, data, 'broadcast', roles=['CUSTOMER_SUPPORT', 'CLERK'])
 
 def queue_appointment_firebase_notification(appointment_id, scenario, staff_user_ids=None):
     """Queue Firebase notification for appointment updates to staff"""
@@ -324,8 +324,8 @@ def queue_appointment_firebase_notification(appointment_id, scenario, staff_user
     if staff_user_ids:
         return queue_firebase_notification('appointment_update', title, body, data, 'user', staff_user_ids)
     else:
-        # Broadcast to all customer support and mechanics
-        return queue_firebase_notification('appointment_update', title, body, data, 'broadcast', roles=['CUSTOMER_SUPPORT', 'MECHANIC'])
+        # Broadcast to all customer support, clerk, and mechanic staff
+        return queue_firebase_notification('appointment_update', title, body, data, 'broadcast', roles=['CUSTOMER_SUPPORT', 'CLERK', 'MECHANIC'])
 
 def queue_inquiry_firebase_notification(inquiry_id, staff_user_ids=None):
     """Queue Firebase notification for new inquiry to staff"""
@@ -340,8 +340,8 @@ def queue_inquiry_firebase_notification(inquiry_id, staff_user_ids=None):
     if staff_user_ids:
         return queue_firebase_notification('new_inquiry', title, body, data, 'user', staff_user_ids)
     else:
-        # Broadcast to all customer support staff
-        return queue_firebase_notification('new_inquiry', title, body, data, 'broadcast', roles=['CUSTOMER_SUPPORT'])
+        # Broadcast to all customer support and clerk staff
+        return queue_firebase_notification('new_inquiry', title, body, data, 'broadcast', roles=['CUSTOMER_SUPPORT', 'CLERK'])
 
 def queue_message_firebase_notification(message_id, sender_name, staff_user_ids=None):
     """Queue Firebase notification for new message to staff"""
@@ -357,8 +357,8 @@ def queue_message_firebase_notification(message_id, sender_name, staff_user_ids=
     if staff_user_ids:
         return queue_firebase_notification('new_message', title, body, data, 'user', staff_user_ids)
     else:
-        # Broadcast to all customer support staff
-        return queue_firebase_notification('new_message', title, body, data, 'broadcast', roles=['CUSTOMER_SUPPORT'])
+        # Broadcast to all customer support and clerk staff
+        return queue_firebase_notification('new_message', title, body, data, 'broadcast', roles=['CUSTOMER_SUPPORT', 'CLERK'])
 
 def queue_payment_firebase_notification(payment_id, amount, order_id=None, staff_user_ids=None):
     """Queue Firebase notification for payment confirmation to staff"""
@@ -378,8 +378,8 @@ def queue_payment_firebase_notification(payment_id, amount, order_id=None, staff
     if staff_user_ids:
         return queue_firebase_notification('payment_confirmed', title, body, data, 'user', staff_user_ids)
     else:
-        # Broadcast to all customer support staff
-        return queue_firebase_notification('payment_confirmed', title, body, data, 'broadcast', roles=['CUSTOMER_SUPPORT'])
+        # Broadcast to all customer support and clerk staff
+        return queue_firebase_notification('payment_confirmed', title, body, data, 'broadcast', roles=['CUSTOMER_SUPPORT', 'CLERK'])
 
 def queue_user_assignment_firebase_notification(client_id, assigned_staff_id, exclude_user_id=None):
     """Queue Firebase notification for user assignment to staff"""
@@ -392,5 +392,5 @@ def queue_user_assignment_firebase_notification(client_id, assigned_staff_id, ex
         'assignedStaffId': assigned_staff_id
     }
     
-    # Broadcast to all customer support staff except the one who performed the action
-    return queue_firebase_notification('user_assignment', title, body, data, 'broadcast', roles=['CUSTOMER_SUPPORT'], excluded_users=[exclude_user_id] if exclude_user_id else None)
+    # Broadcast to all customer support and clerk staff except the one who performed the action
+    return queue_firebase_notification('user_assignment', title, body, data, 'broadcast', roles=['CUSTOMER_SUPPORT', 'CLERK'], excluded_users=[exclude_user_id] if exclude_user_id else None)

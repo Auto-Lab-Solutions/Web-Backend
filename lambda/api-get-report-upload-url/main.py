@@ -5,7 +5,7 @@ import request_utils as req
 import s3_utils as s3
 
 # Environment variables
-PERMITTED_ROLES = ['MECHANIC']
+PERMITTED_ROLES = ['MECHANIC', 'CLERK']
 
 def lambda_handler(event, context):
     try:
@@ -28,7 +28,7 @@ def lambda_handler(event, context):
         
         # Check if staff has required permissions
         if not any(role in staff_roles for role in PERMITTED_ROLES):
-            return resp.error_response("Unauthorized: Insufficient permissions", 403)
+            return resp.error_response("Unauthorized: MECHANIC or CLERK role required", 403)
         
         # Validate required parameters
         if not appointment_id or not file_name or not file_type:

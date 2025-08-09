@@ -2,7 +2,7 @@ import db_utils as db
 import request_utils as req
 import response_utils as resp
 
-PERMITTED_ROLE = 'CUSTOMER_SUPPORT'
+PERMITTED_ROLES = ['CUSTOMER_SUPPORT', 'CLERK']
 
 def lambda_handler(event, context):
     staff_user_email = req.get_staff_user_email(event)
@@ -19,8 +19,8 @@ def lambda_handler(event, context):
     if not staff_user_id or not staff_roles:
         return resp.error_response("Unauthorized: Invalid staff user record.")
 
-    if PERMITTED_ROLE not in staff_roles:
-        return resp.error_response("Unauthorized: Insufficient permissions.")
+    if not any(role in staff_roles for role in PERMITTED_ROLES):
+        return resp.error_response("Unauthorized: CUSTOMER_SUPPORT or CLERK role required.", 403)
     
     connections = db.get_all_active_connections()
     return resp.success_response({
