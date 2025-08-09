@@ -913,7 +913,7 @@ Resources:
       Environment:
         Variables:
           INVOICES_TABLE: !Ref InvoicesTable
-          REPORTS_BUCKET: !Ref ReportsBucket
+          REPORTS_BUCKET: !Ref ReportsBucketName
           CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           SHARED_KEY: !Ref SharedKey
