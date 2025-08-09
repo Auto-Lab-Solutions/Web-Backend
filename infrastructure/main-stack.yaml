@@ -178,6 +178,7 @@ Resources:
         CreatePaymentIntentArn: !GetAtt LambdaStack.Outputs.CreatePaymentIntentArn
         ConfirmStripePaymentArn: !GetAtt LambdaStack.Outputs.ConfirmStripePaymentArn
         WebhookStripePaymentArn: !GetAtt LambdaStack.Outputs.WebhookStripePaymentArn
+        GenerateInvoiceArn: !GetAtt LambdaStack.Outputs.ApiGenerateInvoiceArn
         GetInquiriesArn: !GetAtt LambdaStack.Outputs.GetInquiriesArn
         CreateInquiryArn: !GetAtt LambdaStack.Outputs.CreateInquiryArn
         GetReportUploadUrlArn: !GetAtt LambdaStack.Outputs.GetReportUploadUrlArn

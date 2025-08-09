@@ -881,6 +881,28 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
+  ApiGenerateInvoice:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'api-generate-invoice-${Environment}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-generate-invoice.zip
+      Environment:
+        Variables:
+          INVOICES_TABLE: !Ref InvoicesTable
+          REPORTS_BUCKET: !Ref ReportsBucket
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          SHARED_KEY: !Ref SharedKey
+          ENVIRONMENT: !Ref Environment
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
 Outputs:
   StaffAuthorizerArn:
     Description: Staff Authorizer Lambda ARN
@@ -1013,4 +1035,8 @@ Outputs:
   WsStaffInitArn:
     Description: WebSocket Staff Init Lambda ARN
     Value: !GetAtt WsStaffInit.Arn
+
+  ApiGenerateInvoiceArn:
+    Description: Generate Invoice Lambda ARN
+    Value: !GetAtt ApiGenerateInvoice.Arn
 

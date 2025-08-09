@@ -1285,6 +1285,37 @@ def get_invoice_by_payment_intent(payment_intent_id):
         print(f"Error getting invoice by payment intent ID {payment_intent_id}: {e}")
         return None
 
+def get_invoice_by_reference_number(reference_number):
+    """Get an invoice record by reference number"""
+    try:
+        # Try using GSI first (more efficient)
+        try:
+            result = dynamodb.query(
+                TableName=INVOICES_TABLE,
+                IndexName='referenceNumber-index',
+                KeyConditionExpression='referenceNumber = :ref',
+                ExpressionAttributeValues={':ref': {'S': reference_number}},
+                Limit=1
+            )
+            if result.get('Count', 0) > 0:
+                return deserialize_item_json_safe(result['Items'][0])
+        except ClientError as gsi_error:
+            # Fallback to scan if GSI doesn't exist yet
+            print(f"GSI not available, falling back to scan: {gsi_error}")
+            result = dynamodb.scan(
+                TableName=INVOICES_TABLE,
+                FilterExpression='referenceNumber = :ref',
+                ExpressionAttributeValues={':ref': {'S': reference_number}},
+                Limit=1
+            )
+            if result.get('Count', 0) > 0:
+                return deserialize_item_json_safe(result['Items'][0])
+        
+        return None
+    except ClientError as e:
+        print(f"Error getting invoice by reference number {reference_number}: {e}")
+        return None
+
 def get_invoices_by_user(user_id, limit=50):
     """Get all invoices for a specific user"""
     try:

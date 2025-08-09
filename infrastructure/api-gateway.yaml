@@ -71,6 +71,10 @@ Parameters:
     Type: String
     Description: Webhook Stripe Payment Lambda ARN
   
+  GenerateInvoiceArn:
+    Type: String
+    Description: Generate Invoice Lambda ARN
+  
   GetInquiriesArn:
     Type: String
     Description: Get Inquiries Lambda ARN
@@ -974,6 +978,55 @@ Resources:
             method.response.header.Access-Control-Allow-Headers: true
             method.response.header.Access-Control-Allow-Origin: true
 
+  # Invoice Generation
+  InvoicesResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref PaymentsResource
+      PathPart: invoices
+
+  InvoicesGenerateMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref InvoicesResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      # AuthorizationType: CUSTOM
+      # AuthorizerId: !Ref StaffAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GenerateInvoiceArn}/invocations'
+
+  InvoicesGenerateOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref InvoicesResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            ResponseTemplates:
+              application/json: ''
+        PassthroughBehavior: WHEN_NO_MATCH
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+
   # Lambda Permissions
   GetPricesPermission:
     Type: AWS::Lambda::Permission
@@ -1083,6 +1136,14 @@ Resources:
     Type: AWS::Lambda::Permission
     Properties:
       FunctionName: !Ref WebhookStripePaymentArn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/*'
+
+  GenerateInvoicePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref GenerateInvoiceArn
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/*'
@@ -1233,6 +1294,8 @@ Resources:
       - ConfirmStripePaymentOptionsMethod
       - StripePaymentWebhookMethod
       - StripePaymentWebhookOptionsMethod
+      - InvoicesGenerateMethod
+      - InvoicesGenerateOptionsMethod
       - OrdersIdGetMethod
       - OrdersIdOptionsMethod
       - AppointmentsIdGetMethod

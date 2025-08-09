@@ -45,6 +45,7 @@ class InvoiceGenerator:
                 - invoice_type: (Optional) "order" or "appointment" for context-specific QR messaging
                 - discount_percentage: (Optional) Percentage discount
                 - discount_amount: (Optional) Fixed discount amount
+                - currency: (Optional) Currency code, defaults to 'AUD'
                 
         Returns:
             dict: {
@@ -58,6 +59,10 @@ class InvoiceGenerator:
             }
         """
         try:
+            # Set default currency if not provided
+            if 'currency' not in invoice_data or not invoice_data.get('currency'):
+                invoice_data['currency'] = 'AUD'
+            
             # Generate unique invoice ID
             invoice_id = f"INV-{uuid.uuid4().hex[:8].upper()}"
             
@@ -105,6 +110,10 @@ class InvoiceGenerator:
     
     def _create_html_invoice(self, invoice_data, invoice_id):
         """Create HTML content for the invoice"""
+        
+        # Get currency symbol
+        currency_code = invoice_data.get('currency', 'AUD')
+        currency_symbol = self._get_currency_symbol(currency_code)
         
         # Calculate totals
         subtotal = sum(Decimal(str(item.get('amount', 0))) for item in invoice_data.get('items', []))
@@ -790,8 +799,8 @@ class InvoiceGenerator:
                     <tr>
                         <th style="width: 50%">Item/Service</th>
                         <th style="width: 15%" class="text-center">Quantity</th>
-                        <th style="width: 17.5%" class="text-right">Unit Price (A$)</th>
-                        <th style="width: 17.5%" class="text-right">Amount (A$)</th>
+                        <th style="width: 17.5%" class="text-right">Unit Price ({currency_symbol})</th>
+                        <th style="width: 17.5%" class="text-right">Amount ({currency_symbol})</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -814,8 +823,8 @@ class InvoiceGenerator:
                     <tr>
                         <td style="color: #18181B; font-weight: 500; font-size: 18px;">{item_display}</td>
                         <td class="text-center" style="color: #3f3f46; font-weight: 600; font-size: 18px;">{quantity}</td>
-                        <td class="text-right" style="color: #18181B; font-weight: bold; font-size: 18px;">{unit_price:.2f}</td>
-                        <td class="text-right" style="color: #18181B; font-weight: bold; font-size: 18px;">{amount:.2f}</td>
+                        <td class="text-right" style="color: #18181B; font-weight: bold; font-size: 18px;">{currency_symbol} {unit_price:.2f}</td>
+                        <td class="text-right" style="color: #18181B; font-weight: bold; font-size: 18px;">{currency_symbol} {amount:.2f}</td>
                     </tr>
             """
         
@@ -842,7 +851,7 @@ class InvoiceGenerator:
                 <table class="totals-table">
                     <tr class="subtotal-row">
                         <td style="color: #18181B;">Subtotal:</td>
-                        <td class="text-right" style="color: #18181B; font-weight: bold;">A$ {subtotal:.2f}</td>
+                        <td class="text-right" style="color: #18181B; font-weight: bold;">{currency_symbol} {subtotal:.2f}</td>
                     </tr>"""
         
         # Add discount row only if there's a discount
@@ -855,13 +864,13 @@ class InvoiceGenerator:
             html_template += f"""
                     <tr class="discount-row">
                         <td style="color: #F59E0B;">{discount_label}</td>
-                        <td class="text-right" style="color: #F59E0B; font-weight: bold;">-A$ {calculated_discount:.2f}</td>
+                        <td class="text-right" style="color: #F59E0B; font-weight: bold;">-{currency_symbol} {calculated_discount:.2f}</td>
                     </tr>"""
         
         html_template += f"""
                     <tr class="total-row">
                         <td style="color: #000000; font-weight: bold;">TOTAL:</td>
-                        <td class="text-right" style="color: #000000; font-weight: bold;">A$ {total_amount:.2f}</td>
+                        <td class="text-right" style="color: #000000; font-weight: bold;">{currency_symbol} {total_amount:.2f}</td>
                     </tr>
                 </table>
             </div>
@@ -924,62 +933,63 @@ class InvoiceGenerator:
                 'error': str(e)
             }
 
-    def generate_invoice_from_payment(self, payment_data, user_data=None, order_data=None, qr_code_url=None):
+    def generate_invoice_from_payment(self, record_data):
         """
-        Generate invoice from payment data
+        Generate invoice from record data
         
         Args:
-            payment_data (dict): Payment record from database
-            user_data (dict, optional): User information
-            order_data (dict, optional): Order information with items
-            qr_code_url (str, optional): URL to encode in QR code
-            
+            record_data (dict): Record data from API
+
         Returns:
             dict: Invoice generation result
         """
         try:
             # Prepare invoice data
             invoice_data = {
-                'payment_intent_id': payment_data.get('paymentIntentId'),
+                'payment_intent_id': record_data.get('paymentIntentId'),
+                'currency': record_data.get('currency', 'AUD'),
                 'user_info': {
-                    'name': user_data.get('name') if user_data else payment_data.get('customerName', 'Valued Customer'),
-                    'email': user_data.get('email') if user_data else payment_data.get('customerEmail', ''),
-                    'phone': user_data.get('phone', '') if user_data else '',
-                    'address': user_data.get('address', '') if user_data else ''
+                    'name': record_data.get('customerName', 'Valued Customer'),
+                    'email': record_data.get('customerEmail', ''),
+                    'phone': record_data.get('customerPhone', '')
                 },
                 'payment_info': {
-                    'method': payment_data.get('paymentMethod', 'Card'),
-                    'status': payment_data.get('status', 'completed'),
-                    'date': datetime.fromtimestamp(
-                        int(payment_data.get('createdAt', datetime.now().timestamp()))
-                    ).strftime('%d/%m/%Y'),
-                    'amount': payment_data.get('amount', 0)
+                    'method': record_data.get('paymentMethod', 'Card'),
+                    'status': record_data.get('paymentStatus', 'completed'),
+                    'date': record_data.get('paymentDate', record_data.get('invoiceDate', 
+                        datetime.fromtimestamp(
+                            int(record_data.get('createdAt', datetime.now().timestamp()))
+                        ).strftime('%d/%m/%Y'))),
+                    'amount': record_data.get('totalAmount', 0)
                 },
                 'items': [],
                 'discount_amount': 0,  # Default no discount
                 'discount_percentage': 0,  # Default no percentage discount
-                'qr_code_url': qr_code_url  # Include QR code URL if provided
             }
             
-            # Add items from order data or payment metadata
-            if order_data and 'items' in order_data:
-                invoice_data['items'] = order_data['items']
-                # Include discount information if available
-                invoice_data['discount_amount'] = order_data.get('discount_amount', 0)
-                invoice_data['discount_percentage'] = order_data.get('discount_percentage', 0)
+            # Add items from payment data (new API structure)
+            if record_data.get('items'):
+                processed_items = []
+                for item in record_data['items']:
+                    processed_item = {
+                        'name': item.get('name', 'Service'),
+                        'description': item.get('description', ''),
+                        'quantity': item.get('quantity', 1),
+                        'unit_price': float(item.get('unitPrice', item.get('totalAmount', 0))),
+                        'amount': float(item.get('totalAmount', 0))
+                    }
+                    processed_items.append(processed_item)
+                invoice_data['items'] = processed_items
             else:
                 # Create a single line item from payment data
-                amount = float(payment_data.get('amount', 0)) / 100  # Convert from cents
+                amount = float(record_data.get('totalAmount', 0))
                 invoice_data['items'] = [{
                     'name': 'Auto Service',
-                    'description': f"Payment Reference: {payment_data.get('referenceNumber', 'N/A')}",
+                    'description': f"Payment Reference: {record_data.get('invoiceId', 'N/A')}",
                     'quantity': 1,
                     'unit_price': amount,
                     'amount': amount
                 }]
-                # Check for discount in payment metadata
-                invoice_data['discount_amount'] = payment_data.get('discount_amount', 0)
-                invoice_data['discount_percentage'] = payment_data.get('discount_percentage', 0)
             
             return self.generate_invoice(invoice_data)
             
@@ -1033,62 +1043,19 @@ class InvoiceGenerator:
         except Exception as e:
             return None
 
-def create_invoice_for_payment(payment_intent_id, user_data=None, order_data=None, qr_code_url=None):
-    """
-    Convenience function to create an invoice for a payment
-    
-    Args:
-        payment_intent_id (str): Payment intent ID
-        user_data (dict, optional): User information
-        order_data (dict, optional): Order information
-        qr_code_url (str, optional): URL to encode in QR code
-        
-    Returns:
-        dict: Invoice generation result
-    """
-    try:
-        # Import here to avoid circular imports
-        import db_utils
-        
-        # Get payment data
-        payment_data = db_utils.get_payment_by_intent_id(payment_intent_id)
-        if not payment_data:
-            return {
-                'success': False,
-                'error': f'Payment with intent ID {payment_intent_id} not found'
-            }
-        
-        # Generate invoice
-        generator = InvoiceGenerator()
-        result = generator.generate_invoice_from_payment(payment_data, user_data, order_data, qr_code_url)
-        
-        if result['success']:
-            # Save invoice record to database
-            file_size = result.get('html_size', 0)
-            
-            invoice_record = {
-                'invoiceId': result['invoice_id'],
-                'paymentIntentId': payment_intent_id,
-                's3Key': result['s3_key'],
-                'fileUrl': result['file_url'],
-                'fileSize': file_size,
-                'format': 'html',
-                'createdAt': int(datetime.now().timestamp()),
-                'status': 'generated'
-            }
-            
-            create_result = db_utils.create_invoice_record(invoice_record)
-            if not create_result:
-                print("Warning: Invoice generated but failed to save record to database")
-        
-        return result
-        
-    except Exception as e:
-        print(f"Error in create_invoice_for_payment: {str(e)}")
-        return {
-            'success': False,
-            'error': str(e)
+    def _get_currency_symbol(self, currency_code):
+        """Get currency symbol for display"""
+        currency_symbols = {
+            'AUD': 'A$',
+            'USD': '$',
+            'EUR': '€',
+            'GBP': '£',
+            'JPY': '¥',
+            'CAD': 'C$',
+            'NZD': 'NZ$'
         }
+        return currency_symbols.get(currency_code.upper(), currency_code.upper())
+
 
 def create_invoice_for_order_or_appointment(record, record_type, payment_intent_id=None):
     """
