@@ -234,6 +234,64 @@ validate_deployment() {
     # Check SQS queues
     print_status "Checking SQS queues..."
     check_sqs_queue "$INVOICE_QUEUE_URL" || ((errors++))
+    
+    # Check notification queues
+    EMAIL_QUEUE_URL=$(get_stack_output "$STACK_NAME" "EmailNotificationQueueUrl")
+    WEBSOCKET_QUEUE_URL=$(get_stack_output "$STACK_NAME" "WebSocketNotificationQueueUrl")
+    FIREBASE_QUEUE_URL=$(get_stack_output "$STACK_NAME" "FirebaseNotificationQueueUrl")
+    
+    check_sqs_queue "$EMAIL_QUEUE_URL" || ((errors++))
+    check_sqs_queue "$WEBSOCKET_QUEUE_URL" || ((errors++))
+    
+    # Only check Firebase queue if Firebase is enabled
+    if [ "${ENABLE_FIREBASE_NOTIFICATIONS:-false}" == "true" ]; then
+        check_sqs_queue "$FIREBASE_QUEUE_URL" || ((errors++))
+    fi
+    echo
+    
+    # Check Firebase notification system (optional)
+    print_status "Checking Firebase notification system..."
+    if [ "${ENABLE_FIREBASE_NOTIFICATIONS:-false}" == "true" ]; then
+        if [ -n "$FIREBASE_QUEUE_URL" ]; then
+            # Check Firebase processor lambda
+            check_lambda_function "sqs-process-firebase-notification-queue" || ((errors++))
+            
+            # Check Firebase configuration
+            if [ -n "$FIREBASE_PROJECT_ID" ]; then
+                print_success "✓ Firebase project ID configured: $FIREBASE_PROJECT_ID"
+            else
+                print_error "✗ Firebase project ID required when Firebase is enabled"
+                ((errors++))
+            fi
+            
+            if [ -n "$FIREBASE_SERVICE_ACCOUNT_KEY" ]; then
+                print_success "✓ Firebase service account key configured"
+            else
+                print_error "✗ Firebase service account key required when Firebase is enabled"
+                ((errors++))
+            fi
+        else
+            print_error "✗ Firebase notification queue not found (required when Firebase is enabled)"
+            ((errors++))
+        fi
+    else
+        print_status "✓ Firebase notifications are disabled (ENABLE_FIREBASE_NOTIFICATIONS=false)"
+        if [ -n "$FIREBASE_QUEUE_URL" ]; then
+            print_warning "⚠ Firebase queue exists but Firebase is disabled"
+        fi
+    fi
+    echo
+    
+    # Check SES configuration
+    print_status "Checking SES configuration..."
+    if ./validate-ses.sh "$ENVIRONMENT" 2>/dev/null; then
+        print_success "✓ SES configuration validated successfully"
+    else
+        print_warning "⚠ SES configuration validation failed"
+        print_warning "Email sending may not work correctly"
+        print_warning "Run './validate-ses.sh $ENVIRONMENT --setup' for setup instructions"
+        ((errors++))
+    fi
     echo
     
     # Test API endpoints (optional)

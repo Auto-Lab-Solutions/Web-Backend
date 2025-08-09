@@ -16,6 +16,40 @@ Configure these secrets in your GitHub repository settings:
 - `PROD_AWS_ACCESS_KEY_ID`: AWS Access Key ID for production deployments  
 - `PROD_AWS_SECRET_ACCESS_KEY`: AWS Secret Access Key for production deployments
 
+### Application Configuration Secrets
+These secrets are required for application functionality:
+
+#### Payment Processing (Stripe)
+- `STRIPE_SECRET_KEY`: Stripe secret key for payment processing
+- `STRIPE_WEBHOOK_SECRET`: Stripe webhook endpoint secret for signature verification
+- `SHARED_KEY`: Internal shared key for secure communication
+
+#### Firebase Push Notifications (Optional)
+- `FIREBASE_SERVICE_ACCOUNT_KEY_DEV`: Firebase service account key (base64-encoded JSON) for development FCM authentication
+- `FIREBASE_SERVICE_ACCOUNT_KEY_PROD`: Firebase service account key (base64-encoded JSON) for production FCM authentication
+
+#### Frontend Integration
+- `FRONTEND_GITHUB_TOKEN`: GitHub token for frontend repository updates
+
+## Required Variables
+
+Configure these variables in your GitHub repository settings:
+
+### Development Environment Variables
+- `AUTH0_DOMAIN`: Auth0 domain for authentication
+- `AUTH0_AUDIENCE`: Auth0 API audience for token validation
+- `STRIPE_WEBHOOK_ENDPOINT_ID`: Stripe webhook endpoint ID
+- `STRIPE_PUBLISHABLE_KEY`: Stripe publishable key (public, safe to expose)
+
+#### Firebase Configuration (Optional)
+- `FIREBASE_PROJECT_ID_DEV`: Firebase project ID for development environment push notifications
+- `FIREBASE_PROJECT_ID_PROD`: Firebase project ID for production environment push notifications
+
+**Note**: Firebase enable/disable state is controlled in `config/environments.sh` per environment, not through GitHub variables.
+
+### Production Environment Variables
+- Same as development variables but with production values
+
 ## AWS IAM Permissions
 
 The AWS credentials must have the following permissions:
@@ -27,6 +61,8 @@ The AWS credentials must have the following permissions:
 - DynamoDB: Full access
 - S3: Full access
 - CloudFront: Full access
+- SQS: Full access (for notification queues)
+- SES: Full access (for email notifications)
 - IAM: CreateRole, AttachRolePolicy, CreatePolicy
 
 ### Recommended IAM Policy
@@ -44,6 +80,8 @@ The AWS credentials must have the following permissions:
                 "dynamodb:*",
                 "s3:*",
                 "cloudfront:*",
+                "sqs:*",
+                "ses:*",
                 "iam:CreateRole",
                 "iam:AttachRolePolicy",
                 "iam:CreatePolicy",

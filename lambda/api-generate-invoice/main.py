@@ -3,6 +3,7 @@ import db_utils as db
 import response_utils as resp
 import request_utils as req
 import sqs_utils as sqs
+import email_utils as email
 
 
 def lambda_handler(event, context):

@@ -1,11 +1,9 @@
 import db_utils as db
-import wsgw_utils as wsgw
 import response_utils as resp
 import request_utils as req
+import notification_utils as notify
 
 PERMITTED_ROLE = 'CUSTOMER_SUPPORT'
-
-wsgw_client = wsgw.get_apigateway_client()
 
 def lambda_handler(event, context):
     staff_email = req.get_staff_user_email(event)
@@ -51,11 +49,13 @@ def lambda_handler(event, context):
         "userId": client_id,
         "staffUserId": staff_user_id,
     }
-    staff_connections = db.get_all_staff_connections_except_user(staff_user_id)
-    for connection in staff_connections:
-        connection_id = connection.get('connectionId')
-        if connection_id:
-            wsgw.send_notification(wsgw_client, connection_id, notification)
+    
+    # Queue notification to all staff except the one who took the user
+    notify.queue_staff_websocket_notification(notification, exclude_user_id=staff_user_id)
+    
+    # Queue Firebase push notification to all staff except the one who took the user  
+    # Note: Firebase notification helper will handle excluding the staff user who took the action
+    notify.queue_user_assignment_firebase_notification(client_id, staff_user_id, exclude_user_id=staff_user_id)
     
     return resp.success_response({
         "message": f"User {client_id} has been successfully assigned to staff user {staff_user_id}.",

@@ -6,6 +6,7 @@ from io import BytesIO
 import base64
 from decimal import Decimal
 import json
+import email_utils as email
 
 # AWS clients
 s3_client = boto3.client('s3')
@@ -46,6 +47,8 @@ class InvoiceGenerator:
                 - discount_percentage: (Optional) Percentage discount
                 - discount_amount: (Optional) Fixed discount amount
                 - currency: (Optional) Currency code, defaults to 'AUD'
+                - total_amount: (Optional) Pre-calculated total amount. If not provided, will be calculated from items and discounts
+                - calculated_discount: (Optional) Pre-calculated discount amount for display purposes
                 
         Returns:
             dict: {
@@ -115,18 +118,12 @@ class InvoiceGenerator:
         currency_code = invoice_data.get('currency', 'AUD')
         currency_symbol = self._get_currency_symbol(currency_code)
         
-        # Calculate totals
+        # Use pre-calculated values from invoice_data
+        total_amount = Decimal(str(invoice_data.get('total_amount')))
         subtotal = sum(Decimal(str(item.get('amount', 0))) for item in invoice_data.get('items', []))
+        calculated_discount = Decimal(str(invoice_data.get('calculated_discount', 0)))
         discount_amount = Decimal(str(invoice_data.get('discount_amount', 0)))
         discount_percentage = Decimal(str(invoice_data.get('discount_percentage', 0)))
-        
-        # Calculate discount (either fixed amount or percentage)
-        if discount_percentage > 0:
-            calculated_discount = subtotal * (discount_percentage / 100)
-        else:
-            calculated_discount = discount_amount
-        
-        total_amount = subtotal - calculated_discount
         
         # Generate QR code if URL is provided and determine context
         qr_code_url = invoice_data.get('qr_code_url')
@@ -1094,6 +1091,23 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
             'discount_percentage': 0,
         }
         
+        # Calculate total amount at this level
+        subtotal = sum(Decimal(str(item.get('amount', 0))) for item in items)
+        discount_amount = Decimal(str(invoice_data.get('discount_amount', 0)))
+        discount_percentage = Decimal(str(invoice_data.get('discount_percentage', 0)))
+        
+        # Calculate discount (either fixed amount or percentage)
+        if discount_percentage > 0:
+            calculated_discount = subtotal * (discount_percentage / 100)
+        else:
+            calculated_discount = discount_amount
+        
+        total_amount = subtotal - calculated_discount
+        
+        # Add the calculated values to invoice_data
+        invoice_data['total_amount'] = total_amount
+        invoice_data['calculated_discount'] = calculated_discount
+        
         # Generate the invoice
         generator = InvoiceGenerator()
         result = generator.generate_invoice(invoice_data)
@@ -1126,7 +1140,7 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
                 'items': [item['name'] for item in items],
                 'paymentMethod': payment_info['method'],
                 'paymentStatus': payment_info['status'],
-                'totalAmount': payment_info['amount'],
+                'totalAmount': float(total_amount),
                 'invoiceFormat': 'html'
             }
             
@@ -1217,6 +1231,23 @@ def generate_invoice_for_payment(record_data):
                 'amount': amount
             }]
         
+        # Calculate total amount at this level
+        subtotal = sum(Decimal(str(item.get('amount', 0))) for item in invoice_data['items'])
+        discount_amount = Decimal(str(invoice_data.get('discount_amount', 0)))
+        discount_percentage = Decimal(str(invoice_data.get('discount_percentage', 0)))
+        
+        # Calculate discount (either fixed amount or percentage)
+        if discount_percentage > 0:
+            calculated_discount = subtotal * (discount_percentage / 100)
+        else:
+            calculated_discount = discount_amount
+        
+        total_amount = subtotal - calculated_discount
+        
+        # Add the calculated values to invoice_data
+        invoice_data['total_amount'] = total_amount
+        invoice_data['calculated_discount'] = calculated_discount
+        
         # Generate the invoice
         generator = InvoiceGenerator()
         result = generator.generate_invoice(invoice_data)
@@ -1259,6 +1290,35 @@ def generate_invoice_for_payment(record_data):
             
             # Add invoice_url to result for API response
             result['invoice_url'] = result['file_url']
+            
+            # Send payment confirmation email with actual invoice URL
+            try:
+                customer_email = record_data.get('customerEmail')
+                customer_name = record_data.get('customerName', 'Valued Customer')
+                
+                if customer_email:
+                    # Prepare payment data for email
+                    payment_data = {
+                        'amount': f"{record_data.get('totalAmount', 0):.2f}",
+                        'paymentMethod': record_data.get('paymentMethod', 'Unknown'),
+                        'referenceNumber': record_data.get('invoiceId', result['invoice_id']),
+                        'paymentDate': current_timestamp
+                    }
+                    
+                    # Send final payment confirmation email with invoice
+                    email.send_payment_confirmation_email(
+                        customer_email, 
+                        customer_name, 
+                        payment_data, 
+                        result['file_url']
+                    )
+                    print(f"Payment confirmation email sent to {customer_email}")
+                else:
+                    print("No customer email available for payment confirmation")
+                    
+            except Exception as email_error:
+                print(f"Failed to send payment confirmation email: {str(email_error)}")
+                # Don't fail the invoice generation if email fails
         
         return result
         

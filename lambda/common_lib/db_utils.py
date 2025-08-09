@@ -483,6 +483,94 @@ def update_unavailable_slots(date, time_slots):
         print(f"Error updating unavailable slots for date {date}: {e}")
         return False
 
+def update_unavailable_slots_range(start_date, end_date, time_slots):
+    """Update unavailable slots for a date range"""
+    from datetime import datetime, timedelta
+    
+    try:
+        # Parse dates
+        start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+        end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+        
+        if end_dt < start_dt:
+            print(f"Error: End date {end_date} is before start date {start_date}")
+            return False
+        
+        # Build time slots list for DynamoDB
+        time_slots_list = []
+        for slot in time_slots:
+            time_slots_list.append({
+                'M': {
+                    'startTime': {'S': slot['startTime']},
+                    'endTime': {'S': slot['endTime']}
+                }
+            })
+        
+        # Update slots for each date in the range
+        current_date = start_dt
+        success_count = 0
+        total_dates = (end_dt - start_dt).days + 1
+        
+        while current_date <= end_dt:
+            date_str = current_date.strftime('%Y-%m-%d')
+            try:
+                dynamodb.put_item(
+                    TableName=UNAVAILABLE_SLOTS_TABLE,
+                    Item={
+                        'date': {'S': date_str},
+                        'timeSlots': {'L': time_slots_list},
+                        'updatedAt': {'N': str(int(time.time()))}
+                    }
+                )
+                success_count += 1
+                print(f"Unavailable slots updated for date {date_str}")
+            except ClientError as e:
+                print(f"Error updating unavailable slots for date {date_str}: {e}")
+            
+            current_date += timedelta(days=1)
+        
+        print(f"Updated unavailable slots for {success_count}/{total_dates} dates in range {start_date} to {end_date}")
+        return success_count == total_dates
+        
+    except ValueError as e:
+        print(f"Error parsing dates: {e}")
+        return False
+    except ClientError as e:
+        print(f"Error updating unavailable slots for date range: {e}")
+        return False
+
+def get_unavailable_slots_range(start_date, end_date):
+    """Get unavailable slots for a date range"""
+    from datetime import datetime, timedelta
+    
+    try:
+        # Parse dates
+        start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+        end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+        
+        if end_dt < start_dt:
+            print(f"Error: End date {end_date} is before start date {start_date}")
+            return {}
+        
+        result = {}
+        current_date = start_dt
+        
+        while current_date <= end_dt:
+            date_str = current_date.strftime('%Y-%m-%d')
+            try:
+                unavailable_slots = get_unavailable_slots(date_str)
+                result[date_str] = unavailable_slots.get('timeSlots', []) if unavailable_slots else []
+            except Exception as e:
+                print(f"Error getting unavailable slots for date {date_str}: {e}")
+                result[date_str] = []
+            
+            current_date += timedelta(days=1)
+        
+        return result
+        
+    except ValueError as e:
+        print(f"Error parsing dates: {e}")
+        return {}
 
 # ------------------  Appointments Table Functions ------------------
 

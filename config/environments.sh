@@ -51,6 +51,17 @@ get_env_config() {
             export FRONTEND_ACM_CERTIFICATE_ARN="arn:aws:acm:us-east-1:899704476492:certificate/808b1a88-c14d-46f2-a9d2-e34ac47c0838"
             export ENABLE_CUSTOM_DOMAIN="true"
             export ENABLE_FRONTEND_WEBSITE="true"
+
+            # SES Configuration
+            export FROM_EMAIL="noreply@dev.autolabsolutions.com"
+            export SES_REGION="${AWS_REGION}"
+            
+            # Firebase Configuration (Optional)
+            # Set Firebase enabled/disabled state for development environment
+            export ENABLE_FIREBASE_NOTIFICATIONS="false"  # Default disabled for development
+            # Firebase credentials passed from CI/CD pipeline or environment variables
+            export FIREBASE_PROJECT_ID="${FIREBASE_PROJECT_ID:-}"
+            export FIREBASE_SERVICE_ACCOUNT_KEY="${FIREBASE_SERVICE_ACCOUNT_KEY:-}"
             ;;
         production)
             # Production Environment Configuration
@@ -69,6 +80,17 @@ get_env_config() {
             export FRONTEND_ACM_CERTIFICATE_ARN="arn:aws:acm:us-east-1:899704476492:certificate/808b1a88-c14d-46f2-a9d2-e34ac47c0838"
             export ENABLE_CUSTOM_DOMAIN="true"
             export ENABLE_FRONTEND_WEBSITE="true"
+
+            # SES Configuration
+            export FROM_EMAIL="noreply@autolabsolutions.com"
+            export SES_REGION="${AWS_REGION}"
+            
+            # Firebase Configuration (Optional)
+            # Set Firebase enabled/disabled state for production environment
+            export ENABLE_FIREBASE_NOTIFICATIONS="true"   # Default enabled for production
+            # Firebase credentials passed from CI/CD pipeline or environment variables
+            export FIREBASE_PROJECT_ID="${FIREBASE_PROJECT_ID:-}"
+            export FIREBASE_SERVICE_ACCOUNT_KEY="${FIREBASE_SERVICE_ACCOUNT_KEY:-}"
             ;;
         *)
             echo "Error: Invalid environment '$env'"
@@ -96,6 +118,10 @@ get_env_config() {
     
     # Additional configuration values
     export REPORTS_BUCKET_NAME="${S3_BUCKET_NAME}"
+    
+    # # SES Configuration
+    # export FROM_EMAIL="${FROM_EMAIL:-noreply@autolabsolutions.com}"
+    # export SES_REGION="${SES_REGION:-ap-southeast-2}"
 
     # Auth0 configuration (if needed)
     export AUTH0_DOMAIN="${AUTH0_DOMAIN}"
@@ -129,7 +155,7 @@ show_env_config() {
     echo "=========================================="
     # Print all exported environment variables relevant to this script
     echo "All Environment Variables (sorted):"
-    env | grep -E '^(AWS_|STACK_NAME|S3_BUCKET_NAME|CLOUDFORMATION_BUCKET|LOG_LEVEL|LAMBDA_TIMEOUT|LAMBDA_MEMORY|FRONTEND_DOMAIN_NAME|FRONTEND_HOSTED_ZONE_ID|FRONTEND_ACM_CERTIFICATE_ARN|ENABLE_CUSTOM_DOMAIN|ENABLE_FRONTEND_WEBSITE|PYTHON_VERSION|NODEJS_VERSION|STAFF_TABLE|USERS_TABLE|CONNECTIONS_TABLE|MESSAGES_TABLE|UNAVAILABLE_SLOTS_TABLE|APPOINTMENTS_TABLE|SERVICE_PRICES_TABLE|ORDERS_TABLE|ITEM_PRICES_TABLE|INQUIRIES_TABLE|PAYMENTS_TABLE|REPORTS_BUCKET_NAME|AUTH0_DOMAIN|AUTH0_AUDIENCE|FRONTEND_REPO_OWNER|FRONTEND_REPO_NAME|FRONTEND_GITHUB_TOKEN|STRIPE_WEBHOOK_ENDPOINT_ID|STRIPE_PUBLISHABLE_KEY|STRIPE_SECRET_KEY|STRIPE_WEBHOOK_SECRET|SHARED_KEY)=' | sort
+    env | grep -E '^(AWS_|STACK_NAME|S3_BUCKET_NAME|CLOUDFORMATION_BUCKET|LOG_LEVEL|LAMBDA_TIMEOUT|LAMBDA_MEMORY|FRONTEND_DOMAIN_NAME|FRONTEND_HOSTED_ZONE_ID|FRONTEND_ACM_CERTIFICATE_ARN|ENABLE_CUSTOM_DOMAIN|ENABLE_FRONTEND_WEBSITE|PYTHON_VERSION|NODEJS_VERSION|STAFF_TABLE|USERS_TABLE|CONNECTIONS_TABLE|MESSAGES_TABLE|UNAVAILABLE_SLOTS_TABLE|APPOINTMENTS_TABLE|SERVICE_PRICES_TABLE|ORDERS_TABLE|ITEM_PRICES_TABLE|INQUIRIES_TABLE|PAYMENTS_TABLE|REPORTS_BUCKET_NAME|AUTH0_DOMAIN|AUTH0_AUDIENCE|FRONTEND_REPO_OWNER|FRONTEND_REPO_NAME|FRONTEND_GITHUB_TOKEN|STRIPE_WEBHOOK_ENDPOINT_ID|STRIPE_PUBLISHABLE_KEY|STRIPE_SECRET_KEY|STRIPE_WEBHOOK_SECRET|SHARED_KEY|FIREBASE_PROJECT_ID|FIREBASE_SERVICE_ACCOUNT_KEY|FROM_EMAIL|SES_REGION)=' | sort
     echo "=========================================="
 }
 

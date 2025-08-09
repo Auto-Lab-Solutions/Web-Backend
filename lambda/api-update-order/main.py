@@ -4,6 +4,8 @@ import db_utils as db
 import response_utils as resp
 import request_utils as req
 import wsgw_utils as wsgw
+import email_utils as email
+import notification_utils as notify
 
 wsgw_client = wsgw.get_apigateway_client()
 
@@ -327,20 +329,163 @@ def process_notes_updates(body, existing_order):
 
 def send_update_notifications(order_id, scenario, update_data, updated_order, staff_user_id):
     """Send notifications to created user about the order update"""
-    notification_data = {
-        "type": "order",
-        "subtype": "update",
-        "scenario": scenario,
-        "orderId": order_id,
-        "changes": list(update_data.keys())
+    # Queue WebSocket notification for customer
+    try:
+        customer_user_id = updated_order.get('createdUserId')
+        if customer_user_id:
+            notify.queue_order_websocket_notification(order_id, scenario, update_data, customer_user_id)
+    except Exception as e:
+        print(f"Failed to queue customer WebSocket notification: {str(e)}")
+    
+    # Queue email notification to customer
+    try:
+        customer_user_id = updated_order.get('createdUserId')
+        if customer_user_id:
+            user_record = db.get_user_record(customer_user_id)
+            if user_record and user_record.get('email'):
+                customer_email = user_record.get('email')
+                customer_name = user_record.get('name', 'Valued Customer')
+                
+                # Format order data for email
+                email_order_data = format_order_data_for_email(updated_order)
+                
+                # Handle special case for report ready notification
+                if 'reportUrl' in update_data and update_data.get('reportUrl'):
+                    notify.queue_report_ready_email(
+                        customer_email, 
+                        customer_name, 
+                        email_order_data, 
+                        update_data.get('reportUrl')
+                    )
+                    return  # Exit early for report updates
+                
+                # Send appropriate email based on scenario
+                if scenario == 'MECHANIC_ASSIGNMENT' and 'scheduledDate' in update_data:
+                    # Order scheduled with mechanic
+                    notify.queue_order_scheduled_email(customer_email, customer_name, email_order_data)
+                elif any(key in update_data for key in ['assignedMechanic', 'scheduledDate', 'timeSlot', 'status']):
+                    # General order update
+                    notify.queue_order_updated_email(customer_email, customer_name, email_order_data)
+                    
+    except Exception as e:
+        print(f"Failed to queue email notification: {str(e)}")
+        # Don't fail the update if notification queueing fails
+    
+    # Queue Firebase push notification to staff
+    try:
+        # Determine which staff should be notified
+        assigned_mechanic_id = updated_order.get('assignedMechanicId')
+        staff_to_notify = []
+        
+        # Always notify customer support staff for most updates
+        if scenario in ['basic_info', 'scheduling', 'status']:
+            # For general updates, notify all customer support
+            notify.queue_order_firebase_notification(order_id, scenario)
+        
+        # For mechanic-specific updates, notify the assigned mechanic
+        if scenario == 'notes' and assigned_mechanic_id:
+            # Notify the assigned mechanic about note updates
+            notify.queue_order_firebase_notification(order_id, scenario, [assigned_mechanic_id])
+        
+        # For status changes, notify relevant staff based on new status
+        if scenario == 'status':
+            new_status = update_data.get('status')
+            if new_status == 'SCHEDULED' and assigned_mechanic_id:
+                # Notify assigned mechanic when order is scheduled
+                notify.queue_order_firebase_notification(order_id, scenario, [assigned_mechanic_id])
+            elif new_status == 'DELIVERED':
+                # Notify customer support when order is delivered
+                notify.queue_order_firebase_notification(order_id, scenario)
+                
+    except Exception as e:
+        print(f"Failed to queue Firebase notification: {str(e)}")
+        # Don't fail the update if notification queueing fails
+
+
+def format_order_data_for_email(order_data):
+    """Format order data for email notifications"""
+    # Get service and plan names if available
+    services = []
+    service_id = order_data.get('serviceId')
+    plan_id = order_data.get('planId')
+    
+    if service_id and plan_id:
+        try:
+            service_plan_names = db.get_service_plan_names(service_id, plan_id)
+            if service_plan_names:
+                service_name, plan_name = service_plan_names
+                services.append({
+                    'serviceName': service_name,
+                    'planName': plan_name,
+                })
+        except Exception as e:
+            print(f"Error getting service plan names: {str(e)}")
+    
+    # Format items from database format
+    items = []
+    order_items = order_data.get('items', [])
+    if isinstance(order_items, list):
+        for item in order_items:
+            # Handle the case where items might be in DynamoDB format or already deserialized
+            if isinstance(item, dict) and 'M' in item:
+                # DynamoDB format
+                item_data = item['M']
+                items.append({
+                    'name': f"Item {item_data.get('itemId', {}).get('N', 'Unknown')}",
+                    'quantity': int(item_data.get('quantity', {}).get('N', 1)),
+                    'price': f"{float(item_data.get('price', {}).get('N', 0)):.2f}"
+                })
+            else:
+                # Already deserialized
+                items.append({
+                    'name': item.get('name', f"Item {item.get('itemId', 'Unknown')}"),
+                    'quantity': item.get('quantity', 1),
+                    'price': f"{item.get('price', 0):.2f}"
+                })
+    
+    # Format vehicle info from database fields
+    vehicle_info = {
+        'make': order_data.get('carMake', 'N/A'),
+        'model': order_data.get('carModel', 'N/A'),
+        'year': order_data.get('carYear', 'N/A')
     }
     
-    # Get connections of customer user and send notification
-    customer_user_connection = db.get_connection_by_user_id(updated_order.get('createdUserId'))
-    if customer_user_connection:
-        customer_user_connection = resp.convert_decimal(customer_user_connection)
-        wsgw.send_notification(
-            wsgw_client,
-            customer_user_connection.get('connectionId'),
-            notification_data
-        )
+    # Format scheduled time slot for display
+    scheduled_slot = order_data.get('scheduledTimeSlot', {})
+    time_slot = "TBD"
+    if scheduled_slot and isinstance(scheduled_slot, dict):
+        start = scheduled_slot.get('start', '')
+        end = scheduled_slot.get('end', '')
+        if start and end:
+            time_slot = f"{start} - {end}"
+    
+    # Get mechanic name if assigned
+    assigned_mechanic = "Our team"
+    assigned_mechanic_id = order_data.get('assignedMechanicId')
+    if assigned_mechanic_id:
+        try:
+            mechanic_record = db.get_staff_record_by_user_id(assigned_mechanic_id)
+            if mechanic_record:
+                assigned_mechanic = mechanic_record.get('name', 'Our team')
+        except Exception as e:
+            print(f"Error getting mechanic name: {str(e)}")
+    
+    # Format customer data
+    customer_data = {
+        'phoneNumber': order_data.get('customerPhone', 'N/A')
+    }
+    
+    return {
+        'orderId': order_data.get('orderId'),
+        'services': services,
+        'items': items,
+        'vehicleInfo': vehicle_info,
+        'totalAmount': f"{order_data.get('totalPrice', 0):.2f}",
+        'status': order_data.get('status', 'Processing'),
+        'customerData': customer_data,
+        'scheduledDate': order_data.get('scheduledDate'),
+        'timeSlot': time_slot,
+        'assignedMechanic': assigned_mechanic,
+        'estimatedDuration': order_data.get('estimatedDuration', 'TBD'),
+        'reportType': order_data.get('reportType')
+    }

@@ -4,6 +4,8 @@ import db_utils as db
 import response_utils as resp
 import request_utils as req
 import wsgw_utils as wsgw
+import email_utils as email
+import notification_utils as notify
 
 wsgw_client = wsgw.get_apigateway_client()
 
@@ -291,23 +293,136 @@ def process_reports_updates(body, existing_appointment):
 
 def send_update_notifications(appointment_id, scenario, update_data, updated_appointment):
     """Send notifications to created user about the appointment update"""
-    notification_data = {
-        "type": "appointment",
-        "subtype": "update",
-        "scenario": scenario,
-        "appointmentId": appointment_id,
-        "changes": list(update_data.keys())
+    # Queue WebSocket notification
+    try:
+        customer_user_id = updated_appointment.get('createdUserId')
+        if customer_user_id:
+            notify.queue_appointment_websocket_notification(appointment_id, scenario, update_data, customer_user_id)
+    except Exception as e:
+        print(f"Failed to queue WebSocket notification: {str(e)}")
+    
+    # Queue email notification to customer
+    try:
+        customer_user_id = updated_appointment.get('createdUserId')
+        if customer_user_id:
+            user_record = db.get_user_record(customer_user_id)
+            if user_record and user_record.get('email'):
+                customer_email = user_record.get('email')
+                customer_name = user_record.get('name', 'Valued Customer')
+                
+                # Format appointment data for email
+                email_appointment_data = format_appointment_data_for_email(updated_appointment)
+                
+                # Handle special case for report ready notification
+                if 'reportUrl' in update_data and update_data.get('reportUrl'):
+                    notify.queue_report_ready_email(
+                        customer_email, 
+                        customer_name, 
+                        email_appointment_data, 
+                        update_data.get('reportUrl')
+                    )
+                    return  # Exit early for report updates
+                
+                # Send appropriate email based on scenario
+                if scenario == 'MECHANIC_ASSIGNMENT' and 'scheduledDate' in update_data:
+                    # Appointment scheduled with mechanic
+                    notify.queue_appointment_scheduled_email(customer_email, customer_name, email_appointment_data)
+                elif any(key in update_data for key in ['assignedMechanic', 'scheduledDate', 'timeSlot', 'status']):
+                    # General appointment update
+                    notify.queue_appointment_updated_email(customer_email, customer_name, email_appointment_data)
+                    
+    except Exception as e:
+        print(f"Failed to queue email notification: {str(e)}")
+        # Don't fail the update if notification queueing fails
+
+    # Queue Firebase push notification to staff
+    try:
+        # Determine which staff should be notified
+        assigned_mechanic_id = updated_appointment.get('assignedMechanicId')
+        
+        # Always notify customer support staff for most updates
+        if scenario in ['basic_info', 'scheduling', 'status']:
+            # For general updates, notify all customer support
+            notify.queue_appointment_firebase_notification(appointment_id, scenario)
+        
+        # For mechanic-specific updates, notify the assigned mechanic
+        if scenario == 'reports' and assigned_mechanic_id:
+            # Notify the assigned mechanic about report updates
+            notify.queue_appointment_firebase_notification(appointment_id, scenario, [assigned_mechanic_id])
+        
+        # For status changes, notify relevant staff based on new status
+        if scenario == 'status':
+            new_status = update_data.get('status')
+            if new_status == 'SCHEDULED' and assigned_mechanic_id:
+                # Notify assigned mechanic when appointment is scheduled
+                notify.queue_appointment_firebase_notification(appointment_id, scenario, [assigned_mechanic_id])
+            elif new_status == 'COMPLETED':
+                # Notify customer support when appointment is completed
+                notify.queue_appointment_firebase_notification(appointment_id, scenario)
+                
+    except Exception as e:
+        print(f"Failed to queue Firebase notification: {str(e)}")
+        # Don't fail the update if notification queueing fails
+
+
+def format_appointment_data_for_email(appointment_data):
+    """Format appointment data for email notifications"""
+    # Get service and plan names
+    service_name = "Service"
+    plan_name = "Plan"
+    
+    try:
+        service_id = appointment_data.get('serviceId')
+        plan_id = appointment_data.get('planId')
+        if service_id and plan_id:
+            service_plan_names = db.get_service_plan_names(service_id, plan_id)
+            if service_plan_names:
+                service_name, plan_name = service_plan_names
+    except Exception as e:
+        print(f"Error getting service plan names: {str(e)}")
+    
+    # Format vehicle info from database fields
+    vehicle_info = {
+        'make': appointment_data.get('carMake', 'N/A'),
+        'model': appointment_data.get('carModel', 'N/A'),
+        'year': appointment_data.get('carYear', 'N/A')
     }
     
-    # Get connections of customer user and send notification
-    customer_user_connection = db.get_connection_by_user_id(updated_appointment.get('createdUserId'))
-    if customer_user_connection:
-        wsgw.send_notification(
-            wsgw_client,
-            customer_user_connection.get('connectionId'),
-            notification_data
-        )
+    # Format scheduled time slot for display
+    scheduled_slot = appointment_data.get('scheduledTimeSlot', {})
+    time_slot = "TBD"
+    if scheduled_slot and isinstance(scheduled_slot, dict):
+        start = scheduled_slot.get('start', '')
+        end = scheduled_slot.get('end', '')
+        if start and end:
+            time_slot = f"{start} - {end}"
     
+    # Get mechanic name if assigned
+    assigned_mechanic = "Our team"
+    assigned_mechanic_id = appointment_data.get('assignedMechanicId')
+    if assigned_mechanic_id:
+        try:
+            mechanic_record = db.get_staff_record_by_user_id(assigned_mechanic_id)
+            if mechanic_record:
+                assigned_mechanic = mechanic_record.get('name', 'Our team')
+        except Exception as e:
+            print(f"Error getting mechanic name: {str(e)}")
+    
+    return {
+        'appointmentId': appointment_data.get('appointmentId'),
+        'services': [{
+            'serviceName': service_name,
+            'planName': plan_name,
+        }],
+        'vehicleInfo': vehicle_info,
+        'scheduledDate': appointment_data.get('scheduledDate'),
+        'timeSlot': time_slot,
+        'assignedMechanic': assigned_mechanic,
+        'location': appointment_data.get('location', 'Auto Lab Solutions Service Center'),
+        'status': appointment_data.get('status'),
+        'reportType': appointment_data.get('reportType')
+    }
+
 
 
 

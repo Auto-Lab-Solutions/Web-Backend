@@ -98,6 +98,36 @@ Parameters:
     Description: API Gateway stage name
     Default: "prod"
 
+  EmailNotificationQueueUrl:
+    Type: String
+    Description: SQS Queue URL for email notifications
+    Default: ""
+
+  WebSocketNotificationQueueUrl:
+    Type: String
+    Description: SQS Queue URL for WebSocket notifications
+    Default: ""
+
+  FirebaseNotificationQueueUrl:
+    Type: String
+    Description: SQS Queue URL for Firebase push notifications
+    Default: ""
+
+  InvoiceGenerationQueueUrl:
+    Type: String
+    Description: SQS Queue URL for invoice generation
+    Default: ""
+
+  FromEmail:
+    Type: String
+    Description: SES verified email address for sending emails
+    Default: "noreply@autolabsolutions.com"
+
+  SesRegion:
+    Type: String
+    Description: AWS SES region
+    Default: "us-east-1"
+
   FrontendRootUrl:
     Type: String
     Description: Frontend root URL for invoice links and QR codes
@@ -195,6 +225,19 @@ Resources:
                 Action:
                   - sqs:SendMessage
                   - sqs:GetQueueAttributes
+                Resource: '*'
+        - PolicyName: SESAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                  - ses:GetSendQuota
+                  - ses:GetSendStatistics
+                  - ses:VerifyEmailIdentity
+                  - ses:ListVerifiedEmailAddresses
                 Resource: '*'
 
   # Staff Authorizer Lambda
@@ -317,6 +360,11 @@ Resources:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           SERVICE_PRICES_TABLE: !Ref ServicePricesTable
           ENVIRONMENT: !Ref Environment
+          FROM_EMAIL: !Ref FromEmail
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -337,7 +385,13 @@ Resources:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
           SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          USERS_TABLE: !Ref UsersTable
           ENVIRONMENT: !Ref Environment
+          FROM_EMAIL: !Ref FromEmail
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -417,6 +471,11 @@ Resources:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           ITEM_PRICES_TABLE: !Ref ItemPricesTable
           ENVIRONMENT: !Ref Environment
+          FROM_EMAIL: !Ref FromEmail
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -437,7 +496,13 @@ Resources:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           ORDERS_TABLE: !Ref OrdersTable
           ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          USERS_TABLE: !Ref UsersTable
           ENVIRONMENT: !Ref Environment
+          FROM_EMAIL: !Ref FromEmail
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -471,6 +536,10 @@ Resources:
           CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          FROM_EMAIL: !Ref FromEmail
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -526,6 +595,10 @@ Resources:
           CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          FROM_EMAIL: !Ref FromEmail
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -560,6 +633,10 @@ Resources:
           CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          FROM_EMAIL: !Ref FromEmail
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -599,6 +676,9 @@ Resources:
           INQUIRIES_TABLE: !Ref InquiriesTable
           USERS_TABLE: !Ref UsersTable
           ENVIRONMENT: !Ref Environment
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -683,6 +763,9 @@ Resources:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           MESSAGES_TABLE: !Ref MessagesTable
           ENVIRONMENT: !Ref Environment
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -703,6 +786,9 @@ Resources:
           USERS_TABLE: !Ref UsersTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           ENVIRONMENT: !Ref Environment
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -782,6 +868,9 @@ Resources:
           MESSAGES_TABLE: !Ref MessagesTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           ENVIRONMENT: !Ref Environment
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -918,6 +1007,7 @@ Resources:
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           SHARED_KEY: !Ref SharedKey
           ENVIRONMENT: !Ref Environment
+          FROM_EMAIL: !Ref FromEmail
       Tags:
         - Key: Environment
           Value: !Ref Environment

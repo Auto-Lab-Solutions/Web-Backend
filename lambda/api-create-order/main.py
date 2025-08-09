@@ -4,6 +4,8 @@ import db_utils as db
 import response_utils as resp
 import request_utils as req
 import wsgw_utils as wsgw
+import email_utils as email
+import notification_utils as notify
 
 PERMITTED_ROLE = 'CUSTOMER_SUPPORT'
 
@@ -89,18 +91,56 @@ def lambda_handler(event, context):
         if not success:
             return resp.error_response("Failed to create order", 500)
 
-        # Send notifications to staff users
-        staff_connections = db.get_assigned_or_all_staff_connections(assigned_to=user_id)
-        notification_data = {
-            "type": "order",
-            "subtype": "create",
-            "success": True,
-            "orderId": order_id,
-            "orderData": resp.convert_decimal(order_data_db)
-        }
+        # Queue staff WebSocket notifications
+        try:
+            staff_notification_data = {
+                "type": "order",
+                "subtype": "create",
+                "success": True,
+                "orderId": order_id,
+                "orderData": resp.convert_decimal(order_data_db)
+            }
+            notify.queue_staff_websocket_notification(staff_notification_data, assigned_to=user_id)
+        except Exception as e:
+            print(f"Failed to queue staff WebSocket notification: {str(e)}")
 
-        for staff in staff_connections:
-            wsgw.send_notification(wsgw_client, staff.get('connectionId'), notification_data)
+        # Queue Firebase push notification to staff
+        try:
+            notify.queue_order_firebase_notification(order_id, 'create')
+        except Exception as e:
+            print(f"Failed to queue Firebase notification: {str(e)}")
+
+        # Queue email notification to customer
+        try:
+            # Get customer details
+            user_record = db.get_user_record(user_id)
+            if user_record and user_record.get('email'):
+                customer_email = user_record.get('email')
+                customer_name = user_record.get('name', 'Valued Customer')
+                
+                # Prepare order data for email
+                email_order_data = {
+                    'orderId': order_id,
+                    'services': order_data.get('services', []),
+                    'items': [
+                        {
+                            'name': item.get('name', f"Item {item.get('itemId', 'Unknown')}"),
+                            'quantity': item.get('quantity', 1),
+                            'price': f"{item.get('price', 0):.2f}"
+                        } for item in processed_items
+                    ],
+                    'vehicleInfo': order_data.get('carData', {}),
+                    'totalAmount': f"{total_price:.2f}",
+                    'status': 'Processing',
+                    'customerData': order_data.get('customerData', {})
+                }
+                
+                # Queue order created email
+                notify.queue_order_created_email(customer_email, customer_name, email_order_data)
+                
+        except Exception as e:
+            print(f"Failed to queue order creation email: {str(e)}")
+            # Don't fail the order creation if email queueing fails
 
         # Return success response
         return resp.success_response({

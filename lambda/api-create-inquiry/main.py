@@ -2,9 +2,7 @@ import uuid
 import db_utils as db
 import response_utils as resp
 import request_utils as req
-import wsgw_utils as wsgw
-
-wsgw_client = wsgw.get_apigateway_client()
+import notification_utils as notify
 
 def lambda_handler(event, context):
     try:
@@ -95,9 +93,6 @@ def validate_inquiry_data(inquiry_data):
 def send_inquiry_notifications(inquiry_id, inquiry_data):
     """Send notifications to staff about new inquiry"""
     try:
-        # Get all staff connections
-        staff_connections = db.get_all_staff_connections()
-        
         notification_data = {
             "type": "inquiry",
             "subtype": "create",
@@ -107,11 +102,13 @@ def send_inquiry_notifications(inquiry_id, inquiry_data):
             "message": inquiry_data.get('message', {}).get('S', '')[:100] + "..." if len(inquiry_data.get('message', {}).get('S', '')) > 100 else inquiry_data.get('message', {}).get('S', '')
         }
         
-        # Send notifications to all staff
-        for staff in staff_connections:
-            wsgw.send_notification(wsgw_client, staff.get('connectionId'), notification_data)
+        # Queue WebSocket notification to all staff
+        notify.queue_staff_websocket_notification(notification_data)
         
-        print(f"Inquiry notification sent to {len(staff_connections)} staff members")
+        # Queue Firebase push notification to all staff
+        notify.queue_inquiry_firebase_notification(inquiry_id, 'create')
+        
+        print(f"Inquiry notification queued for staff")
         
     except Exception as e:
-        print(f"Error sending inquiry notifications: {str(e)}")
+        print(f"Error queueing inquiry notifications: {str(e)}")

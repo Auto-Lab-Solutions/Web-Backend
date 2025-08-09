@@ -1,10 +1,9 @@
 import db_utils as db
-import wsgw_utils as wsgw
 import response_utils as resp
 import request_utils as req
+import notification_utils as notify
 
 PERMITTED_ROLE = 'CUSTOMER_SUPPORT'
-wsgw_client = wsgw.get_apigateway_client()
 
 
 def lambda_handler(event, context):
@@ -48,9 +47,9 @@ def lambda_handler(event, context):
             "message": message,
             "senderId": staff_user_id,
         }
-        client_conn = db.get_connection_by_user_id(client_id)
-        if client_conn:
-            wsgw.send_notification(wsgw_client, client_conn.get('connectionId'), notification_data)
+        
+        # Queue notification to specific client
+        notify.queue_websocket_notification('message_notification', notification_data, user_id=client_id)
 
         if not store_message(message_id, message, staff_user_id, client_id):
             return resp.error_response(f"Failed to store message with ID: {message_id}. Please try again later.")
@@ -75,8 +74,15 @@ def lambda_handler(event, context):
         "message": message,
         "senderId": client_id
     }
-    for receiver_conn in receiver_connections:
-        wsgw.send_notification(wsgw_client, receiver_conn.get('connectionId'), notification_data)
+    
+    # Queue notification to assigned staff or all staff if unassigned
+    notify.queue_staff_websocket_notification(notification_data, assigned_to=assigned_to)
+    
+    # Queue Firebase push notification to assigned staff or all staff
+    if assigned_to:
+        notify.queue_message_firebase_notification(message_id, 'client_message', [assigned_to])
+    else:
+        notify.queue_message_firebase_notification(message_id, 'client_message')
 
     receiver_id = assigned_to if assigned_to else 'ALL'
     if not store_message(message_id, message, client_id, receiver_id):

@@ -1,0 +1,27 @@
+# Firebase Configuration for Development Environment
+# Copy this file to firebase-development.conf and customize the settings
+# This file controls Firebase integration for the development environment
+
+# Enable or disable Firebase notifications
+# Set to "true" to enable Firebase push notifications
+# Set to "false" to disable Firebase (default for development)
+FIREBASE_ENABLED=false
+
+# Firebase Project ID (required if FIREBASE_ENABLED=true)
+# Get this from your Firebase Console
+FIREBASE_PROJECT_ID=""
+
+# Firebase Service Account Key (required if FIREBASE_ENABLED=true)
+# This should be the base64-encoded JSON service account key
+# To generate: cat firebase-service-account.json | base64 | tr -d '\n'
+FIREBASE_SERVICE_ACCOUNT_KEY=""
+
+# Configuration Notes:
+# - Development environment has Firebase DISABLED by default for simpler deployment
+# - To enable Firebase for development:
+#   1. Copy this file to firebase-development.conf
+#   2. Set FIREBASE_ENABLED=true
+#   3. Set FIREBASE_PROJECT_ID to your Firebase project ID
+#   4. Set FIREBASE_SERVICE_ACCOUNT_KEY to your base64-encoded service account JSON
+# - Environment variables (ENABLE_FIREBASE_NOTIFICATIONS, etc.) will override these settings
+# - The actual config file (firebase-development.conf) should not be committed to git

@@ -18,6 +18,9 @@ env:
   STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
   SHARED_KEY: ${{ secrets.SHARED_KEY }}
   FRONTEND_GITHUB_TOKEN: ${{ secrets.FRONTEND_GITHUB_TOKEN }}
+  # Firebase configuration - credentials passed from GitHub secrets/vars
+  FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID_PROD }}
+  FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY_PROD }}
 
 jobs:
   validate:

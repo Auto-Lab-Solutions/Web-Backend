@@ -48,12 +48,37 @@ Parameters:
     Type: String
     NoEcho: true
     Description: Shared key for internal communication
+
+  FrontendRootUrl:
+    Type: String
+    Description: Frontend root URL for email links
+    Default: "https://autolabsolutions.com"
+
+  FromEmail:
+    Type: String
+    Description: SES verified email address for sending notifications
+    Default: "noreply@autolabsolutions.com"
+
+  SesRegion:
+    Type: String
+    Description: AWS region for SES service
+    Default: "us-east-1"
     Default: ""
 
   FrontendRootUrl:
     Type: String
     Description: Frontend root URL for invoice links and QR codes
     Default: ""
+
+  FromEmail:
+    Type: String
+    Description: SES verified email address for sending emails
+    Default: "noreply@autolabsolutions.com"
+
+  SesRegion:
+    Type: String
+    Description: AWS SES region
+    Default: "ap-southeast-2"
 
   # Frontend Website Parameters
   EnableFrontendWebsite:
@@ -83,8 +108,27 @@ Parameters:
     Default: 'false'
     Description: Whether to enable custom domain for frontend
 
+  # Firebase Push Notification Parameters (Optional)
+  EnableFirebaseNotifications:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+    Description: Whether to enable Firebase push notifications
+
+  FirebaseProjectId:
+    Type: String
+    Description: Firebase project ID for push notifications (required if Firebase enabled)
+    Default: ""
+
+  FirebaseServiceAccountKey:
+    Type: String
+    NoEcho: true
+    Description: Firebase service account key (JSON) for authentication (required if Firebase enabled)
+    Default: ""
+
 Conditions:
   ShouldDeployFrontend: !Equals [!Ref EnableFrontendWebsite, 'true']
+  ShouldEnableFirebase: !Equals [!Ref EnableFirebaseNotifications, 'true']
 
 Resources:
   # DynamoDB Tables
@@ -127,6 +171,7 @@ Resources:
       - DynamoDBStack
       - S3CloudFrontStack
       - InvoiceQueueStack
+      - NotificationQueueStack
     Properties:
       TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/lambda-functions.yaml'
       Parameters:
@@ -153,6 +198,12 @@ Resources:
         FrontendRootUrl: !Ref FrontendRootUrl
         SharedKey: !Ref SharedKey
         InvoiceQueueUrl: !GetAtt InvoiceQueueStack.Outputs.InvoiceQueueUrl
+        EmailNotificationQueueUrl: !GetAtt NotificationQueueStack.Outputs.EmailNotificationQueueUrl
+        WebSocketNotificationQueueUrl: !GetAtt NotificationQueueStack.Outputs.WebSocketNotificationQueueUrl
+        FirebaseNotificationQueueUrl: !If [ShouldEnableFirebase, !GetAtt NotificationQueueStack.Outputs.FirebaseNotificationQueueUrl, ""]
+        InvoiceGenerationQueueUrl: !GetAtt InvoiceQueueStack.Outputs.InvoiceGenerationQueueUrl
+        FromEmail: !Ref FromEmail
+        SesRegion: !Ref SesRegion
 
   # API Gateway
   ApiGatewayStack:
@@ -205,6 +256,61 @@ Resources:
         WsInitArn: !GetAtt LambdaStack.Outputs.WsInitArn
         WsPingArn: !GetAtt LambdaStack.Outputs.WsPingArn
         WsStaffInitArn: !GetAtt LambdaStack.Outputs.WsStaffInitArn
+
+  # Invoice Queue Stack
+  InvoiceQueueStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: [DynamoDBStack, S3CloudFrontStack]
+    Properties:
+      TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/invoice-queue.yaml'
+      Parameters:
+        EnvironmentName: !Ref Environment
+        CloudFormationBucket: !Ref CloudFormationBucket
+        StaffTable: !GetAtt DynamoDBStack.Outputs.StaffTableName
+        UsersTable: !GetAtt DynamoDBStack.Outputs.UsersTableName
+        ConnectionsTable: !GetAtt DynamoDBStack.Outputs.ConnectionsTableName
+        MessagesTable: !GetAtt DynamoDBStack.Outputs.MessagesTableName
+        UnavailableSlotsTable: !GetAtt DynamoDBStack.Outputs.UnavailableSlotsTableName
+        AppointmentsTable: !GetAtt DynamoDBStack.Outputs.AppointmentsTableName
+        ServicePricesTable: !GetAtt DynamoDBStack.Outputs.ServicePricesTableName
+        OrdersTable: !GetAtt DynamoDBStack.Outputs.OrdersTableName
+        ItemPricesTable: !GetAtt DynamoDBStack.Outputs.ItemPricesTableName
+        InquiriesTable: !GetAtt DynamoDBStack.Outputs.InquiriesTableName
+        PaymentsTable: !GetAtt DynamoDBStack.Outputs.PaymentsTableName
+        InvoicesTable: !GetAtt DynamoDBStack.Outputs.InvoicesTableName
+        ReportsBucketName: !GetAtt S3CloudFrontStack.Outputs.ReportsBucketName
+        CloudFrontDomain: !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomain
+        FrontendRootUrl: !Ref FrontendRootUrl
+
+  # Notification Queue Stack
+  NotificationQueueStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: [DynamoDBStack, S3CloudFrontStack, WebSocketStack]
+    Properties:
+      TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/notification-queue.yaml'
+      Parameters:
+        EnvironmentName: !Ref Environment
+        CloudFormationBucket: !Ref CloudFormationBucket
+        StaffTable: !GetAtt DynamoDBStack.Outputs.StaffTableName
+        UsersTable: !GetAtt DynamoDBStack.Outputs.UsersTableName
+        ConnectionsTable: !GetAtt DynamoDBStack.Outputs.ConnectionsTableName
+        MessagesTable: !GetAtt DynamoDBStack.Outputs.MessagesTableName
+        UnavailableSlotsTable: !GetAtt DynamoDBStack.Outputs.UnavailableSlotsTableName
+        AppointmentsTable: !GetAtt DynamoDBStack.Outputs.AppointmentsTableName
+        ServicePricesTable: !GetAtt DynamoDBStack.Outputs.ServicePricesTableName
+        OrdersTable: !GetAtt DynamoDBStack.Outputs.OrdersTableName
+        ItemPricesTable: !GetAtt DynamoDBStack.Outputs.ItemPricesTableName
+        InquiriesTable: !GetAtt DynamoDBStack.Outputs.InquiriesTableName
+        PaymentsTable: !GetAtt DynamoDBStack.Outputs.PaymentsTableName
+        InvoicesTable: !GetAtt DynamoDBStack.Outputs.InvoicesTableName
+        ReportsBucketName: !GetAtt S3CloudFrontStack.Outputs.ReportsBucketName
+        CloudFrontDomain: !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomain
+        FrontendRootUrl: !Ref FrontendRootUrl
+        FromEmail: !Ref FromEmail
+        WebSocketApiId: !GetAtt WebSocketStack.Outputs.WebSocketApiId
+        EnableFirebaseNotifications: !Ref EnableFirebaseNotifications
+        FirebaseProjectId: !If [ShouldEnableFirebase, !Ref FirebaseProjectId, ""]
+        FirebaseServiceAccountKey: !If [ShouldEnableFirebase, !Ref FirebaseServiceAccountKey, ""]
 
   # S3 and CloudFront for Reports
   S3CloudFrontStack:
@@ -305,3 +411,22 @@ Outputs:
     Value: !GetAtt InvoiceQueueStack.Outputs.InvoiceQueueUrl
     Export:
       Name: !Sub '${AWS::StackName}-InvoiceQueueUrl'
+
+  EmailNotificationQueueUrl:
+    Description: SQS Email Notification Queue URL for asynchronous email processing
+    Value: !GetAtt NotificationQueueStack.Outputs.EmailNotificationQueueUrl
+    Export:
+      Name: !Sub '${AWS::StackName}-EmailNotificationQueueUrl'
+
+  WebSocketNotificationQueueUrl:
+    Description: SQS WebSocket Notification Queue URL for asynchronous websocket processing
+    Value: !GetAtt NotificationQueueStack.Outputs.WebSocketNotificationQueueUrl
+    Export:
+      Name: !Sub '${AWS::StackName}-WebSocketNotificationQueueUrl'
+
+  FirebaseNotificationQueueUrl:
+    Condition: ShouldEnableFirebase
+    Description: SQS Firebase Notification Queue URL for asynchronous push notification processing (only if Firebase enabled)
+    Value: !GetAtt NotificationQueueStack.Outputs.FirebaseNotificationQueueUrl
+    Export:
+      Name: !Sub '${AWS::StackName}-FirebaseNotificationQueueUrl'

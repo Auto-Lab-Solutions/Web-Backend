@@ -1,40 +1,90 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import db_utils as db
 import response_utils as resp
 import request_utils as req
 
 def lambda_handler(event, context):
     try:
-        # Get date parameter - required
+        # Get parameters - support both single date and date range
         date = req.get_query_param(event, 'date')
+        start_date = req.get_query_param(event, 'startDate')
+        end_date = req.get_query_param(event, 'endDate')
         
-        if not date:
-            return resp.error_response("date parameter is required")
+        # Check if using date range or single date
+        using_date_range = start_date and end_date
+        using_single_date = date
         
-        # Validate date format (YYYY-MM-DD)
+        if not (using_date_range or using_single_date):
+            return resp.error_response("Either 'date' or both 'startDate' and 'endDate' parameters are required")
+        
+        if using_date_range and using_single_date:
+            return resp.error_response("Cannot specify both single 'date' and date range ('startDate'/'endDate'). Use one or the other.")
+        
+        # Validate date format(s)
         try:
-            datetime.strptime(date, '%Y-%m-%d')
+            if using_single_date:
+                datetime.strptime(date, '%Y-%m-%d')
+            else:  # using_date_range
+                start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+                end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+                if end_dt < start_dt:
+                    return resp.error_response("End date must be on or after start date")
         except ValueError:
-            return resp.error_response("Date must be in YYYY-MM-DD format")
+            return resp.error_response("Date(s) must be in YYYY-MM-DD format")
         
-        # 1. Get unavailable slots from UNAVAILABLE_SLOTS_TABLE
-        unavailable_slots_record = db.get_unavailable_slots(date)
-        manually_unavailable_slots = []
-        
-        if unavailable_slots_record and 'timeSlots' in unavailable_slots_record:
-            manually_unavailable_slots = unavailable_slots_record['timeSlots']
-        
-        # 2. Get scheduled time slots from APPOINTMENTS_TABLE
-        scheduled_slots = get_scheduled_appointment_slots(date)
-        
-        # 3. Merge both lists to get all unavailable slots
-        all_unavailable_slots = merge_unavailable_slots(manually_unavailable_slots, scheduled_slots)
-        
-        return resp.success_response({
-            "date": date,
-            "unavailableSlots": all_unavailable_slots,
-            "totalUnavailableSlots": len(all_unavailable_slots)
-        })
+        if using_single_date:
+            # Original single date logic
+            # 1. Get unavailable slots from UNAVAILABLE_SLOTS_TABLE
+            unavailable_slots_record = db.get_unavailable_slots(date)
+            manually_unavailable_slots = []
+            
+            if unavailable_slots_record and 'timeSlots' in unavailable_slots_record:
+                manually_unavailable_slots = unavailable_slots_record['timeSlots']
+            
+            # 2. Get scheduled time slots from APPOINTMENTS_TABLE
+            scheduled_slots = get_scheduled_appointment_slots(date)
+            
+            # 3. Merge both lists to get all unavailable slots
+            all_unavailable_slots = merge_unavailable_slots(manually_unavailable_slots, scheduled_slots)
+            
+            return resp.success_response({
+                "date": date,
+                "unavailableSlots": all_unavailable_slots,
+                "totalUnavailableSlots": len(all_unavailable_slots)
+            })
+        else:
+            # Date range logic
+            unavailable_slots_by_date = {}
+            current_date = start_dt
+            
+            while current_date <= end_dt:
+                date_str = current_date.strftime('%Y-%m-%d')
+                
+                # 1. Get unavailable slots from UNAVAILABLE_SLOTS_TABLE
+                unavailable_slots_record = db.get_unavailable_slots(date_str)
+                manually_unavailable_slots = []
+                
+                if unavailable_slots_record and 'timeSlots' in unavailable_slots_record:
+                    manually_unavailable_slots = unavailable_slots_record['timeSlots']
+                
+                # 2. Get scheduled time slots from APPOINTMENTS_TABLE
+                scheduled_slots = get_scheduled_appointment_slots(date_str)
+                
+                # 3. Merge both lists to get all unavailable slots
+                all_unavailable_slots = merge_unavailable_slots(manually_unavailable_slots, scheduled_slots)
+                
+                unavailable_slots_by_date[date_str] = {
+                    "unavailableSlots": all_unavailable_slots,
+                    "totalUnavailableSlots": len(all_unavailable_slots)
+                }
+                
+                current_date += timedelta(days=1)
+            
+            return resp.success_response({
+                "startDate": start_date,
+                "endDate": end_date,
+                "unavailableSlotsByDate": unavailable_slots_by_date
+            })
         
     except Exception as e:
         print(f"Error in get unavailable slots lambda: {str(e)}")

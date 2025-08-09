@@ -4,6 +4,8 @@ import db_utils as db
 import response_utils as resp
 import request_utils as req
 import wsgw_utils as wsgw
+import email_utils as email
+import notification_utils as notify
 
 PERMITTED_ROLE = 'CUSTOMER_SUPPORT'
 
@@ -54,7 +56,7 @@ def lambda_handler(event, context):
         return resp.error_response("Invalid service or plan. Please check the serviceId and planId provided.")
 
     # Build appointment data
-    appointment_data = db.build_appointment_data(
+    db_appointment_data = db.build_appointment_data(
         appointment_id=appointment_id,
         service_id=appointment_data.get('serviceId'),
         plan_id=appointment_data.get('planId'),
@@ -69,7 +71,7 @@ def lambda_handler(event, context):
     )
 
     # Create appointment in database
-    success = db.create_appointment(appointment_data)
+    success = db.create_appointment(db_appointment_data)
     if not success:
         return resp.error_response("Failed to create appointment")
 
@@ -82,9 +84,47 @@ def lambda_handler(event, context):
         "appointmentData": appointment_data
     }
 
-    # Send notifications to staff users
-    for staff in staff_connections:
-        wsgw.send_notification(wsgw_client, staff.get('connectionId'), notification_data)
+    # Queue staff WebSocket notifications
+    try:
+        staff_notification_data = {
+            "type": "appointment",
+            "subtype": "create",
+            "success": True,
+            "appointmentId": appointment_id,
+            "appointmentData": appointment_data
+        }
+        notify.queue_staff_websocket_notification(staff_notification_data, assigned_to=user_id)
+    except Exception as e:
+        print(f"Failed to queue staff WebSocket notification: {str(e)}")
+
+    # Queue Firebase push notification to staff
+    try:
+        notify.queue_appointment_firebase_notification(appointment_id, 'create')
+    except Exception as e:
+        print(f"Failed to queue Firebase notification: {str(e)}")
+
+    # Queue email notification to customer
+    try:
+        service_name, plan_name = db.get_service_plan_names(appointment_data.get('serviceId'), appointment_data.get('planId'))
+        email_appointment_data = {
+            'appointmentId': appointment_id,
+            'services': [{
+                'serviceName': service_name,
+                'planName': plan_name,
+            }],
+            'selectedSlots': appointment_data.get('selectedSlots', []),
+            'vehicleInfo': appointment_data.get('carData', {}),
+            'customerData': appointment_data.get('buyerData', {}) if appointment_data.get('isBuyer', True) else appointment_data.get('sellerData', {}),
+        }
+        
+        customer_email = appointment_data.get('buyerData', {}).get('email') if appointment_data.get('isBuyer', True) else appointment_data.get('sellerData', {}).get('email')
+        customer_name = appointment_data.get('buyerData', {}).get('name') if appointment_data.get('isBuyer', True) else appointment_data.get('sellerData', {}).get('name')
+        
+        notify.queue_appointment_created_email(customer_email, customer_name, email_appointment_data)
+    
+    except Exception as e:
+        print(f"Failed to queue appointment creation email: {str(e)}")
+        # Don't fail the appointment creation if email queueing fails
 
     # Return success response
     return resp.success_response({

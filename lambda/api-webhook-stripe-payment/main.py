@@ -4,13 +4,12 @@ import json
 import stripe
 import db_utils as db
 import response_utils as resp
-import wsgw_utils as wsgw
 import sqs_utils as sqs
+import notification_utils as notify
 
 # Set Stripe configuration
 stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
 STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET')
-wsgw_client = wsgw.get_apigateway_client()
 
 def lambda_handler(event, context):
     try:
@@ -203,28 +202,37 @@ def send_payment_notification(record, record_type, status):
     """Send payment status notification via WebSocket"""
     try:
         print(f"Payment notification: {record_type} {record.get(f'{record_type}Id')} status changed to {status}")
-        receiverConnections = []
-        # Notify customer
+        
+        # Queue notification for customer
         customer_user_id = record.get('createdUserId')
         if customer_user_id:
-            customer_connection = db.get_connection_by_user_id(customer_user_id)
-            if customer_connection:
-                receiverConnections.append(customer_connection)
-        # Notify all staff
-        staff_connections = db.get_all_staff_connections()
-        receiverConnections.extend(staff_connections)
-
-        for connection in receiverConnections:
-            wsgw.send_notification(wsgw_client, connection.get('connectionId'), {
+            customer_notification = {
                 "type": record_type,
                 "subtype": "payment-status",
                 "success": True if status == 'paid' else False,
                 "referenceNumber": record.get(f'{record_type}Id'),
                 "paymentStatus": status
-            })
+            }
+            notify.queue_websocket_notification('payment_notification', customer_notification, user_id=customer_user_id)
+        
+        # Queue notification for all staff
+        staff_notification = {
+            "type": record_type,
+            "subtype": "payment-status",
+            "success": True if status == 'paid' else False,
+            "referenceNumber": record.get(f'{record_type}Id'),
+            "paymentStatus": status
+        }
+        notify.queue_staff_websocket_notification(staff_notification)
+        
+        # Queue Firebase push notification to staff
+        try:
+            notify.queue_payment_firebase_notification(record.get(f'{record_type}Id'), f'stripe_payment_{status}')
+        except Exception as e:
+            print(f"Failed to queue Firebase notification: {str(e)}")
 
     except Exception as e:
-        print(f"Error logging payment notification: {str(e)}")
+        print(f"Error queueing payment notification: {str(e)}")
 
 
 

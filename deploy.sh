@@ -102,6 +102,82 @@ check_prerequisites() {
         exit 1
     fi
     
+    # Check SES configuration
+    if [[ -z "$FROM_EMAIL" ]]; then
+        print_warning "FROM_EMAIL not set, using default: noreply@autolabsolutions.com"
+        export FROM_EMAIL="noreply@autolabsolutions.com"
+    fi
+    
+    if [[ -z "$SES_REGION" ]]; then
+        print_warning "SES_REGION not set, using default: ap-southeast-2"
+        export SES_REGION="ap-southeast-2"
+    fi
+    
+    print_status "SES Configuration:"
+    print_status "  From Email: $FROM_EMAIL"
+    print_status "  SES Region: $SES_REGION"
+    
+    # Check SES domain verification status
+    local domain="${FROM_EMAIL##*@}"
+    print_status "Checking SES domain verification for: $domain"
+    
+    # Check if domain is verified in SES
+    if aws ses get-identity-verification-attributes --identities "$domain" --region "$SES_REGION" 2>/dev/null | grep -q "Success"; then
+        print_success "SES domain '$domain' is verified in region $SES_REGION"
+    else
+        print_warning "SES domain '$domain' verification status unknown or not verified"
+        print_warning "Please ensure the following:"
+        print_warning "  1. Domain '$domain' is verified in AWS SES console (region: $SES_REGION)"
+        print_warning "  2. MAIL FROM domain is configured (recommended: mail.$domain)"
+        print_warning "  3. Required DNS records are configured:"
+        print_warning "     - Domain verification TXT record"
+        print_warning "     - MAIL FROM MX record"
+        print_warning "     - MAIL FROM TXT record"
+        print_warning "  4. SES is out of sandbox mode for production usage"
+        print_warning ""
+        print_warning "SES Setup Guide:"
+        print_warning "  - AWS SES Console: https://console.aws.amazon.com/ses/"
+        print_warning "  - Verify domain: https://docs.aws.amazon.com/ses/latest/dg/verify-domain-procedure.html"
+        print_warning "  - Configure MAIL FROM: https://docs.aws.amazon.com/ses/latest/dg/mail-from.html"
+    fi
+    
+    # Check Firebase configuration (optional)
+    print_status "Firebase Configuration (Optional):"
+    
+    # Check if Firebase is explicitly enabled
+    if [[ "${ENABLE_FIREBASE_NOTIFICATIONS:-false}" == "true" ]]; then
+        print_status "Firebase notifications are ENABLED"
+        if [[ -z "$FIREBASE_PROJECT_ID" ]]; then
+            print_error "FIREBASE_PROJECT_ID required when Firebase is enabled"
+            print_error "Please set: export FIREBASE_PROJECT_ID='your-firebase-project-id'"
+            exit 1
+        fi
+        
+        if [[ -z "$FIREBASE_SERVICE_ACCOUNT_KEY" ]]; then
+            print_error "FIREBASE_SERVICE_ACCOUNT_KEY required when Firebase is enabled"
+            print_error "Please set: export FIREBASE_SERVICE_ACCOUNT_KEY='base64-encoded-service-account-json'"
+            exit 1
+        fi
+        
+        print_success "Firebase configuration validated"
+        print_status "  Project ID: $FIREBASE_PROJECT_ID"
+        print_status "  Service Account Key: ****[REDACTED]****"
+    else
+        # Firebase is disabled or not configured
+        if [[ -n "$FIREBASE_PROJECT_ID" ]] || [[ -n "$FIREBASE_SERVICE_ACCOUNT_KEY" ]]; then
+            print_warning "Firebase credentials detected but Firebase is not enabled"
+            print_warning "To enable Firebase notifications: export ENABLE_FIREBASE_NOTIFICATIONS=true"
+        else
+            print_status "Firebase notifications are DISABLED (default)"
+            print_status "To enable Firebase notifications:"
+            print_status "  1. Create a Firebase project in Google Console"
+            print_status "  2. Enable Firebase Cloud Messaging (FCM)"
+            print_status "  3. Set: export ENABLE_FIREBASE_NOTIFICATIONS=true"
+            print_status "  4. Set: export FIREBASE_PROJECT_ID='your-firebase-project-id'"
+            print_status "  5. Set: export FIREBASE_SERVICE_ACCOUNT_KEY='base64-encoded-json'"
+        fi
+    fi
+    
     print_success "Prerequisites check passed"
 }
 
@@ -165,8 +241,14 @@ package_lambdas() {
         zip -r "../$lambda_name.zip" . -q
         cd - > /dev/null
         
-        # Upload to S3
-        aws s3 cp "dist/lambda/$lambda_name.zip" "s3://$CLOUDFORMATION_BUCKET/lambda/$lambda_name.zip"
+        # Upload to S3 - use different paths for different lambda types
+        if [[ "$lambda_name" == sqs-process-*-notification-queue ]]; then
+            # Notification processor lambdas use lambda-packages/ path
+            aws s3 cp "dist/lambda/$lambda_name.zip" "s3://$CLOUDFORMATION_BUCKET/lambda-packages/$lambda_name.zip"
+        else
+            # Standard lambdas use lambda/ path
+            aws s3 cp "dist/lambda/$lambda_name.zip" "s3://$CLOUDFORMATION_BUCKET/lambda/$lambda_name.zip"
+        fi
         
         print_success "Packaged and uploaded $lambda_name"
     done
@@ -195,6 +277,42 @@ update_lambda_code() {
     fi
     
     print_status "Updating Lambda function code: $full_function_name"
+    
+    # Update function code
+    aws lambda update-function-code \
+        --function-name "$full_function_name" \
+        --zip-file "fileb://$zip_file" \
+        --region $AWS_REGION > /dev/null
+    
+    # Wait for update to complete
+    print_status "Waiting for update to complete..."
+    aws lambda wait function-updated \
+        --function-name "$full_function_name" \
+        --region $AWS_REGION
+    
+    print_success "Updated $full_function_name"
+    return 0
+}
+
+# Update Notification Processor Lambda function code (managed by NotificationQueueStack)
+update_notification_processor_lambda() {
+    local lambda_name=$1
+    local full_function_name="${lambda_name}-${ENVIRONMENT}"
+    local zip_file="dist/lambda/$lambda_name.zip"
+
+    if [ ! -f "$zip_file" ]; then
+        print_error "ZIP file not found: $zip_file"
+        return 1
+    fi
+    
+    # Check if function exists
+    if ! aws lambda get-function --function-name "$full_function_name" --region $AWS_REGION &>/dev/null; then
+        print_error "Lambda function '$full_function_name' does not exist in AWS"
+        print_warning "Please deploy infrastructure first using ./deploy.sh $ENVIRONMENT"
+        return 1
+    fi
+    
+    print_status "Updating Notification Processor Lambda function code: $full_function_name"
     
     # Update function code
     aws lambda update-function-code \
@@ -256,8 +374,12 @@ update_all_lambdas() {
         if [ -d "$lambda_dir" ]; then
             lambda_name=$(basename "$lambda_dir")
             
+            # Handle notification processing lambdas differently since they're managed by NotificationQueueStack
+            if [[ "$lambda_name" == sqs-process-*-notification-queue ]]; then
+                print_status "Updating $lambda_name (managed by NotificationQueueStack)..."
+                update_notification_processor_lambda "$lambda_name"
             # Handle invoice processing lambda differently since it's managed by InvoiceQueueStack
-            if [ "$lambda_name" = "sqs-process-invoice-queue" ]; then
+            elif [ "$lambda_name" = "sqs-process-invoice-queue" ]; then
                 print_status "Updating $lambda_name (managed by InvoiceQueueStack)..."
                 update_invoice_processor_lambda "$lambda_name"
             else
@@ -301,6 +423,11 @@ deploy_stack() {
             FrontendAcmCertificateArn="$FRONTEND_ACM_CERTIFICATE_ARN" \
             EnableCustomDomain=$ENABLE_CUSTOM_DOMAIN \
             FrontendRootUrl="$FRONTEND_ROOT_URL" \
+            FromEmail="$FROM_EMAIL" \
+            SesRegion="$SES_REGION" \
+            EnableFirebaseNotifications="${ENABLE_FIREBASE_NOTIFICATIONS:-false}" \
+            FirebaseProjectId="${FIREBASE_PROJECT_ID:-}" \
+            FirebaseServiceAccountKey="${FIREBASE_SERVICE_ACCOUNT_KEY:-}" \
         --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
         --region $AWS_REGION
     
@@ -382,6 +509,7 @@ main() {
     fi
     
     check_prerequisites
+    
     create_cf_bucket
     
     # Upload CloudFormation templates
@@ -409,18 +537,36 @@ main() {
     print_status "Important endpoints:"
     aws cloudformation describe-stacks \
         --stack-name $STACK_NAME \
-        --query 'Stacks[0].Outputs[?OutputKey==`RestApiEndpoint`||OutputKey==`WebSocketApiEndpoint`||OutputKey==`InvoiceQueueUrl`].[OutputKey,OutputValue]' \
+        --query 'Stacks[0].Outputs[?OutputKey==`RestApiEndpoint`||OutputKey==`WebSocketApiEndpoint`||OutputKey==`InvoiceQueueUrl`||OutputKey==`EmailNotificationQueueUrl`||OutputKey==`WebSocketNotificationQueueUrl`||OutputKey==`FirebaseNotificationQueueUrl`].[OutputKey,OutputValue]' \
         --output table
 
-    # Print async invoice processing status
+    # Print async processing status
     echo ""
-    print_success "Async Invoice Processing Components Deployed:"
-    echo "  ✓ SQS Invoice Queue for asynchronous processing"
+    print_success "Async Processing Components Deployed:"
+    echo "  ✓ SQS Invoice Queue for asynchronous invoice generation"
     echo "  ✓ Invoice Processor Lambda (sqs-process-invoice-queue)"
+    echo "  ✓ SQS Email Notification Queue for asynchronous email processing"
+    echo "  ✓ Email Notification Processor Lambda (sqs-process-email-notification-queue)"
+    echo "  ✓ SQS WebSocket Notification Queue for asynchronous WebSocket processing"
+    echo "  ✓ WebSocket Notification Processor Lambda (sqs-process-websocket-notification-queue)"
+    
+    # Show Firebase status
+    if [[ "${ENABLE_FIREBASE_NOTIFICATIONS:-false}" == "true" ]]; then
+        echo "  ✓ Firebase notifications ENABLED"
+        echo "    - SQS Firebase Notification Queue for asynchronous Firebase processing"
+        echo "    - Firebase Notification Processor Lambda (sqs-process-firebase-notification-queue)"
+        echo "    - Project ID: ${FIREBASE_PROJECT_ID}"
+    else
+        echo "  • Firebase notifications DISABLED"
+        echo "    - No Firebase resources deployed"
+        echo "    - Firebase calls will be gracefully skipped"
+    fi
+    
     echo "  ✓ Payment confirmation Lambdas updated with async support"
-    echo "  ✓ Shared sqs_utils library deployed to all functions"
+    echo "  ✓ All business logic Lambdas updated to use notification queues"
+    echo "  ✓ Shared notification_utils library deployed to all functions"
     echo ""
-    print_status "Payment processing now supports fast webhook responses with async invoice generation!"
+    print_status "All notification processing is now asynchronous via SQS queues!"
 }
 
 # Check if script is being run directly

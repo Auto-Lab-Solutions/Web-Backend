@@ -131,6 +131,55 @@ else
     ((error_count++))
 fi
 
+# Check Firebase integration
+print_status "Checking Firebase notification integration..."
+firebase_checks=0
+
+# Check Firebase processor lambda exists
+if [ -f "lambda/sqs-process-firebase-notification-queue/main.py" ]; then
+    echo "  ✓ Firebase processor lambda exists"
+else
+    print_error "  ✗ Firebase processor lambda not found"
+    ((firebase_checks++))
+fi
+
+if [ -f "lambda/sqs-process-firebase-notification-queue/requirements.txt" ]; then
+    echo "  ✓ Firebase processor requirements.txt exists"
+else
+    print_error "  ✗ Firebase processor requirements.txt not found"
+    ((firebase_checks++))
+fi
+
+# Check notification utils has Firebase functions
+if grep -q "queue_firebase_notification" lambda/common_lib/notification_utils.py; then
+    echo "  ✓ Firebase notification functions found"
+else
+    print_error "  ✗ Firebase notification functions not found in notification_utils.py"
+    ((firebase_checks++))
+fi
+
+# Check infrastructure files have Firebase components
+if grep -q "FirebaseNotificationQueue" infrastructure/notification-queue.yaml; then
+    echo "  ✓ Firebase queue infrastructure found"
+else
+    print_error "  ✗ Firebase queue infrastructure not found"
+    ((firebase_checks++))
+fi
+
+if grep -q "FirebaseProjectId" infrastructure/main-stack.yaml; then
+    echo "  ✓ Firebase parameters found in main stack"
+else
+    print_error "  ✗ Firebase parameters not found in main stack"
+    ((firebase_checks++))
+fi
+
+if [ $firebase_checks -eq 0 ]; then
+    print_success "Firebase integration validation passed"
+else
+    print_error "$firebase_checks Firebase integration check(s) failed"
+    ((error_count++))
+fi
+
 # Check GitHub workflow files
 print_status "Checking GitHub workflow files..."
 workflow_files=(

@@ -7,6 +7,8 @@ import response_utils as resp
 import request_utils as req
 import wsgw_utils as wsgw
 import sqs_utils as sqs
+import email_utils as email
+import notification_utils as notify
 
 # Set Stripe secret key from environment
 stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
@@ -139,7 +141,33 @@ def send_payment_confirmation_notification(record, record_type, status='paid'):
                 "referenceNumber": record.get(f'{record_type}Id'),
                 "paymentStatus": "paid"
             })
+        
+        # Send email notification to customer
+        if customer_user_id:
+            user_record = db.get_user_record(customer_user_id)
+            if user_record and user_record.get('email'):
+                customer_email = user_record.get('email')
+                customer_name = user_record.get('name', 'Valued Customer')
+                
+                # Prepare payment data for email
+                payment_data = {
+                    'amount': f"{record.get('price', 0):.2f}",
+                    'paymentMethod': 'Card',
+                    'referenceNumber': record.get(f'{record_type}Id', 'N/A'),
+                    'paymentDate': record.get('updatedAt', int(time.time()))
+                }
+                
+                # Generate invoice URL placeholder (will be updated when invoice is ready)
+                invoice_url = f"#"  # This will be updated by the invoice generation process
+                
+                # Queue payment confirmation email
+                notify.queue_payment_confirmation_email(customer_email, customer_name, payment_data, invoice_url)
+        
+        # Queue Firebase push notification to staff
+        notify.queue_payment_firebase_notification(record.get(f'{record_type}Id'), 'stripe_payment_confirmed')
+                    
     except Exception as e:
         print(f"Error sending payment confirmation notification: {str(e)}")
+        # Don't fail the payment if email fails
 
 

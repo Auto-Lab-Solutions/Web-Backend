@@ -19,33 +19,56 @@ def lambda_handler(event, context):
     if PERMITTED_ROLE not in staff_roles:
         return resp.error_response("Unauthorized: Insufficient permissions", 403)
     
-    # Get date and operation from query parameters or body
+    # Get parameters from query parameters or body
     date = req.get_query_param(event, 'date') or req.get_body_param(event, 'date')
+    start_date = req.get_query_param(event, 'startDate') or req.get_body_param(event, 'startDate')
+    end_date = req.get_query_param(event, 'endDate') or req.get_body_param(event, 'endDate')
     operation = req.get_body_param(event, 'operation') or 'get'
     time_slots = req.get_body_param(event, 'timeSlots')
     
-    if not date or not operation:
-        return resp.error_response("date and operation are required.")
+    # Check if using date range or single date
+    using_date_range = start_date and end_date
+    using_single_date = date
     
-    # Validate date format (YYYY-MM-DD)
+    if not (using_date_range or using_single_date) or not operation:
+        return resp.error_response("Either 'date' or both 'startDate' and 'endDate' are required, along with 'operation'.")
+    
+    if using_date_range and using_single_date:
+        return resp.error_response("Cannot specify both single 'date' and date range ('startDate'/'endDate'). Use one or the other.")
+    
+    # Validate date format(s)
     try:
-        datetime.strptime(date, '%Y-%m-%d')
+        if using_single_date:
+            datetime.strptime(date, '%Y-%m-%d')
+        else:  # using_date_range
+            start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+            end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+            if end_dt < start_dt:
+                return resp.error_response("End date must be on or after start date")
     except ValueError:
-        return resp.error_response("Date must be in YYYY-MM-DD format")
+        return resp.error_response("Date(s) must be in YYYY-MM-DD format")
     
     # Handle different operations
     if operation == 'get':
-        # Get unavailable slots for the date
-        unavailable_slots = db.get_unavailable_slots(date)
-        if not unavailable_slots:
+        # Get unavailable slots
+        if using_single_date:
+            unavailable_slots = db.get_unavailable_slots(date)
+            if not unavailable_slots:
+                return resp.success_response({
+                    "date": date,
+                    "timeSlots": []
+                })
             return resp.success_response({
                 "date": date,
-                "timeSlots": []
+                "timeSlots": unavailable_slots.get('timeSlots', [])
             })
-        return resp.success_response({
-            "date": date,
-            "timeSlots": unavailable_slots.get('timeSlots', [])
-        })
+        else:  # using_date_range
+            unavailable_slots_range = db.get_unavailable_slots_range(start_date, end_date)
+            return resp.success_response({
+                "startDate": start_date,
+                "endDate": end_date,
+                "unavailableSlotsByDate": unavailable_slots_range
+            })
     
     elif operation in ['create', 'update']:
         # Validate time slots for create/update operations
@@ -70,16 +93,28 @@ def lambda_handler(event, context):
             if end_time <= start_time:
                 return resp.error_response("End time must be after start time")
         
-        result = db.update_unavailable_slots(date, time_slots)
-        
-        if result:
-            return resp.success_response({
-                "message": f"Unavailable slots for {date} {operation}d successfully",
-                "date": date,
-                "timeSlots": time_slots
-            })
-        else:
-            return resp.error_response(f"Failed to {operation} unavailable slots", 500)
+        # Update unavailable slots
+        if using_single_date:
+            result = db.update_unavailable_slots(date, time_slots)
+            if result:
+                return resp.success_response({
+                    "message": f"Unavailable slots for {date} {operation}d successfully",
+                    "date": date,
+                    "timeSlots": time_slots
+                })
+            else:
+                return resp.error_response(f"Failed to {operation} unavailable slots", 500)
+        else:  # using_date_range
+            result = db.update_unavailable_slots_range(start_date, end_date, time_slots)
+            if result:
+                return resp.success_response({
+                    "message": f"Unavailable slots for date range {start_date} to {end_date} {operation}d successfully",
+                    "startDate": start_date,
+                    "endDate": end_date,
+                    "timeSlots": time_slots
+                })
+            else:
+                return resp.error_response(f"Failed to {operation} unavailable slots for date range", 500)
     
     else:
         return resp.error_response("Invalid operation. Must be 'get', 'create', or 'update'.")
