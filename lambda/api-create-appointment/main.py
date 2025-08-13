@@ -74,15 +74,30 @@ def lambda_handler(event, context):
     success = db.create_appointment(db_appointment_data)
     if not success:
         return resp.error_response("Failed to create appointment")
-
-    staff_connections = db.get_assigned_or_all_staff_connections(assigned_to=user_id)
-    notification_data = {
-        "type": "appointment",
-        "subtype": "create",
-        "success": True,
-        "appointmentId": appointment_id,
-        "appointmentData": appointment_data
-    }
+    
+    # Queue email notification to customer
+    try:
+        service_name, plan_name = db.get_service_plan_names(appointment_data.get('serviceId'), appointment_data.get('planId'))
+        email_appointment_data = {
+            'appointmentId': appointment_id,
+            'services': [{
+                'serviceName': service_name,
+                'planName': plan_name,
+            }],
+            'totalPrice': f"{price:.2f}",
+            'selectedSlots': appointment_data.get('selectedSlots', []),
+            'vehicleInfo': appointment_data.get('carData', {}),
+            'customerData': appointment_data.get('buyerData', {}) if appointment_data.get('isBuyer', True) else appointment_data.get('sellerData', {}),
+        }
+        
+        customer_email = appointment_data.get('buyerData', {}).get('email') if appointment_data.get('isBuyer', True) else appointment_data.get('sellerData', {}).get('email')
+        customer_name = appointment_data.get('buyerData', {}).get('name') if appointment_data.get('isBuyer', True) else appointment_data.get('sellerData', {}).get('name')
+        
+        notify.queue_appointment_created_email(customer_email, customer_name, email_appointment_data)
+    
+    except Exception as e:
+        print(f"Failed to queue appointment creation email: {str(e)}")
+        # Don't fail the appointment creation if email queueing fails
 
     # Queue staff WebSocket notifications
     try:
@@ -102,29 +117,6 @@ def lambda_handler(event, context):
         notify.queue_appointment_firebase_notification(appointment_id, 'create')
     except Exception as e:
         print(f"Failed to queue Firebase notification: {str(e)}")
-
-    # Queue email notification to customer
-    try:
-        service_name, plan_name = db.get_service_plan_names(appointment_data.get('serviceId'), appointment_data.get('planId'))
-        email_appointment_data = {
-            'appointmentId': appointment_id,
-            'services': [{
-                'serviceName': service_name,
-                'planName': plan_name,
-            }],
-            'selectedSlots': appointment_data.get('selectedSlots', []),
-            'vehicleInfo': appointment_data.get('carData', {}),
-            'customerData': appointment_data.get('buyerData', {}) if appointment_data.get('isBuyer', True) else appointment_data.get('sellerData', {}),
-        }
-        
-        customer_email = appointment_data.get('buyerData', {}).get('email') if appointment_data.get('isBuyer', True) else appointment_data.get('sellerData', {}).get('email')
-        customer_name = appointment_data.get('buyerData', {}).get('name') if appointment_data.get('isBuyer', True) else appointment_data.get('sellerData', {}).get('name')
-        
-        notify.queue_appointment_created_email(customer_email, customer_name, email_appointment_data)
-    
-    except Exception as e:
-        print(f"Failed to queue appointment creation email: {str(e)}")
-        # Don't fail the appointment creation if email queueing fails
 
     # Return success response
     return resp.success_response({

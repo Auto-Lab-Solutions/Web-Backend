@@ -90,6 +90,40 @@ def lambda_handler(event, context):
         success = db.create_order(order_data_db)
         if not success:
             return resp.error_response("Failed to create order", 500)
+        
+        # Queue email notification to customer
+        try:
+            # Get customer details
+            user_record = db.get_user_record(user_id)
+            if user_record and user_record.get('email'):
+                customer_email = user_record.get('email')
+                customer_name = user_record.get('name', 'Valued Customer')
+            
+                items_for_email = []
+                for item in processed_items:
+                    category_name, item_name = db.get_category_item_names(item.get('categoryId'), item.get('itemId'))
+                    items_for_email.append({
+                        'categoryName': category_name,
+                        'itemName': item_name,
+                        'quantity': item.get('quantity', 1),
+                        'price': f"{item.get('price', 0):.2f}"
+                    })
+
+                # Prepare order data for email
+                email_order_data = {
+                    'orderId': order_id,
+                    'items': items_for_email,
+                    'vehicleInfo': order_data.get('carData', {}),
+                    'totalPrice': f"{total_price:.2f}",
+                    'customerData': order_data.get('customerData', {})
+                }
+                
+                # Queue order created email
+                notify.queue_order_created_email(customer_email, customer_name, email_order_data)
+                
+        except Exception as e:
+            print(f"Failed to queue order creation email: {str(e)}")
+            # Don't fail the order creation if email queueing fails
 
         # Queue staff WebSocket notifications
         try:
@@ -109,38 +143,6 @@ def lambda_handler(event, context):
             notify.queue_order_firebase_notification(order_id, 'create')
         except Exception as e:
             print(f"Failed to queue Firebase notification: {str(e)}")
-
-        # Queue email notification to customer
-        try:
-            # Get customer details
-            user_record = db.get_user_record(user_id)
-            if user_record and user_record.get('email'):
-                customer_email = user_record.get('email')
-                customer_name = user_record.get('name', 'Valued Customer')
-                
-                # Prepare order data for email
-                email_order_data = {
-                    'orderId': order_id,
-                    'services': order_data.get('services', []),
-                    'items': [
-                        {
-                            'name': item.get('name', f"Item {item.get('itemId', 'Unknown')}"),
-                            'quantity': item.get('quantity', 1),
-                            'price': f"{item.get('price', 0):.2f}"
-                        } for item in processed_items
-                    ],
-                    'vehicleInfo': order_data.get('carData', {}),
-                    'totalAmount': f"{total_price:.2f}",
-                    'status': 'Processing',
-                    'customerData': order_data.get('customerData', {})
-                }
-                
-                # Queue order created email
-                notify.queue_order_created_email(customer_email, customer_name, email_order_data)
-                
-        except Exception as e:
-            print(f"Failed to queue order creation email: {str(e)}")
-            # Don't fail the order creation if email queueing fails
 
         # Return success response
         return resp.success_response({
