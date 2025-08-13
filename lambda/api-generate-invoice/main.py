@@ -110,6 +110,20 @@ def lambda_handler(event, context):
             invoice_result = invoice_generation_result.get('invoice_result', {})
             
             if invoice_result.get('success'):
+                invoice_url = invoice_result.get('invoice_url')
+                
+                # Send payment confirmation email after successful invoice generation
+                try:
+                    send_payment_confirmation_email_for_manual_invoice(
+                        customer_data, 
+                        record_data, 
+                        invoice_url, 
+                        payment_method
+                    )
+                except Exception as email_error:
+                    print(f"Error sending payment confirmation email: {str(email_error)}")
+                    # Don't fail the invoice generation if email fails
+                
                 return resp.success_response({
                     "message": "Invoice generated successfully",
                     "invoice_id": invoice_result['invoice_id'],
@@ -318,3 +332,31 @@ def enhance_items_with_vehicle_info(items, vehicle_description):
         total_amount += enhanced_item.get('totalAmount', 0)
     
     return enhanced_items, total_amount
+
+
+def send_payment_confirmation_email_for_manual_invoice(customer_data, record_data, invoice_url, payment_method):
+    """Send payment confirmation email for manually generated invoices"""
+    try:
+        customer_email = customer_data.get('email')
+        if not customer_email or customer_email == 'N/A':
+            print("No customer email provided for manual invoice")
+            return
+        
+        customer_name = customer_data.get('name', 'Valued Customer')
+        
+        # Prepare payment data for email
+        payment_data = {
+            'amount': f"{record_data.get('totalAmount', 0):.2f}",
+            'paymentMethod': payment_method.title(),
+            'referenceNumber': record_data.get('invoiceId', 'N/A'),
+            'paymentDate': int(time.time()),
+            'invoice_url': invoice_url
+        }
+        
+        # Send payment confirmation email with invoice
+        email.send_payment_confirmation_email(customer_email, customer_name, payment_data, invoice_url)
+        print(f"Payment confirmation email sent to {customer_email} with invoice: {invoice_url}")
+        
+    except Exception as e:
+        print(f"Error sending payment confirmation email for manual invoice: {str(e)}")
+        raise e

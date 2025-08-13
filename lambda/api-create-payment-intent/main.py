@@ -49,9 +49,9 @@ def lambda_handler(event, context):
         # Check if payment is already confirmed
         if record.get('paymentStatus') == 'paid':
             return resp.error_response("Payment already confirmed for this record")
-        # Check status of the record
-        if record.get('status') in ['PENDING', 'CANCELLED']:
-            return resp.error_response(f"{payment_type.capitalize()} must be confirmed before payment")
+        # Check status of the record - only block CANCELLED, allow PENDING
+        if record.get('status') == 'CANCELLED':
+            return resp.error_response(f"{payment_type.capitalize()} is cancelled and cannot be paid")
         
         # Ensure metadata includes required fields
         metadata.update({

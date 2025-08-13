@@ -1,11 +1,5 @@
 import json
-import os
-import sys
 import traceback
-
-# Add the common_lib directory to the Python path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'common_lib'))
-
 import db_utils as db
 import wsgw_utils as wsgw
 

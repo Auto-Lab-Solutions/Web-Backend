@@ -900,8 +900,8 @@ class InvoiceGenerator:
     def _upload_html_to_s3(self, html_bytes, s3_key):
         """Upload HTML invoice to S3 bucket"""
         try:
-            if not REPORTS_BUCKET or not CLOUDFRONT_DOMAIN:
-                raise ValueError("REPORTS_BUCKET or CLOUDFRONT_DOMAIN environment variable not set")
+            if not REPORTS_BUCKET:
+                raise ValueError("REPORTS_BUCKET environment variable not set")
 
             s3_client.put_object(
                 Bucket=REPORTS_BUCKET,
@@ -915,8 +915,12 @@ class InvoiceGenerator:
                 }
             )
             
-            # Generate file URL (assuming CloudFront distribution)
-            file_url = f"https://{CLOUDFRONT_DOMAIN}/{s3_key}"
+            # Generate file URL with fallback logic
+            if CLOUDFRONT_DOMAIN:
+                file_url = f"https://{CLOUDFRONT_DOMAIN}/{s3_key}"
+            else:
+                # Fallback to S3 URL if CloudFront domain is not available
+                file_url = f"https://{REPORTS_BUCKET}.s3.amazonaws.com/{s3_key}"
 
             return {
                 'success': True,

@@ -12,6 +12,12 @@ FROM_EMAIL = os.environ.get('FROM_EMAIL', 'noreply@autolabsolutions.com')
 FRONTEND_URL = os.environ.get('FRONTEND_ROOT_URL', 'https://autolabsolutions.com')
 ENVIRONMENT = os.environ.get('ENVIRONMENT', 'production')
 
+# Initialize DynamoDB client for suppression checking
+dynamodb = boto3.resource('dynamodb')
+
+# Suppression table name (will be passed via environment variable)
+SUPPRESSION_TABLE_NAME = os.environ.get('EMAIL_SUPPRESSION_TABLE_NAME', '')
+
 class EmailTemplate:
     """Email template constants and configurations"""
     
@@ -41,7 +47,7 @@ class EmailTemplate:
 
 def send_email(to_email, subject, html_body, text_body=None, email_type=None):
     """
-    Send email using AWS SES
+    Send email using AWS SES with bounce/complaint suppression checking
     
     Args:
         to_email (str): Recipient email address
@@ -54,10 +60,22 @@ def send_email(to_email, subject, html_body, text_body=None, email_type=None):
         bool: True if email sent successfully, False otherwise
     """
     try:
+        # Check if email is suppressed before attempting to send
+        if is_email_suppressed(to_email):
+            print(f"Email not sent - recipient {to_email} is suppressed")
+            if email_type:
+                log_email_activity(to_email, email_type, None, 'suppressed', 'Email address is suppressed')
+            return False
+        
         # If no text body provided, strip HTML tags for basic text version
         if not text_body:
             import re
             text_body = re.sub('<[^<]+?>', '', html_body)
+        
+        # Check if email is suppressed
+        if is_email_suppressed(to_email):
+            print(f"Email {to_email} is suppressed, skipping send")
+            return False
         
         # Prepare email message
         message = {
@@ -125,7 +143,7 @@ def log_email_activity(email, email_type, message_id, status, error_message=None
 # Email template functions for specific scenarios
 
 def send_appointment_created_email(customer_email, customer_name, appointment_data):
-    """Send email when appointment is created"""
+    """Send email when an appointment is created"""
     subject = EmailTemplate.APPOINTMENT_CREATED
     
     # Format appointment details
@@ -148,14 +166,17 @@ def send_appointment_created_email(customer_email, customer_name, appointment_da
                 <h3 style="color: #2c3e50; margin-top: 0;">Appointment Details:</h3>
                 <p><strong>Reference ID:</strong> {appointment_data.get('appointmentId', 'N/A')}</p>
                 <p><strong>Services Requested:</strong> {services}</p>
+                <p><strong>Total Price:</strong> ${appointment_data.get('totalPrice', 'N/A')}</p>
                 <p><strong>Selected Slots:</strong> {formatted_timeslots}</p>
                 <p><strong>Vehicle Info:</strong> {vehicle_info}</p>
                 <p><strong>Contact Number:</strong> {appointment_data.get('customerData', {}).get('phoneNumber', 'N/A')}</p>
             </div>
             
             <p>Our team will review your request and contact you within an hour to confirm the appointment details and schedule.</p>
+
+            <p>You can complete your payment online to secure your appointment slot. Please visit: <a href="{FRONTEND_URL}/appointment/{appointment_data.get('appointmentId')}">Pay Now</a></p>
             
-            <p>You can track your appointment status by visiting: <a href="{FRONTEND_URL}/appointment/{appointment_data.get('appointmentId')}">View Appointment</a></p>
+            <p>You can also track your appointment status by visiting: <a href="{FRONTEND_URL}/appointment/{appointment_data.get('appointmentId')}">View Appointment</a></p>
             
             <p>If you have any questions, please don't hesitate to contact us.</p>
             
@@ -173,11 +194,10 @@ def send_appointment_created_email(customer_email, customer_name, appointment_da
     )
 
 def send_order_created_email(customer_email, customer_name, order_data):
-    """Send email when service order is created"""
+    """Send email when an order is created"""
     subject = EmailTemplate.ORDER_CREATED
     
     # Format order details
-    services = format_services(order_data.get('services', []))
     items = format_order_items(order_data.get('items', []))
     vehicle_info = format_vehicle_info(order_data.get('vehicleInfo', {}))
     
@@ -186,26 +206,26 @@ def send_order_created_email(customer_email, customer_name, order_data):
     <head></head>
     <body>
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #2c3e50;">Service Order Created</h2>
+            <h2 style="color: #2c3e50;">New Order Created</h2>
             
             <p>Dear {customer_name},</p>
             
-            <p>Thank you for placing your service order with Auto Lab Solutions. We have received your order and will begin processing it shortly.</p>
+            <p>Thank you for placing your order with Auto Lab Solutions. We have received your order and will begin processing it shortly.</p>
             
             <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
                 <h3 style="color: #2c3e50; margin-top: 0;">Order Details:</h3>
                 <p><strong>Order ID:</strong> {order_data.get('orderId', 'N/A')}</p>
-                <p><strong>Services:</strong> {services}</p>
                 {f"<p><strong>Items:</strong> {items}</p>" if items else ""}
                 <p><strong>Vehicle:</strong> {vehicle_info}</p>
-                <p><strong>Total Amount:</strong> ${order_data.get('totalAmount', '0.00')}</p>
-                <p><strong>Status:</strong> {order_data.get('status', 'Processing')}</p>
+                <p><strong>Total Amount:</strong> ${order_data.get('totalPrice', 'N/A')}</p>
                 <p><strong>Contact Number:</strong> {order_data.get('customerData', {}).get('phoneNumber', 'N/A')}</p>
             </div>
             
             <p>Our team will review your order and contact you to confirm the service details and schedule.</p>
+
+            <p>You can complete your payment online to confirm your order. Please visit: <a href="{FRONTEND_URL}/order/{order_data.get('orderId')}">Pay Now</a></p>
             
-            <p>You can track your order status by visiting: <a href="{FRONTEND_URL}/orders/{order_data.get('orderId')}">View Order</a></p>
+            <p>You also can track your order status by visiting: <a href="{FRONTEND_URL}/order/{order_data.get('orderId')}">View Order</a></p>
             
             <p>If you have any questions, please don't hesitate to contact us.</p>
             
@@ -574,7 +594,7 @@ def send_payment_confirmation_email(customer_email, customer_name, payment_data,
                 <p><strong>Important:</strong> Please save this invoice for your records. You may need it for warranty claims or tax purposes.</p>
             </div>
             
-            <p>If you have any questions about this payment or need additional documentation, please contact our billing department.</p>
+            <p>If you have any questions about this payment or need additional documentation, please contact us.</p>
             
             <p>Thank you for choosing Auto Lab Solutions!</p>
             
@@ -658,10 +678,11 @@ def format_order_items(items):
     formatted = []
     for item in items:
         if isinstance(item, dict):
-            name = item.get('name', 'Item')
+            categoryName = item.get('categoryName', 'N/A')
+            itemName = item.get('itemName', 'N/A')
             quantity = item.get('quantity', 1)
             price = item.get('price', '0.00')
-            formatted.append(f"{name} (Qty: {quantity}) - ${price}")
+            formatted.append(f"{itemName} (Category: {categoryName}, Qty: {quantity}) - ${price}")
         else:
             formatted.append(str(item))
     
@@ -693,3 +714,51 @@ def get_send_quota():
     except ClientError as e:
         print(f"Failed to get send quota: {e}")
         return None
+
+def is_email_suppressed(email_address):
+    """
+    Check if an email address is suppressed
+    
+    Args:
+        email_address (str): Email address to check
+    
+    Returns:
+        bool: True if suppressed, False otherwise
+    """
+    if not SUPPRESSION_TABLE_NAME:
+        print("Warning: EMAIL_SUPPRESSION_TABLE_NAME not configured, skipping suppression check")
+        return False
+    
+    try:
+        suppression_table = dynamodb.Table(SUPPRESSION_TABLE_NAME)
+        
+        # Query for active suppressions for this email
+        response = suppression_table.query(
+            KeyConditionExpression=boto3.dynamodb.conditions.Key('email').eq(email_address),
+            FilterExpression=boto3.dynamodb.conditions.Attr('status').eq('active')
+        )
+        
+        # If any active suppressions found, email is suppressed
+        if response['Items']:
+            suppression_reasons = [item['suppression_type'] for item in response['Items']]
+            print(f"Email {email_address} is suppressed. Reasons: {suppression_reasons}")
+            return True
+        
+        # Also check SES account-level suppression list
+        try:
+            ses_client.get_suppressed_destination(EmailAddress=email_address)
+            print(f"Email {email_address} is suppressed in SES account-level list")
+            return True
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NotFoundException':
+                # Not found in SES suppression list, which is good
+                pass
+            else:
+                print(f"Error checking SES suppression list: {e}")
+        
+        return False
+        
+    except Exception as e:
+        print(f"Error checking email suppression status: {str(e)}")
+        # In case of error, allow email to be sent (fail open)
+        return False

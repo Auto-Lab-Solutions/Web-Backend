@@ -1,12 +1,9 @@
-import os
 import time
-import json
 import db_utils as db
 import response_utils as resp
 import request_utils as req
 import wsgw_utils as wsgw
 import sqs_utils as sqs
-import email_utils as email
 import notification_utils as notify
 
 PERMITTED_ROLE = 'ADMIN'
@@ -81,9 +78,9 @@ def lambda_handler(event, context):
         # Check if payment is already confirmed
         if existing_record.get('paymentStatus') == 'paid':
             return resp.error_response("Payment already confirmed for this record")
-        # Check status of the record
-        if existing_record.get('status') in ['PENDING', 'CANCELLED']:
-            return resp.error_response(f"{payment_type.capitalize()} must be confirmed before payment")
+        # Check status of the record - only block CANCELLED, allow PENDING
+        if existing_record.get('status') == 'CANCELLED':
+            return resp.error_response(f"{payment_type.capitalize()} is cancelled and cannot be paid")
         
         # Update the appointment/order record
         if revert:
@@ -133,7 +130,7 @@ def lambda_handler(event, context):
                 except Exception as sync_error:
                     print(f"Error in synchronous invoice generation fallback: {str(sync_error)}")
         
-        # Send payment confirmation notification
+        # Send payment confirmation notification (WebSocket and Firebase only)
         send_payment_confirmation_notification(updated_record, payment_type, 'paid' if not revert else 'pending')
 
         return resp.success_response({
@@ -173,27 +170,6 @@ def send_payment_confirmation_notification(record, record_type, status):
                 "referenceNumber": record.get(f'{record_type}Id'),
                 "paymentStatus": status
             })
-        
-        # Send email notification to customer (only for successful payments)
-        if status == 'paid' and customer_user_id:
-            user_record = db.get_user_record(customer_user_id)
-            if user_record and user_record.get('email'):
-                customer_email = user_record.get('email')
-                customer_name = user_record.get('name', 'Valued Customer')
-                
-                # Prepare payment data for email
-                payment_data = {
-                    'amount': f"{record.get('price', 0):.2f}",
-                    'paymentMethod': 'Cash',
-                    'referenceNumber': record.get(f'{record_type}Id', 'N/A'),
-                    'paymentDate': record.get('updatedAt', int(time.time()))
-                }
-                
-                # Generate invoice URL placeholder (will be updated when invoice is ready)
-                invoice_url = f"#"  # This will be updated by the invoice generation process
-                
-                # Queue payment confirmation email
-                notify.queue_payment_confirmation_email(customer_email, customer_name, payment_data, invoice_url)
         
         # Queue Firebase push notification to staff
         if status == 'paid':

@@ -11,6 +11,10 @@ EMAIL_NOTIFICATION_QUEUE_URL = os.environ.get('EMAIL_NOTIFICATION_QUEUE_URL', ''
 WEBSOCKET_NOTIFICATION_QUEUE_URL = os.environ.get('WEBSOCKET_NOTIFICATION_QUEUE_URL', '')
 FIREBASE_NOTIFICATION_QUEUE_URL = os.environ.get('FIREBASE_NOTIFICATION_QUEUE_URL', '')
 
+# ===========================================================================
+# Email Notification Functions
+# ===========================================================================
+
 def queue_email_notification(notification_type, customer_email, customer_name, data):
     """
     Queue an email notification for asynchronous processing
@@ -61,6 +65,52 @@ def queue_email_notification(notification_type, customer_email, customer_name, d
     except Exception as e:
         print(f"Unexpected error queuing email notification: {str(e)}")
         return False
+
+def queue_appointment_created_email(customer_email, customer_name, appointment_data):
+    """Queue appointment created email notification"""
+    return queue_email_notification('appointment_created', customer_email, customer_name, appointment_data)
+
+def queue_appointment_updated_email(customer_email, customer_name, appointment_data, changes=None):
+    """Queue appointment updated email notification"""
+    data = appointment_data.copy()
+    if changes:
+        data['changes'] = changes
+    return queue_email_notification('appointment_updated', customer_email, customer_name, data)
+
+def queue_appointment_scheduled_email(customer_email, customer_name, appointment_data):
+    """Queue appointment scheduled email notification"""
+    return queue_email_notification('appointment_scheduled', customer_email, customer_name, appointment_data)
+
+def queue_order_created_email(customer_email, customer_name, order_data):
+    """Queue order created email notification"""
+    return queue_email_notification('order_created', customer_email, customer_name, order_data)
+
+def queue_order_updated_email(customer_email, customer_name, order_data, changes=None):
+    """Queue order updated email notification"""
+    data = order_data.copy()
+    if changes:
+        data['changes'] = changes
+    return queue_email_notification('order_updated', customer_email, customer_name, data)
+
+def queue_order_scheduled_email(customer_email, customer_name, order_data):
+    """Queue order scheduled email notification"""
+    return queue_email_notification('order_scheduled', customer_email, customer_name, order_data)
+
+def queue_report_ready_email(customer_email, customer_name, appointment_or_order_data, report_url):
+    """Queue report ready email notification"""
+    data = appointment_or_order_data.copy()
+    data['report_url'] = report_url
+    return queue_email_notification('report_ready', customer_email, customer_name, data)
+
+def queue_payment_confirmation_email(customer_email, customer_name, payment_data, invoice_url):
+    """Queue payment confirmation email notification"""
+    data = payment_data.copy()
+    data['invoice_url'] = invoice_url
+    return queue_email_notification('payment_confirmed', customer_email, customer_name, data)
+
+# ===========================================================================
+# WebSocket Notification Functions
+# ===========================================================================
 
 def queue_websocket_notification(notification_type, notification_data, user_id=None, connection_id=None):
     """
@@ -120,48 +170,6 @@ def queue_websocket_notification(notification_type, notification_data, user_id=N
     except Exception as e:
         print(f"Unexpected error queuing WebSocket notification: {str(e)}")
         return False
-
-def queue_appointment_created_email(customer_email, customer_name, appointment_data):
-    """Queue appointment created email notification"""
-    return queue_email_notification('appointment_created', customer_email, customer_name, appointment_data)
-
-def queue_appointment_updated_email(customer_email, customer_name, appointment_data, changes=None):
-    """Queue appointment updated email notification"""
-    data = appointment_data.copy()
-    if changes:
-        data['changes'] = changes
-    return queue_email_notification('appointment_updated', customer_email, customer_name, data)
-
-def queue_appointment_scheduled_email(customer_email, customer_name, appointment_data):
-    """Queue appointment scheduled email notification"""
-    return queue_email_notification('appointment_scheduled', customer_email, customer_name, appointment_data)
-
-def queue_order_created_email(customer_email, customer_name, order_data):
-    """Queue order created email notification"""
-    return queue_email_notification('order_created', customer_email, customer_name, order_data)
-
-def queue_order_updated_email(customer_email, customer_name, order_data, changes=None):
-    """Queue order updated email notification"""
-    data = order_data.copy()
-    if changes:
-        data['changes'] = changes
-    return queue_email_notification('order_updated', customer_email, customer_name, data)
-
-def queue_order_scheduled_email(customer_email, customer_name, order_data):
-    """Queue order scheduled email notification"""
-    return queue_email_notification('order_scheduled', customer_email, customer_name, order_data)
-
-def queue_report_ready_email(customer_email, customer_name, appointment_or_order_data, report_url):
-    """Queue report ready email notification"""
-    data = appointment_or_order_data.copy()
-    data['report_url'] = report_url
-    return queue_email_notification('report_ready', customer_email, customer_name, data)
-
-def queue_payment_confirmation_email(customer_email, customer_name, payment_data, invoice_url):
-    """Queue payment confirmation email notification"""
-    data = payment_data.copy()
-    data['invoice_url'] = invoice_url
-    return queue_email_notification('payment_confirmed', customer_email, customer_name, data)
 
 def queue_appointment_websocket_notification(appointment_id, scenario, update_data, user_id):
     """Queue appointment WebSocket notification"""

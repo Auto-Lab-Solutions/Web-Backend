@@ -46,8 +46,39 @@ def generate_public_url(cloudfront_domain=None, file_key=None):
     domain = cloudfront_domain or CLOUDFRONT_DOMAIN
     if not domain:
         # Fallback to S3 URL if CloudFront domain is not available
+        if not REPORTS_BUCKET_NAME:
+            raise ValueError("Neither CLOUDFRONT_DOMAIN nor REPORTS_BUCKET_NAME environment variable is set")
         return f"https://{REPORTS_BUCKET_NAME}.s3.amazonaws.com/{file_key}"
+    
+    # Ensure domain doesn't have protocol prefix
+    if domain.startswith('http://') or domain.startswith('https://'):
+        domain = domain.split('://', 1)[1]
+    
     return f"https://{domain}/{file_key}"
+
+
+def generate_reports_base_url(cloudfront_domain=None):
+    """
+    Generate base URL for reports with robust fallback
+    
+    Args:
+        cloudfront_domain (str, optional): CloudFront domain override
+        
+    Returns:
+        str: Base URL for reports
+    """
+    domain = cloudfront_domain or CLOUDFRONT_DOMAIN
+    if not domain:
+        # Fallback to S3 URL if CloudFront domain is not available
+        if not REPORTS_BUCKET_NAME:
+            raise ValueError("Neither CLOUDFRONT_DOMAIN nor REPORTS_BUCKET_NAME environment variable is set")
+        return f"https://{REPORTS_BUCKET_NAME}.s3.amazonaws.com"
+    
+    # Ensure domain doesn't have protocol prefix
+    if domain.startswith('http://') or domain.startswith('https://'):
+        domain = domain.split('://', 1)[1]
+    
+    return f"https://{domain}"
 
 
 def generate_report_presigned_upload_url(appointment_id, file_name, expires_in=3600):

@@ -5,9 +5,6 @@ import datetime
 import boto3
 from botocore.exceptions import ClientError
 
-# Add common_lib to path for imports
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'common_lib'))
-
 import db_utils as db
 import s3_utils as s3
 import response_utils as resp
@@ -17,7 +14,12 @@ def lambda_handler(event, context):
     Auto Lab Solutions - Backup/Restore Lambda Function
     
     This function handles both automated and manual backup requests.
+    It backs up DynamoDB tables and S3 objects (reports and invoices).
     It can also handle restoration requests based on the event parameters.
+    
+    What gets backed up:
+    - All DynamoDB tables for the environment
+    - All S3 objects from the reports bucket (includes both reports and invoices)
     
     Event structure:
     {
@@ -71,7 +73,7 @@ def handle_backup(event, context):
             'environment': environment,
             'backup_location': f"s3://{backup_bucket}/{backup_prefix}",
             'tables_backed_up': [],
-            'reports_backed_up': False,
+            'reports_and_invoices_backed_up': False,
             'errors': [],
             'request_id': context.aws_request_id if context else 'unknown'
         }
@@ -90,14 +92,17 @@ def handle_backup(event, context):
                 print(error_msg)
                 results['errors'].append(error_msg)
         
-        # Backup reports from S3 bucket if specified
+        # Backup reports and invoices from S3 bucket if specified
+        # Note: Both reports and invoices are stored in the same reports bucket
+        # - Reports: stored under reports/ prefix
+        # - Invoices: stored under invoices/ prefix
         if reports_bucket:
             try:
-                print(f"Backing up reports from: {reports_bucket}")
-                backup_s3_objects(reports_bucket, backup_bucket, f"{backup_prefix}/reports/")
-                results['reports_backed_up'] = True
+                print(f"Backing up reports and invoices from: {reports_bucket}")
+                backup_s3_objects(reports_bucket, backup_bucket, f"{backup_prefix}/reports-and-invoices/")
+                results['reports_and_invoices_backed_up'] = True
             except Exception as e:
-                error_msg = f"Failed to backup reports: {str(e)}"
+                error_msg = f"Failed to backup reports and invoices: {str(e)}"
                 print(error_msg)
                 results['errors'].append(error_msg)
         
@@ -127,7 +132,16 @@ def handle_backup(event, context):
         return resp.error_response(f"Backup failed: {str(e)}", 500)
 
 def handle_restore(event, context):
-    """Handle restore operations"""
+    """
+    Handle restore operations
+    
+    This function restores both DynamoDB tables and S3 objects (reports and invoices).
+    
+    Restore options:
+    - restore_s3_objects: Set to False to skip S3 restoration (default: True)
+    - clear_tables: Clear existing table data before restore (default: True)
+    - create_backup: Create pre-restore backup (default: True)
+    """
     try:
         environment = os.environ.get('ENVIRONMENT', 'production')
         backup_bucket = os.environ.get('BACKUP_BUCKET')
@@ -138,6 +152,7 @@ def handle_restore(event, context):
         # Get restore parameters
         backup_timestamp = event.get('backup_timestamp')
         tables_to_restore = event.get('tables', [])  # Empty list means restore all
+        restore_s3_objects = event.get('restore_s3_objects', True)  # Default to restore S3 objects
         clear_tables = event.get('clear_tables', True)
         create_pre_restore_backup = event.get('create_backup', True)
         
@@ -153,6 +168,7 @@ def handle_restore(event, context):
             'backup_timestamp': backup_timestamp,
             'backup_location': f"s3://{backup_bucket}/{backup_prefix}",
             'tables_restored': [],
+            'reports_and_invoices_restored': False,
             'errors': [],
             'request_id': context.aws_request_id if context else 'unknown'
         }
@@ -205,6 +221,23 @@ def handle_restore(event, context):
                 
             except Exception as e:
                 error_msg = f"Failed to restore table {table_name}: {str(e)}"
+                print(error_msg)
+                results['errors'].append(error_msg)
+        
+        # Restore S3 objects (reports and invoices) if requested
+        if restore_s3_objects:
+            reports_bucket = os.environ.get('REPORTS_BUCKET')
+            if reports_bucket:
+                try:
+                    print("Restoring reports and invoices from backup...")
+                    restore_s3_objects_from_backup(backup_bucket, backup_prefix, reports_bucket)
+                    results['reports_and_invoices_restored'] = True
+                except Exception as e:
+                    error_msg = f"Failed to restore reports and invoices: {str(e)}"
+                    print(error_msg)
+                    results['errors'].append(error_msg)
+            else:
+                error_msg = "REPORTS_BUCKET environment variable not set, cannot restore S3 objects"
                 print(error_msg)
                 results['errors'].append(error_msg)
         
@@ -262,13 +295,24 @@ def backup_s3_objects(source_bucket, backup_bucket, backup_prefix):
     try:
         objects = s3.list_objects(source_bucket)
         object_count = 0
+        report_count = 0
+        invoice_count = 0
         
         for obj_key in objects:
             backup_key = f"{backup_prefix}{obj_key}"
             s3.copy_object(source_bucket, obj_key, backup_bucket, backup_key)
             object_count += 1
+            
+            # Count different types of files for better reporting
+            if obj_key.startswith('reports/'):
+                report_count += 1
+            elif obj_key.startswith('invoices/'):
+                invoice_count += 1
         
         print(f"Backed up {object_count} objects from {source_bucket}")
+        print(f"  - {report_count} report files")
+        print(f"  - {invoice_count} invoice files")
+        print(f"  - {object_count - report_count - invoice_count} other files")
         
     except ClientError as e:
         if e.response['Error']['Code'] == 'NoSuchBucket':
@@ -340,6 +384,55 @@ def restore_table_data(table_name, backup_data):
         print(f"Error restoring table data: {str(e)}")
         raise
 
+def restore_s3_objects_from_backup(backup_bucket, backup_prefix, target_bucket):
+    """Restore S3 objects from backup to target bucket"""
+    try:
+        backup_s3_prefix = f"{backup_prefix}/reports-and-invoices/"
+        
+        # List all objects in the backup S3 location
+        objects = s3.list_objects_with_metadata(backup_bucket, backup_s3_prefix)
+        
+        if not objects:
+            print(f"No S3 objects found in backup location: {backup_s3_prefix}")
+            return
+        
+        restored_count = 0
+        report_count = 0
+        invoice_count = 0
+        
+        for obj in objects:
+            # Get the original object key by removing the backup prefix
+            original_key = obj['Key'][len(backup_s3_prefix):]
+            
+            if not original_key:  # Skip if the key is empty after prefix removal
+                continue
+            
+            try:
+                # Copy object from backup location to target bucket
+                s3.copy_object(backup_bucket, obj['Key'], target_bucket, original_key)
+                restored_count += 1
+                
+                # Count different types of restored files
+                if original_key.startswith('reports/'):
+                    report_count += 1
+                elif original_key.startswith('invoices/'):
+                    invoice_count += 1
+                
+                print(f"Restored: {original_key}")
+                
+            except Exception as e:
+                print(f"Failed to restore {original_key}: {str(e)}")
+                raise
+        
+        print(f"Successfully restored {restored_count} S3 objects to {target_bucket}")
+        print(f"  - {report_count} report files")
+        print(f"  - {invoice_count} invoice files")
+        print(f"  - {restored_count - report_count - invoice_count} other files")
+        
+    except Exception as e:
+        print(f"Error restoring S3 objects: {str(e)}")
+        raise
+
 def handle_list_backups(event, context):
     """Handle listing available backups"""
     try:
@@ -372,7 +465,7 @@ def handle_list_backups(event, context):
                     backups.append({
                         'timestamp': timestamp,
                         'tables_backed_up': manifest.get('tables_backed_up', []),
-                        'reports_backed_up': manifest.get('reports_backed_up', False),
+                        'reports_and_invoices_backed_up': manifest.get('reports_and_invoices_backed_up', manifest.get('reports_backed_up', False)),  # Support old format
                         'errors': manifest.get('errors', []),
                         'backup_location': manifest.get('backup_location', ''),
                         'environment': manifest.get('environment', environment)
