@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Update WebSocket Endpoints Script
-# This script updates WebSocket endpoint environment variables in Lambda functions
-# after the WebSocket stack has been deployed
+# Update Lambda Environment Variables Script
+# This script updates WebSocket endpoints and notification queue URLs in Lambda functions
+# after the infrastructure has been deployed
 
 set -e
 
@@ -39,13 +39,29 @@ print_error() {
 show_usage() {
     echo "Usage: $0 [OPTIONS] [ENVIRONMENT]"
     echo ""
-    echo "Update WebSocket endpoint environment variables in Lambda functions"
+    echo "Update Lambda environment variables with WebSocket endpoints and notification queue URLs"
     echo ""
     echo "Options:"
     echo "  --env, -e <env>     Specify environment (development/dev, production/prod)"
     echo "  --dry-run          Show what would be updated without making changes"
     echo "  --verbose, -v      Show verbose output for debugging"
     echo "  --list-functions   List expected Lambda functions and their status"
+    echo "  --websocket-only   Update only WebSocket endpoints"
+    echo "  --queues-only      Update only notification queue URLs"
+    echo "  --verify           Verify current environment variables"
+    echo "  --help, -h         Show this help message"
+    echo ""
+    echo "Arguments:"
+    echo "  ENVIRONMENT        Target environment (development|dev|production|prod)"
+    echo ""
+    echo "Examples:"
+    echo "  $0 dev              # Update all environment variables for development"
+    echo "  $0 --env production # Update all environment variables for production"
+    echo "  $0 --websocket-only dev    # Update only WebSocket endpoints for development"
+    echo "  $0 --queues-only prod      # Update only notification queues for production"
+    echo "  $0 --dry-run dev    # Show what would be updated for development"
+    echo ""
+}
     echo "  --help, -h         Show this help message"
     echo ""
     echo "Arguments:"
@@ -138,40 +154,52 @@ get_lambda_env() {
     fi
 }
 
-# Function to update Lambda environment variables
-update_lambda_websocket_env() {
+# Function to update Lambda environment variables with WebSocket endpoints and notification queues
+update_lambda_environment_vars() {
     local dry_run=$1
     local verbose=${2:-false}
+    local websocket_only=${3:-false}
+    local queues_only=${4:-false}
     
-    print_status "Getting WebSocket API endpoint from CloudFormation stack..."
+    local websocket_endpoint=""
+    local email_queue_url=""
+    local websocket_queue_url=""
+    local firebase_queue_url=""
     
-    # Get WebSocket API endpoint from stack outputs
-    local websocket_endpoint=$(get_stack_output "$STACK_NAME" "WebSocketApiEndpoint")
-    
-    if [[ -z "$websocket_endpoint" || "$websocket_endpoint" == "None" ]]; then
-        print_error "WebSocket API endpoint not found in stack outputs!"
-        print_error "Available stack outputs:"
-        aws cloudformation describe-stacks \
-            --stack-name "$STACK_NAME" \
-            --query "Stacks[0].Outputs[].{Key:OutputKey,Value:OutputValue}" \
-            --output table \
-            --region $AWS_REGION 2>/dev/null || print_error "Could not retrieve stack outputs"
-        print_error ""
-        print_error "Make sure the WebSocket API has been deployed successfully."
-        print_error "Expected output key: 'WebSocketApiEndpoint'"
-        return 1
+    # Get WebSocket API endpoint if needed
+    if [[ "$queues_only" != "true" ]]; then
+        print_status "Getting WebSocket API endpoint from CloudFormation stack..."
+        websocket_endpoint=$(get_stack_output "$STACK_NAME" "WebSocketApiEndpoint")
+        
+        if [[ -z "$websocket_endpoint" || "$websocket_endpoint" == "None" ]]; then
+            print_error "WebSocket API endpoint not found in stack outputs!"
+            return 1
+        fi
+        
+        print_status "WebSocket API Endpoint: $websocket_endpoint"
+        # Convert wss:// to https:// for WEBSOCKET_ENDPOINT_URL environment variable
+        websocket_endpoint="${websocket_endpoint//wss:\/\//https:\/\/}"
+        print_status "HTTPS Endpoint for environment variable: $websocket_endpoint"
     fi
     
-    # Convert wss:// to https:// for WEBSOCKET_ENDPOINT_URL environment variable
-    local https_endpoint="${websocket_endpoint//wss:\/\//https:\/\/}"
+    # Get notification queue URLs if needed
+    if [[ "$websocket_only" != "true" ]]; then
+        print_status "Getting notification queue URLs from CloudFormation stack..."
+        
+        email_queue_url=$(get_stack_output "$STACK_NAME" "EmailNotificationQueueUrl")
+        websocket_queue_url=$(get_stack_output "$STACK_NAME" "WebSocketNotificationQueueUrl")
+        firebase_queue_url=$(get_stack_output "$STACK_NAME" "FirebaseNotificationQueueUrl")
+        
+        print_status "📦 Retrieved queue URLs:"
+        print_status "  Email: ${email_queue_url:-'Not found'}"
+        print_status "  WebSocket: ${websocket_queue_url:-'Not found'}"
+        print_status "  Firebase: ${firebase_queue_url:-'Not found or disabled'}"
+    fi
     
-    print_status "WebSocket API Endpoint: $websocket_endpoint"
-    print_status "HTTPS Endpoint for environment variable: $https_endpoint"
     echo ""
     
-    # Define all Lambda functions that need WebSocket endpoint
-    # These are functions that use wsgw_utils.py and need WEBSOCKET_ENDPOINT_URL
-    local websocket_functions=(
+    # Define all Lambda functions that need environment variable updates
+    local lambda_functions=(
         "api-notify-${ENVIRONMENT}"
         "api-send-message-${ENVIRONMENT}"
         "api-take-user-${ENVIRONMENT}"
@@ -183,13 +211,14 @@ update_lambda_websocket_env() {
         "api-update-appointment-${ENVIRONMENT}"
         "api-update-order-${ENVIRONMENT}"
         "api-create-inquiry-${ENVIRONMENT}"
+        "api-generate-invoice-${ENVIRONMENT}"
     )
     
     local updated_count=0
     local error_count=0
     local skipped_count=0
     
-    for func in "${websocket_functions[@]}"; do
+    for func in "${lambda_functions[@]}"; do
         print_status "Processing $func..."
         
         # Check if function exists
@@ -212,17 +241,44 @@ update_lambda_websocket_env() {
             echo "$current_env" | jq .
         fi
         
-        # Update the environment variables JSON to include/update WEBSOCKET_ENDPOINT_URL
+        # Build the jq update expression based on what we're updating
+        local jq_expression="."
+        local update_description=""
+        
+        if [[ "$queues_only" != "true" && -n "$websocket_endpoint" ]]; then
+            jq_expression="$jq_expression | .WEBSOCKET_ENDPOINT_URL = \$websocket_endpoint"
+            update_description="WebSocket endpoint"
+        fi
+        
+        if [[ "$websocket_only" != "true" ]]; then
+            if [[ -n "$email_queue_url" ]]; then
+                jq_expression="$jq_expression | .EMAIL_NOTIFICATION_QUEUE_URL = \$email_url"
+                update_description="${update_description:+$update_description, }email queue"
+            fi
+            if [[ -n "$websocket_queue_url" ]]; then
+                jq_expression="$jq_expression | .WEBSOCKET_NOTIFICATION_QUEUE_URL = \$websocket_url"
+                update_description="${update_description:+$update_description, }WebSocket queue"
+            fi
+            if [[ -n "$firebase_queue_url" ]]; then
+                jq_expression="$jq_expression | .FIREBASE_NOTIFICATION_QUEUE_URL = \$firebase_url"
+                update_description="${update_description:+$update_description, }Firebase queue"
+            fi
+        fi
+        
+        # Update the environment variables JSON
         set +e
-        local updated_env=$(echo "$current_env" | jq --arg endpoint "$https_endpoint" '. + {WEBSOCKET_ENDPOINT_URL: $endpoint}' 2>/dev/null)
+        local updated_env=$(echo "$current_env" | jq \
+            --arg websocket_endpoint "$websocket_endpoint" \
+            --arg email_url "$email_queue_url" \
+            --arg websocket_url "$websocket_queue_url" \
+            --arg firebase_url "$firebase_queue_url" \
+            "$jq_expression" 2>/dev/null)
         local jq_exit_code=$?
         set -e
         
         # Validate the JSON is properly formatted
         if [[ $jq_exit_code -ne 0 ]] || ! echo "$updated_env" | jq . > /dev/null 2>&1; then
             print_error "Invalid JSON generated for $func environment variables"
-            print_error "Current env: $current_env"
-            print_error "Updated env: $updated_env"
             error_count=$((error_count + 1))
             continue
         fi
@@ -249,14 +305,14 @@ update_lambda_websocket_env() {
         fi
         
         if [[ "$dry_run" == "true" ]]; then
-            print_status "[DRY RUN] Would update $func with WEBSOCKET_ENDPOINT_URL=$https_endpoint"
+            print_status "[DRY RUN] Would update $func with: $update_description"
             if [[ "$verbose" == "true" ]]; then
                 print_status "Updated environment variables would be:"
                 echo "$updated_env" | jq .
             fi
         else
             # Update the Lambda function
-            print_status "Updating environment variables for $func..."
+            print_status "Updating $func with: $update_description"
             
             if [[ "$verbose" == "true" ]]; then
                 print_status "Updated environment variables:"
@@ -265,17 +321,9 @@ update_lambda_websocket_env() {
             
             # Write environment variables to a temporary file to handle complex JSON
             local temp_env_file=$(mktemp)
-            # Create the correct structure for AWS Lambda environment parameter
             echo "{\"Variables\": $updated_env}" > "$temp_env_file"
             
-            if [[ "$verbose" == "true" ]]; then
-                print_status "Using temporary file: $temp_env_file"
-                print_status "File contents:"
-                cat "$temp_env_file"
-            fi
-            
             local update_output
-            # Temporarily disable set -e for this command to handle errors gracefully
             set +e
             update_output=$(aws lambda update-function-configuration \
                 --function-name "$func" \
@@ -285,53 +333,49 @@ update_lambda_websocket_env() {
             set -e
             
             if [[ $aws_exit_code -eq 0 ]]; then
-                print_success "Updated $func"
+                print_success "✅ Updated $func"
                 updated_count=$((updated_count + 1))
             else
                 print_error "Failed to update $func"
                 print_error "AWS CLI Error: $update_output"
-                if [[ "$verbose" == "true" ]]; then
-                    print_error "Temp file contents were:"
-                    cat "$temp_env_file"
-                fi
                 error_count=$((error_count + 1))
             fi
             
             # Clean up temporary file
             rm -f "$temp_env_file"
             
-            # Add a small delay to avoid rate limiting and show progress
+            # Add a small delay to avoid rate limiting
             sleep 0.5
         fi
     done
     
     echo ""
     if [[ "$dry_run" == "true" ]]; then
-        print_status "Dry run completed. ${#websocket_functions[@]} functions would be processed."
+        print_status "Dry run completed. ${#lambda_functions[@]} functions would be processed."
         print_status "To actually update the functions, run without --dry-run"
     else
-        print_success "WebSocket endpoint update completed!"
-        print_status "Functions processed: ${#websocket_functions[@]}"
+        print_success "🎉 Lambda environment variable update completed!"
+        print_status "Functions processed: ${#lambda_functions[@]}"
         print_status "Functions updated: $updated_count"
         if [[ $skipped_count -gt 0 ]]; then
             print_warning "Functions skipped: $skipped_count"
         fi
         if [[ $error_count -gt 0 ]]; then
             print_warning "Functions with errors: $error_count"
-            print_warning "Run with --verbose to see detailed error information"
-            echo ""
-            print_error "Script completed with errors. Some functions may not have been updated."
             return 1
         fi
         
-        if [[ $updated_count -eq 0 && $skipped_count -eq ${#websocket_functions[@]} ]]; then
+        if [[ $updated_count -eq 0 && $skipped_count -eq ${#lambda_functions[@]} ]]; then
             print_warning "No functions were updated (all were skipped)."
             print_warning "This may indicate that the Lambda functions don't exist yet."
-            echo ""
-            print_status "All functions now have WEBSOCKET_ENDPOINT_URL=$https_endpoint"
         else
-            print_success "Successfully updated $updated_count function(s)!"
-            print_status "All functions now have WEBSOCKET_ENDPOINT_URL=$https_endpoint"
+            print_success "🔗 Successfully updated $updated_count function(s)!"
+            if [[ "$queues_only" != "true" ]]; then
+                print_status "All functions now have WEBSOCKET_ENDPOINT_URL=$websocket_endpoint"
+            fi
+            if [[ "$websocket_only" != "true" ]]; then
+                print_status "All functions now have notification queue URLs configured"
+            fi
         fi
     fi
 }
@@ -398,7 +442,7 @@ verify_websocket_endpoints() {
 # Function to list expected Lambda functions
 list_expected_functions() {
     print_status "Expected Lambda functions for environment '$ENVIRONMENT':"
-    local websocket_functions=(
+    local lambda_functions=(
         "api-notify-${ENVIRONMENT}"
         "api-send-message-${ENVIRONMENT}"
         "api-take-user-${ENVIRONMENT}"
@@ -410,9 +454,10 @@ list_expected_functions() {
         "api-update-appointment-${ENVIRONMENT}"
         "api-update-order-${ENVIRONMENT}"
         "api-create-inquiry-${ENVIRONMENT}"
+        "api-generate-invoice-${ENVIRONMENT}"
     )
     
-    for func in "${websocket_functions[@]}"; do
+    for func in "${lambda_functions[@]}"; do
         if lambda_exists "$func"; then
             print_success "  ✓ $func (exists)"
         else
@@ -429,6 +474,8 @@ main() {
     local verify_only=false
     local verbose=false
     local list_functions=false
+    local websocket_only=false
+    local queues_only=false
     
     # Parse command line arguments
     while [[ $# -gt 0 ]]; do
@@ -447,6 +494,14 @@ main() {
                 ;;
             --list-functions)
                 list_functions=true
+                shift
+                ;;
+            --websocket-only)
+                websocket_only=true
+                shift
+                ;;
+            --queues-only)
+                queues_only=true
                 shift
                 ;;
             --verify)
@@ -475,12 +530,26 @@ main() {
         esac
     done
     
+    # Validate mutually exclusive options
+    if [[ "$websocket_only" == "true" && "$queues_only" == "true" ]]; then
+        print_error "Options --websocket-only and --queues-only are mutually exclusive"
+        exit 1
+    fi
+    
     # Load environment configuration
     if ! load_environment "$environment"; then
         exit 1
     fi
     
-    print_status "Updating WebSocket endpoints for environment: $ENVIRONMENT"    
+    local update_description="WebSocket endpoints and notification queues"
+    if [[ "$websocket_only" == "true" ]]; then
+        update_description="WebSocket endpoints only"
+    elif [[ "$queues_only" == "true" ]]; then
+        update_description="notification queues only"
+    fi
+    
+    print_status "Updating Lambda environment variables for environment: $ENVIRONMENT"
+    print_status "Update scope: $update_description"
     print_status "Stack name: $STACK_NAME"
     print_status "AWS Region: $AWS_REGION"
     echo ""
@@ -496,13 +565,10 @@ main() {
     fi
     echo ""
     
-    # List expected functions
-    list_expected_functions
-    
     if [[ "$verify_only" == "true" ]]; then
         verify_websocket_endpoints
     else
-        update_lambda_websocket_env "$dry_run" "$verbose"
+        update_lambda_environment_vars "$dry_run" "$verbose" "$websocket_only" "$queues_only"
     fi
 }
 

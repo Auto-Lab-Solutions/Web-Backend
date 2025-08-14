@@ -808,9 +808,9 @@ main() {
     print_status "Configuring SES bounce and complaint notifications..."
     configure_ses_notifications
     
-    # Update WebSocket endpoints in Lambda functions
-    print_status "Updating WebSocket endpoints in Lambda functions..."
-    ./update-websocket-endpoints.sh --env "$ENVIRONMENT"
+    # Update WebSocket endpoints and notification queues in Lambda functions
+    print_status "Updating Lambda environment variables (WebSocket endpoints and notification queues)..."
+    ./update-lambda-variables.sh --env "$ENVIRONMENT"
     
     update_auth0_config
     
