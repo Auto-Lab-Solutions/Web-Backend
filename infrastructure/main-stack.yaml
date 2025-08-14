@@ -7,15 +7,6 @@ Parameters:
     Default: production
     Description: Environment name (development, production)
 
-  # Lambda Functions
-  LambdaStack:
-    Type: AWS::CloudFormation::Stack
-    DependsOn: 
-      - DynamoDBStack
-      - S3CloudFrontStack
-      - NotificationQueueStack
-      - SESBounceComplaintStack
-  
   S3BucketName:
     Type: String
     Default: auto-lab-reports
@@ -98,22 +89,6 @@ Parameters:
   SesRegion:
     Type: String
     Description: AWS region for SES service
-    Default: "us-east-1"
-    Default: ""
-
-  FrontendRootUrl:
-    Type: String
-    Description: Frontend root URL for invoice links and QR codes
-    Default: ""
-
-  FromEmail:
-    Type: String
-    Description: SES verified email address for sending emails
-    Default: "noreply@autolabsolutions.com"
-
-  SesRegion:
-    Type: String
-    Description: AWS SES region
     Default: "ap-southeast-2"
 
   # Frontend Website Parameters
@@ -203,31 +178,6 @@ Resources:
       TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/dynamodb-tables.yaml'
       Parameters:
         Environment: !Ref Environment
-
-  # Invoice Queue Infrastructure
-  InvoiceQueueStack:
-    Type: AWS::CloudFormation::Stack
-    DependsOn: DynamoDBStack
-    Properties:
-      TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/invoice-queue.yaml'
-      Parameters:
-        EnvironmentName: !Ref Environment
-        StaffTable: !GetAtt DynamoDBStack.Outputs.StaffTable
-        UsersTable: !GetAtt DynamoDBStack.Outputs.UsersTable
-        ConnectionsTable: !GetAtt DynamoDBStack.Outputs.ConnectionsTable
-        MessagesTable: !GetAtt DynamoDBStack.Outputs.MessagesTable
-        UnavailableSlotsTable: !GetAtt DynamoDBStack.Outputs.UnavailableSlotsTable
-        AppointmentsTable: !GetAtt DynamoDBStack.Outputs.AppointmentsTable
-        ServicePricesTable: !GetAtt DynamoDBStack.Outputs.ServicePricesTable
-        OrdersTable: !GetAtt DynamoDBStack.Outputs.OrdersTable
-        ItemPricesTable: !GetAtt DynamoDBStack.Outputs.ItemPricesTable
-        InquiriesTable: !GetAtt DynamoDBStack.Outputs.InquiriesTable
-        PaymentsTable: !GetAtt DynamoDBStack.Outputs.PaymentsTable
-        InvoicesTable: !GetAtt DynamoDBStack.Outputs.InvoicesTable
-        CloudFormationBucket: !Ref CloudFormationBucket
-        ReportsBucketName: !Sub 'auto-lab-reports-${AWS::AccountId}-${Environment}'
-        CloudFrontDomain: !If [ShouldEnableReportsCustomDomain, !Ref ReportsDomainName, !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName]
-        FrontendRootUrl: !Ref FrontendRootUrl
 
   # Lambda Functions
   LambdaStack:
@@ -341,18 +291,18 @@ Resources:
       Parameters:
         EnvironmentName: !Ref Environment
         CloudFormationBucket: !Ref CloudFormationBucket
-        StaffTable: !GetAtt DynamoDBStack.Outputs.StaffTableName
-        UsersTable: !GetAtt DynamoDBStack.Outputs.UsersTableName
-        ConnectionsTable: !GetAtt DynamoDBStack.Outputs.ConnectionsTableName
-        MessagesTable: !GetAtt DynamoDBStack.Outputs.MessagesTableName
-        UnavailableSlotsTable: !GetAtt DynamoDBStack.Outputs.UnavailableSlotsTableName
-        AppointmentsTable: !GetAtt DynamoDBStack.Outputs.AppointmentsTableName
-        ServicePricesTable: !GetAtt DynamoDBStack.Outputs.ServicePricesTableName
-        OrdersTable: !GetAtt DynamoDBStack.Outputs.OrdersTableName
-        ItemPricesTable: !GetAtt DynamoDBStack.Outputs.ItemPricesTableName
-        InquiriesTable: !GetAtt DynamoDBStack.Outputs.InquiriesTableName
-        PaymentsTable: !GetAtt DynamoDBStack.Outputs.PaymentsTableName
-        InvoicesTable: !GetAtt DynamoDBStack.Outputs.InvoicesTableName
+        StaffTable: !GetAtt DynamoDBStack.Outputs.StaffTable
+        UsersTable: !GetAtt DynamoDBStack.Outputs.UsersTable
+        ConnectionsTable: !GetAtt DynamoDBStack.Outputs.ConnectionsTable
+        MessagesTable: !GetAtt DynamoDBStack.Outputs.MessagesTable
+        UnavailableSlotsTable: !GetAtt DynamoDBStack.Outputs.UnavailableSlotsTable
+        AppointmentsTable: !GetAtt DynamoDBStack.Outputs.AppointmentsTable
+        ServicePricesTable: !GetAtt DynamoDBStack.Outputs.ServicePricesTable
+        OrdersTable: !GetAtt DynamoDBStack.Outputs.OrdersTable
+        ItemPricesTable: !GetAtt DynamoDBStack.Outputs.ItemPricesTable
+        InquiriesTable: !GetAtt DynamoDBStack.Outputs.InquiriesTable
+        PaymentsTable: !GetAtt DynamoDBStack.Outputs.PaymentsTable
+        InvoicesTable: !GetAtt DynamoDBStack.Outputs.InvoicesTable
         ReportsBucketName: !GetAtt S3CloudFrontStack.Outputs.ReportsBucketName
         CloudFrontDomain: !If [ShouldEnableReportsCustomDomain, !Ref ReportsDomainName, !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName]
         FrontendRootUrl: !Ref FrontendRootUrl
