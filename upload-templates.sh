@@ -47,6 +47,8 @@ upload_templates() {
     aws s3 cp infrastructure/websocket-api.yaml s3://$CLOUDFORMATION_BUCKET/websocket-api.yaml --region $AWS_REGION
     aws s3 cp infrastructure/s3-cloudfront.yaml s3://$CLOUDFORMATION_BUCKET/s3-cloudfront.yaml --region $AWS_REGION
     aws s3 cp infrastructure/frontend-website.yaml s3://$CLOUDFORMATION_BUCKET/frontend-website.yaml --region $AWS_REGION
+    aws s3 cp infrastructure/backup-system.yaml s3://$CLOUDFORMATION_BUCKET/backup-system.yaml --region $AWS_REGION
+    aws s3 cp infrastructure/ses-bounce-complaint-system.yaml s3://$CLOUDFORMATION_BUCKET/ses-bounce-complaint-system.yaml --region $AWS_REGION
     
     print_success "All CloudFormation templates uploaded successfully!"
 }

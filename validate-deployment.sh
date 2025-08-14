@@ -302,6 +302,81 @@ check_acm_certificate() {
     return 0
 }
 
+# Function to check external backup bucket
+check_external_backup_bucket() {
+    local bucket_name="$1"
+    
+    if [ -z "$bucket_name" ]; then
+        print_warning "No backup bucket name provided"
+        return 1
+    fi
+    
+    print_status "Checking external backup bucket '$bucket_name'..."
+    
+    # Check if bucket exists and is accessible
+    if aws s3api head-bucket --bucket "$bucket_name" 2>/dev/null; then
+        print_success "Backup bucket '$bucket_name' exists and is accessible"
+        
+        # Check bucket versioning
+        local versioning_status=$(aws s3api get-bucket-versioning --bucket "$bucket_name" --query 'Status' --output text 2>/dev/null)
+        if [ "$versioning_status" = "Enabled" ]; then
+            print_success "Bucket versioning is enabled"
+        else
+            print_warning "Bucket versioning is not enabled (recommended for backups)"
+        fi
+        
+        # Check if backup folder structure exists
+        if aws s3 ls "s3://$bucket_name/backups/" >/dev/null 2>&1; then
+            print_success "Backup folder structure exists"
+        else
+            print_warning "Backup folder structure not found (will be created on first backup)"
+        fi
+        
+        return 0
+    else
+        print_error "Backup bucket '$bucket_name' does not exist or is not accessible"
+        print_error "Please run: ./initialize-external-backup-bucket.sh $ENVIRONMENT"
+        return 1
+    fi
+}
+
+# Function to check reports domain resolution
+check_reports_domain() {
+    local reports_domain="$1"
+    local cloudfront_domain="$2"
+    
+    if [ -z "$reports_domain" ]; then
+        print_warning "No reports domain configured, using CloudFront domain"
+        return 0
+    fi
+    
+    print_status "Checking reports domain '$reports_domain'..."
+    
+    # Check DNS resolution
+    if command -v nslookup >/dev/null 2>&1; then
+        if nslookup "$reports_domain" >/dev/null 2>&1; then
+            print_success "Reports domain '$reports_domain' resolves correctly"
+            
+            # Check if it points to CloudFront
+            local resolved_target=$(nslookup "$reports_domain" | grep -A1 "canonical name" | tail -1 | awk '{print $NF}' | sed 's/\.$//')
+            if [[ "$resolved_target" == *"cloudfront.net" ]]; then
+                print_success "Reports domain points to CloudFront distribution"
+            else
+                print_warning "Reports domain may not be pointing to CloudFront distribution"
+            fi
+            
+            return 0
+        else
+            print_error "Reports domain '$reports_domain' does not resolve"
+            print_error "Check Route53 configuration and DNS propagation"
+            return 1
+        fi
+    else
+        print_warning "nslookup command not available, skipping DNS resolution check"
+        return 0
+    fi
+}
+
 # Main validation function
 validate_deployment() {
     print_status "Starting deployment validation..."
@@ -331,7 +406,10 @@ validate_deployment() {
     WEBSOCKET_API_ID=$(get_stack_output "$STACK_NAME" "WebSocketApiId")
     WEBSOCKET_API_ENDPOINT=$(get_stack_output "$STACK_NAME" "WebSocketApiEndpoint")
     CLOUDFRONT_DOMAIN=$(get_stack_output "$STACK_NAME" "CloudFrontDomainName")
+    REPORTS_DOMAIN=$(get_stack_output "$STACK_NAME" "ReportsDomainName")
+    REPORTS_BASE_URL=$(get_stack_output "$STACK_NAME" "ReportsBaseUrl")
     INVOICE_QUEUE_URL=$(get_stack_output "$STACK_NAME" "InvoiceQueueUrl")
+    BACKUP_BUCKET_NAME=$(get_stack_output "$STACK_NAME" "BackupBucketName")
     
     # Get custom domain outputs (may be empty if not configured)
     REST_API_CUSTOM_DOMAIN=$(get_stack_output "$STACK_NAME" "RestApiCustomDomainName")
@@ -349,6 +427,9 @@ validate_deployment() {
         echo "  WebSocket API Custom Domain: $WEBSOCKET_API_CUSTOM_DOMAIN"
     fi
     echo "  CloudFront Domain: $CLOUDFRONT_DOMAIN"
+    echo "  Reports Domain: $REPORTS_DOMAIN"
+    echo "  Reports Base URL: $REPORTS_BASE_URL"
+    echo "  Backup Bucket: $BACKUP_BUCKET_NAME"
     echo "  Invoice Queue URL: $INVOICE_QUEUE_URL"
     echo
     

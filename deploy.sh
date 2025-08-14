@@ -242,8 +242,8 @@ package_lambdas() {
         cd - > /dev/null
         
         # Upload to S3 - use different paths for different lambda types
-        if [[ "$lambda_name" == sqs-process-*-notification-queue ]] || [[ "$lambda_name" == "backup-restore" ]] || [[ "$lambda_name" == "api-backup-restore" ]]; then
-            # Notification processor lambdas and backup lambdas use lambda-packages/ path
+        if [[ "$lambda_name" == sqs-process-*-notification-queue ]] || [[ "$lambda_name" == "backup-restore" ]] || [[ "$lambda_name" == "api-backup-restore" ]] || [[ "$lambda_name" =~ ^ses- ]]; then
+            # Notification processor lambdas, backup lambdas, and SES bounce/complaint lambdas use lambda-packages/ path
             aws s3 cp "dist/lambda/$lambda_name.zip" "s3://$CLOUDFORMATION_BUCKET/lambda-packages/$lambda_name.zip"
         else
             # Standard lambdas use lambda/ path
@@ -402,6 +402,42 @@ update_backup_lambda() {
     return 0
 }
 
+# Update SES Lambda function code (managed by SESBounceComplaintStack)
+update_ses_lambda() {
+    local lambda_name=$1
+    local full_function_name="${lambda_name}-${ENVIRONMENT}"
+    local zip_file="dist/lambda/$lambda_name.zip"
+
+    if [ ! -f "$zip_file" ]; then
+        print_error "ZIP file not found: $zip_file"
+        return 1
+    fi
+    
+    # Check if function exists
+    if ! aws lambda get-function --function-name "$full_function_name" --region $AWS_REGION &>/dev/null; then
+        print_error "Lambda function '$full_function_name' does not exist in AWS"
+        print_warning "Please deploy infrastructure first using ./deploy.sh $ENVIRONMENT"
+        return 1
+    fi
+    
+    print_status "Updating SES Lambda function code: $full_function_name"
+    
+    # Update function code
+    aws lambda update-function-code \
+        --function-name "$full_function_name" \
+        --zip-file "fileb://$zip_file" \
+        --region $AWS_REGION > /dev/null
+    
+    # Wait for update to complete
+    print_status "Waiting for update to complete..."
+    aws lambda wait function-updated \
+        --function-name "$full_function_name" \
+        --region $AWS_REGION
+    
+    print_success "Updated $full_function_name"
+    return 0
+}
+
 update_all_lambdas() {
     print_status "Updating all Lambda functions..."
     
@@ -422,6 +458,10 @@ update_all_lambdas() {
             elif [[ "$lambda_name" == "backup-restore" || "$lambda_name" == "api-backup-restore" ]]; then
                 print_status "Updating $lambda_name (managed by BackupSystemStack)..."
                 update_backup_lambda "$lambda_name"
+            # Handle SES bounce/complaint lambdas differently since they're managed by SESBounceComplaintStack
+            elif [[ "$lambda_name" =~ ^ses- ]]; then
+                print_status "Updating $lambda_name (managed by SESBounceComplaintStack)..."
+                update_ses_lambda "$lambda_name"
             else
                 update_lambda_code "$lambda_name"
             fi
@@ -451,6 +491,7 @@ deploy_stack() {
             Environment=$ENVIRONMENT \
             S3BucketName=$S3_BUCKET_NAME \
             CloudFormationBucket=$CLOUDFORMATION_BUCKET \
+            BackupBucketName="$BACKUP_BUCKET_NAME" \
             StripeSecretKey=$STRIPE_SECRET_KEY \
             StripeWebhookSecret=$STRIPE_WEBHOOK_SECRET \
             Auth0Domain=$AUTH0_DOMAIN \
@@ -473,6 +514,10 @@ deploy_stack() {
             WebSocketDomainName="${WEBSOCKET_DOMAIN_NAME:-}" \
             ApiHostedZoneId="${API_HOSTED_ZONE_ID:-}" \
             ApiAcmCertificateArn="${API_ACM_CERTIFICATE_ARN:-}" \
+            EnableReportsCustomDomain="${ENABLE_REPORTS_CUSTOM_DOMAIN:-false}" \
+            ReportsDomainName="${REPORTS_DOMAIN_NAME:-}" \
+            ReportsHostedZoneId="${REPORTS_HOSTED_ZONE_ID:-}" \
+            ReportsAcmCertificateArn="${REPORTS_ACM_CERTIFICATE_ARN:-}" \
         --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
         --region $AWS_REGION
     
@@ -530,54 +575,178 @@ update_auth0_config() {
     fi
 }
 
-# Deploy backup system
-deploy_backup_system() {
-    print_status "Deploying backup system infrastructure..."
+# Configure SES Bounce and Complaint Notifications
+configure_ses_notifications() {
+    print_status "Configuring SES bounce and complaint notifications..."
     
-    # Note: Backup Lambda packages should already be uploaded by package_lambdas function
-    # This function focuses on deploying the backup system CloudFormation stack
+    # Get SNS topic ARNs from the SES bounce/complaint stack
+    local bounce_topic_arn=""
+    local complaint_topic_arn=""
+    local delivery_topic_arn=""
     
-    local backup_stack_name="auto-lab-backup-system-${ENVIRONMENT}"
+    # Try to get topic ARNs from main stack outputs via the SES bounce/complaint substack
+    bounce_topic_arn=$(aws cloudformation describe-stacks \
+        --stack-name "$STACK_NAME" \
+        --query "Stacks[0].Outputs[?OutputKey=='SESBounceTopicArn'].OutputValue" \
+        --output text \
+        --region "$AWS_REGION" 2>/dev/null)
     
-    # Check if backup Lambda packages exist in S3
-    print_status "Verifying backup Lambda packages in S3..."
+    complaint_topic_arn=$(aws cloudformation describe-stacks \
+        --stack-name "$STACK_NAME" \
+        --query "Stacks[0].Outputs[?OutputKey=='SESComplaintTopicArn'].OutputValue" \
+        --output text \
+        --region "$AWS_REGION" 2>/dev/null)
     
-    if ! aws s3 ls "s3://$CLOUDFORMATION_BUCKET/lambda-packages/backup-restore.zip" --region "$AWS_REGION" &>/dev/null; then
-        print_warning "Backup Lambda package not found in S3. This should have been uploaded by package_lambdas."
-        print_warning "Backup system deployment may fail if packages are missing."
-    fi
+    delivery_topic_arn=$(aws cloudformation describe-stacks \
+        --stack-name "$STACK_NAME" \
+        --query "Stacks[0].Outputs[?OutputKey=='SESDeliveryTopicArn'].OutputValue" \
+        --output text \
+        --region "$AWS_REGION" 2>/dev/null)
     
-    if ! aws s3 ls "s3://$CLOUDFORMATION_BUCKET/lambda-packages/api-backup-restore.zip" --region "$AWS_REGION" &>/dev/null; then
-        print_warning "API Backup Lambda package not found in S3. This should have been uploaded by package_lambdas."
-        print_warning "Backup system deployment may fail if packages are missing."
-    fi
-    
-    # Deploy backup system CloudFormation stack
-    print_status "Deploying backup system CloudFormation stack..."
-    
-    aws cloudformation deploy \
-        --template-file infrastructure/backup-system.yaml \
-        --stack-name "$backup_stack_name" \
-        --parameter-overrides \
-            Environment="$ENVIRONMENT" \
-            CloudFormationBucket="$CLOUDFORMATION_BUCKET" \
-            ReportsBucketName="$REPORTS_BUCKET_NAME" \
-        --capabilities CAPABILITY_NAMED_IAM \
-        --region "$AWS_REGION"
-    
-    if [ $? -eq 0 ]; then
-        print_success "Backup system deployed successfully"
-        
-        # Show backup system information
-        print_status "Backup system components:"
-        aws cloudformation describe-stacks \
-            --stack-name "$backup_stack_name" \
-            --query 'Stacks[0].Outputs[?OutputKey==`BackupLambdaFunctionArn`||OutputKey==`BackupScheduleRuleArn`||OutputKey==`BackupBucket`].[OutputKey,OutputValue]' \
-            --output table --region "$AWS_REGION" 2>/dev/null || print_warning "Could not retrieve backup system outputs"
-    else
-        print_error "Failed to deploy backup system"
+    if [ -z "$bounce_topic_arn" ] || [ -z "$complaint_topic_arn" ]; then
+        print_error "Could not retrieve SNS topic ARNs from CloudFormation stack"
+        print_error "SES bounce/complaint notifications setup will be skipped"
+        print_warning "You may need to run the SES notification configuration manually"
         return 1
     fi
+    
+    print_status "Retrieved topic ARNs:"
+    print_status "  Bounce Topic: $bounce_topic_arn"
+    print_status "  Complaint Topic: $complaint_topic_arn"
+    if [ -n "$delivery_topic_arn" ]; then
+        print_status "  Delivery Topic: $delivery_topic_arn"
+    fi
+    
+    local domain="${FROM_EMAIL##*@}"
+    
+    print_status "Configuring notifications for domain: $domain"
+    
+    # Configure bounce notifications
+    print_status "Setting up bounce notifications..."
+    if aws ses put-identity-notification-attributes \
+        --identity "$domain" \
+        --notification-type Bounce \
+        --sns-topic "$bounce_topic_arn" \
+        --region "$SES_REGION" 2>/dev/null; then
+        
+        # Enable bounce notifications
+        aws ses put-identity-notification-attributes \
+            --identity "$domain" \
+            --notification-type Bounce \
+            --enabled \
+            --region "$SES_REGION" 2>/dev/null
+        
+        print_success "Bounce notifications configured for domain: $domain"
+    else
+        print_warning "Failed to configure bounce notifications for domain: $domain"
+        print_warning "Domain may not be verified in SES region: $SES_REGION"
+    fi
+    
+    # Configure complaint notifications
+    print_status "Setting up complaint notifications..."
+    if aws ses put-identity-notification-attributes \
+        --identity "$domain" \
+        --notification-type Complaint \
+        --sns-topic "$complaint_topic_arn" \
+        --region "$SES_REGION" 2>/dev/null; then
+        
+        # Enable complaint notifications
+        aws ses put-identity-notification-attributes \
+            --identity "$domain" \
+            --notification-type Complaint \
+            --enabled \
+            --region "$SES_REGION" 2>/dev/null
+        
+        print_success "Complaint notifications configured for domain: $domain"
+    else
+        print_warning "Failed to configure complaint notifications for domain: $domain"
+        print_warning "Domain may not be verified in SES region: $SES_REGION"
+    fi
+    
+    # Configure delivery notifications (optional, for analytics)
+    if [ -n "$delivery_topic_arn" ]; then
+        print_status "Setting up delivery notifications..."
+        if aws ses put-identity-notification-attributes \
+            --identity "$domain" \
+            --notification-type Delivery \
+            --sns-topic "$delivery_topic_arn" \
+            --region "$SES_REGION" 2>/dev/null; then
+            
+            # Enable delivery notifications
+            aws ses put-identity-notification-attributes \
+                --identity "$domain" \
+                --notification-type Delivery \
+                --enabled \
+                --region "$SES_REGION" 2>/dev/null
+            
+            print_success "Delivery notifications configured for domain: $domain"
+        else
+            print_warning "Failed to configure delivery notifications for domain: $domain"
+        fi
+    fi
+    
+    # Also configure for the specific email address if different from domain
+    if [ "$FROM_EMAIL" != "$domain" ]; then
+        print_status "Configuring notifications for email: $FROM_EMAIL"
+        
+        # Configure bounce notifications for email
+        if aws ses put-identity-notification-attributes \
+            --identity "$FROM_EMAIL" \
+            --notification-type Bounce \
+            --sns-topic "$bounce_topic_arn" \
+            --region "$SES_REGION" 2>/dev/null; then
+            
+            aws ses put-identity-notification-attributes \
+                --identity "$FROM_EMAIL" \
+                --notification-type Bounce \
+                --enabled \
+                --region "$SES_REGION" 2>/dev/null
+        fi
+        
+        # Configure complaint notifications for email
+        if aws ses put-identity-notification-attributes \
+            --identity "$FROM_EMAIL" \
+            --notification-type Complaint \
+            --sns-topic "$complaint_topic_arn" \
+            --region "$SES_REGION" 2>/dev/null; then
+            
+            aws ses put-identity-notification-attributes \
+                --identity "$FROM_EMAIL" \
+                --notification-type Complaint \
+                --enabled \
+                --region "$SES_REGION" 2>/dev/null
+        fi
+        
+        # Configure delivery notifications for email
+        if [ -n "$delivery_topic_arn" ]; then
+            if aws ses put-identity-notification-attributes \
+                --identity "$FROM_EMAIL" \
+                --notification-type Delivery \
+                --sns-topic "$delivery_topic_arn" \
+                --region "$SES_REGION" 2>/dev/null; then
+                
+                aws ses put-identity-notification-attributes \
+                    --identity "$FROM_EMAIL" \
+                    --notification-type Delivery \
+                    --enabled \
+                    --region "$SES_REGION" 2>/dev/null
+            fi
+        fi
+        
+        print_success "Notifications configured for email: $FROM_EMAIL"
+    fi
+    
+    print_success "SES bounce and complaint notifications configured successfully"
+    
+    # Provide instructions for manual verification
+    print_status "SES Notification Setup Complete!"
+    print_status "Next steps:"
+    print_status "  1. Verify your domain in SES console if not already done"
+    print_status "  2. Test the notification system by sending test emails"
+    print_status "  3. Check CloudWatch logs for Lambda function execution"
+    print_status "  4. Monitor DynamoDB tables for bounce/complaint records"
+    
+    return 0
 }
 
 # Main deployment function
@@ -626,16 +795,18 @@ main() {
     # Upload CloudFormation templates
     print_status "Uploading CloudFormation templates..."
     ./upload-templates.sh --env "$ENVIRONMENT"
-    
     package_lambdas
     deploy_stack
-    
-    # Deploy backup system
-    print_status "Deploying backup system..."
-    deploy_backup_system
-    
+
+    # Note: Backup system is deployed as part of the main stack (nested stack)
+    # No separate backup system deployment needed
+
     update_all_lambdas
     configure_api_gateway
+    
+    # Configure SES bounce and complaint notifications
+    print_status "Configuring SES bounce and complaint notifications..."
+    configure_ses_notifications
     
     # Update WebSocket endpoints in Lambda functions
     print_status "Updating WebSocket endpoints in Lambda functions..."
@@ -653,7 +824,7 @@ main() {
     print_status "Important endpoints:"
     aws cloudformation describe-stacks \
         --stack-name $STACK_NAME \
-        --query 'Stacks[0].Outputs[?OutputKey==`RestApiEndpoint`||OutputKey==`WebSocketApiEndpoint`||OutputKey==`InvoiceQueueUrl`||OutputKey==`EmailNotificationQueueUrl`||OutputKey==`WebSocketNotificationQueueUrl`||OutputKey==`FirebaseNotificationQueueUrl`].[OutputKey,OutputValue]' \
+        --query 'Stacks[0].Outputs[?OutputKey==`RestApiEndpoint`||OutputKey==`WebSocketApiEndpoint`||OutputKey==`InvoiceQueueUrl`||OutputKey==`EmailNotificationQueueUrl`||OutputKey==`WebSocketNotificationQueueUrl`||OutputKey==`FirebaseNotificationQueueUrl`||OutputKey==`SESBounceTopicArn`||OutputKey==`SESComplaintTopicArn`||OutputKey==`EmailSuppressionTableName`||OutputKey==`EmailAnalyticsTableName`].[OutputKey,OutputValue]' \
         --output table
 
     # Print async processing status
@@ -699,6 +870,24 @@ main() {
     echo "  ./manage-backups.sh restore-info $ENVIRONMENT      # Show restore instructions"
     echo ""
     print_status "For full backup system documentation, see: BACKUP_SYSTEM_GUIDE.md"
+    
+    echo ""
+    print_success "SES Bounce/Complaint System Deployed:"
+    echo "  ✓ SES bounce handler Lambda function for processing bounced emails"
+    echo "  ✓ SES complaint handler Lambda function for processing complaints"
+    echo "  ✓ SES delivery handler Lambda function for tracking deliveries"
+    echo "  ✓ Email suppression manager Lambda function for managing suppression lists"
+    echo "  ✓ SNS topics configured for SES notifications"
+    echo "  ✓ DynamoDB tables for email suppression and analytics"
+    echo "  ✓ SES notifications configured for bounce and complaint handling"
+    echo ""
+    print_status "SES Management:"
+    echo "  - Monitor DynamoDB EmailSuppression table for bounced/complained emails"
+    echo "  - Monitor DynamoDB EmailAnalytics table for delivery tracking"
+    echo "  - Check CloudWatch logs for Lambda function execution"
+    echo "  - Verify SES domain configuration in AWS SES console"
+    echo ""
+    print_status "For full SES system documentation, see: SES_BOUNCE_COMPLAINT_SYSTEM.md"
 }
 
 # Check if script is being run directly

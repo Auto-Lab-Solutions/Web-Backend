@@ -92,12 +92,21 @@ list_functions() {
     done
     
     echo ""
+    echo "SES Bounce/Complaint Functions:"
+    for lambda_dir in lambda/ses-*; do
+        if [ -d "$lambda_dir" ]; then
+            lambda_name=$(basename "$lambda_dir")
+            echo "  - $lambda_name"
+        fi
+    done
+    
+    echo ""
     echo "Other Functions:"
     for lambda_dir in lambda/*/; do
         if [ -d "$lambda_dir" ]; then
             lambda_name=$(basename "$lambda_dir")
             # Skip already categorized functions and system directories
-            if [[ ! "$lambda_name" =~ ^api- ]] && [[ ! "$lambda_name" =~ ^ws- ]] && [[ ! "$lambda_name" =~ ^staff-authorizer ]] && [[ ! "$lambda_name" =~ ^sqs- ]] && [ "$lambda_name" != "common_lib" ] && [ "$lambda_name" != "tmp" ]; then
+            if [[ ! "$lambda_name" =~ ^api- ]] && [[ ! "$lambda_name" =~ ^ws- ]] && [[ ! "$lambda_name" =~ ^staff-authorizer ]] && [[ ! "$lambda_name" =~ ^sqs- ]] && [[ ! "$lambda_name" =~ ^ses- ]] && [ "$lambda_name" != "common_lib" ] && [ "$lambda_name" != "tmp" ]; then
                 echo "  - $lambda_name"
             fi
         fi
@@ -164,8 +173,8 @@ package_lambda() {
     cd - > /dev/null
 
     # Upload to S3 - use different paths for different lambda types
-    if [[ "$lambda_name" == sqs-process-*-notification-queue ]] || [[ "$lambda_name" == "backup-restore" ]] || [[ "$lambda_name" == "api-backup-restore" ]]; then
-        # Notification processor lambdas and backup lambdas use lambda-packages/ path
+    if [[ "$lambda_name" == sqs-process-*-notification-queue ]] || [[ "$lambda_name" == "backup-restore" ]] || [[ "$lambda_name" == "api-backup-restore" ]] || [[ "$lambda_name" =~ ^ses- ]]; then
+        # Notification processor lambdas, backup lambdas, and SES bounce/complaint lambdas use lambda-packages/ path
         aws s3 cp "dist/lambda/$lambda_name.zip" "s3://$CLOUDFORMATION_BUCKET/lambda-packages/$lambda_name.zip"
     else
         # Standard lambdas use lambda/ path
@@ -288,6 +297,42 @@ update_backup_lambda() {
     return 0
 }
 
+# Function to update SES Lambda function code (managed by SESBounceComplaintStack)
+update_ses_lambda() {
+    local lambda_name=$1
+    local full_function_name="${lambda_name}-${ENVIRONMENT}"
+    local zip_file="dist/lambda/$lambda_name.zip"
+
+    if [ ! -f "$zip_file" ]; then
+        print_error "ZIP file not found: $zip_file"
+        return 1
+    fi
+    
+    # Check if function exists
+    if ! aws lambda get-function --function-name "$full_function_name" --region $AWS_REGION &>/dev/null; then
+        print_error "Lambda function '$full_function_name' does not exist in AWS"
+        print_warning "Please deploy infrastructure first using ./deploy.sh $ENVIRONMENT"
+        return 1
+    fi
+    
+    print_status "Updating SES Lambda function code: $full_function_name"
+    
+    # Update function code
+    aws lambda update-function-code \
+        --function-name "$full_function_name" \
+        --zip-file "fileb://$zip_file" \
+        --region $AWS_REGION > /dev/null
+    
+    # Wait for update to complete
+    print_status "Waiting for update to complete..."
+    aws lambda wait function-updated \
+        --function-name "$full_function_name" \
+        --region $AWS_REGION
+    
+    print_success "Updated $full_function_name"
+    return 0
+}
+
 # Function to update multiple Lambda functions
 update_functions() {
     local functions=("$@")
@@ -316,6 +361,13 @@ update_functions() {
             elif [[ "$lambda_name" == "backup-restore" ]] || [[ "$lambda_name" == "api-backup-restore" ]]; then
                 # Backup lambdas are managed by BackupSystemStack
                 if update_backup_lambda "$lambda_name"; then
+                    ((success_count++))
+                else
+                    ((error_count++))
+                fi
+            elif [[ "$lambda_name" =~ ^ses- ]]; then
+                # SES bounce/complaint lambdas are managed by SESBounceComplaintStack
+                if update_ses_lambda "$lambda_name"; then
                     ((success_count++))
                 else
                     ((error_count++))
