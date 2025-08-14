@@ -9,46 +9,48 @@ Parameters:
 
   CloudFormationBucket:
     Type: String
-    Description: S3 bucket containing CloudFormation templates and Lambda packages (used for backups)
+    Description: S3 bucket containing CloudFormation templates and Lambda packages
 
   ReportsBucketName:
     Type: String
     Description: S3 bucket name for reports that need to be backed up
+
+  BackupBucketName:
+    Type: String
+    Description: S3 bucket name for storing backups (must exist outside stack - not managed by CloudFormation)
 
   BackupSchedule:
     Type: String
     Default: "cron(0 2 * * ? *)"
     Description: Schedule for automated backups (default is daily at 2 AM UTC)
 
-  BackupRetentionDays:
-    Type: Number
-    Default: 30
-    Description: Number of days to retain backups
-
 Mappings:
   EnvironmentSettings:
     development:
       BackupFrequency: "cron(0 4 * * ? *)"  # Daily at 4 AM UTC for dev
-      RetentionDays: 7  # Keep backups for 7 days in dev
+      RetentionDays: 2  # Keep backups for 2 days in dev
     production:
       BackupFrequency: "cron(0 2 * * ? *)"  # Daily at 2 AM UTC for prod
-      RetentionDays: 30  # Keep backups for 30 days in prod
+      RetentionDays: 20  # Keep backups for 20 days in prod
 
 Resources:
+  # Note: BackupBucket is NOT created here - it must exist outside the stack
+  # This ensures the bucket persists when the stack is deleted and recreated
+
   # Backup Lambda Function
   BackupLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub 'auto-lab-backup-${Environment}'
-      Runtime: python3.11
+      Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt BackupLambdaRole.Arn
       Timeout: 900  # 15 minutes
-      MemorySize: 1024
+      MemorySize: 512
       Environment:
         Variables:
           ENVIRONMENT: !Ref Environment
-          BACKUP_BUCKET: !Ref CloudFormationBucket
+          BACKUP_BUCKET: !Ref BackupBucketName
           REPORTS_BUCKET: !Ref ReportsBucketName
           RETENTION_DAYS: !FindInMap [EnvironmentSettings, !Ref Environment, RetentionDays]
       Code:
@@ -58,12 +60,12 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
-  # API Lambda Function for triggering backups/restores via API
-  BackupApiLambdaFunction:
+  # Manual Backup Lambda Function for API triggers
+  ManualBackupLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub 'auto-lab-backup-api-${Environment}'
-      Runtime: python3.11
+      FunctionName: !Sub 'auto-lab-manual-backup-${Environment}'
+      Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt BackupApiLambdaRole.Arn
       Timeout: 300  # 5 minutes
@@ -74,171 +76,6 @@ Resources:
       Code:
         S3Bucket: !Ref CloudFormationBucket
         S3Key: !Sub 'lambda-packages/api-backup-restore-${Environment}.zip'
-      Tags:
-        - Key: Environment
-          Value: !Ref Environment
-          import json
-          import boto3
-          import os
-          import datetime
-          from botocore.exceptions import ClientError
-          
-          def lambda_handler(event, context):
-              environment = os.environ['ENVIRONMENT']
-              backup_bucket = os.environ['BACKUP_BUCKET']
-              reports_bucket = os.environ['REPORTS_BUCKET']
-              retention_days = int(os.environ['RETENTION_DAYS'])
-              
-              s3_client = boto3.client('s3')
-              dynamodb_client = boto3.client('dynamodb')
-              
-              timestamp = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
-              backup_prefix = f"backups/{environment}/{timestamp}"
-              
-              results = {
-                  'timestamp': timestamp,
-                  'environment': environment,
-                  'backup_location': f"s3://{backup_bucket}/{backup_prefix}",
-                  'tables_backed_up': [],
-                  'reports_backed_up': False,
-                  'invoices_backed_up': False,
-                  'errors': []
-              }
-              
-              # DynamoDB tables to backup
-              tables = [
-                  f'Staff-{environment}',
-                  f'Users-{environment}',
-                  f'Connections-{environment}',
-                  f'Messages-{environment}',
-                  f'UnavailableSlots-{environment}',
-                  f'Appointments-{environment}',
-                  f'ServicePrices-{environment}',
-                  f'Orders-{environment}',
-                  f'ItemPrices-{environment}',
-                  f'Inquiries-{environment}',
-                  f'Payments-{environment}',
-                  f'Invoices-{environment}'
-              ]
-              
-              # Backup DynamoDB tables
-              for table_name in tables:
-                  try:
-                      print(f"Backing up table: {table_name}")
-                      backup_table_data(dynamodb_client, s3_client, table_name, backup_bucket, f"{backup_prefix}/dynamodb/{table_name}.json")
-                      results['tables_backed_up'].append(table_name)
-                  except Exception as e:
-                      error_msg = f"Failed to backup table {table_name}: {str(e)}"
-                      print(error_msg)
-                      results['errors'].append(error_msg)
-              
-              # Backup reports from S3 bucket
-              try:
-                  print(f"Backing up reports from: {reports_bucket}")
-                  backup_s3_objects(s3_client, reports_bucket, backup_bucket, f"{backup_prefix}/reports/")
-                  results['reports_backed_up'] = True
-              except Exception as e:
-                  error_msg = f"Failed to backup reports: {str(e)}"
-                  print(error_msg)
-                  results['errors'].append(error_msg)
-              
-              # Clean up old backups
-              try:
-                  cleanup_old_backups(s3_client, backup_bucket, f"backups/{environment}/", retention_days)
-              except Exception as e:
-                  error_msg = f"Failed to cleanup old backups: {str(e)}"
-                  print(error_msg)
-                  results['errors'].append(error_msg)
-              
-              # Save backup manifest
-              try:
-                  manifest_key = f"{backup_prefix}/backup-manifest.json"
-                  s3_client.put_object(
-                      Bucket=backup_bucket,
-                      Key=manifest_key,
-                      Body=json.dumps(results, indent=2),
-                      ContentType='application/json'
-                  )
-              except Exception as e:
-                  error_msg = f"Failed to save backup manifest: {str(e)}"
-                  print(error_msg)
-                  results['errors'].append(error_msg)
-              
-              return {
-                  'statusCode': 200 if not results['errors'] else 207,
-                  'body': json.dumps(results)
-              }
-          
-          def backup_table_data(dynamodb_client, s3_client, table_name, bucket, s3_key):
-              """Backup DynamoDB table data to S3"""
-              try:
-                  paginator = dynamodb_client.get_paginator('scan')
-                  page_iterator = paginator.paginate(TableName=table_name)
-                  
-                  items = []
-                  for page in page_iterator:
-                      items.extend(page.get('Items', []))
-                  
-                  backup_data = {
-                      'table_name': table_name,
-                      'backup_timestamp': datetime.datetime.now().isoformat(),
-                      'item_count': len(items),
-                      'items': items
-                  }
-                  
-                  s3_client.put_object(
-                      Bucket=bucket,
-                      Key=s3_key,
-                      Body=json.dumps(backup_data, indent=2, default=str),
-                      ContentType='application/json'
-                  )
-                  
-                  print(f"Backed up {len(items)} items from {table_name}")
-                  
-              except ClientError as e:
-                  if e.response['Error']['Code'] == 'ResourceNotFoundException':
-          import json
-          import boto3
-          import os
-          
-          def lambda_handler(event, context):
-              \"\"\"Trigger manual backup by invoking the main backup function\"\"\"
-              lambda_client = boto3.client('lambda')
-              backup_function_name = os.environ['BACKUP_FUNCTION_NAME']
-              
-              try:
-                  # Add manual trigger flag to the event
-                  backup_event = {
-                      'operation': 'backup',
-                      'manual_trigger': True,
-                      'triggered_by': event.get('triggered_by', 'manual'),
-                      'reason': event.get('reason', 'Manual backup requested'),
-                      'tables': event.get('tables', [])
-                  }
-                  
-                  response = lambda_client.invoke(
-                      FunctionName=backup_function_name,
-                      InvocationType='Event',  # Asynchronous invocation
-                      Payload=json.dumps(backup_event)
-                  )
-                  
-                  return {
-                      'statusCode': 200,
-                      'body': json.dumps({
-                          'message': 'Manual backup initiated successfully',
-                          'backup_function': backup_function_name,
-                          'request_id': context.aws_request_id
-                      })
-                  }
-                  
-              except Exception as e:
-                  return {
-                      'statusCode': 500,
-                      'body': json.dumps({
-                          'error': f'Failed to initiate manual backup: {str(e)}'
-                      })
-                  }
-
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -281,6 +118,13 @@ Resources:
                   - s3:DeleteObject
                   - s3:ListBucket
                 Resource:
+                  - !Sub 'arn:aws:s3:::${BackupBucketName}'
+                  - !Sub 'arn:aws:s3:::${BackupBucketName}/*'
+              # S3 permissions for CloudFormation bucket (Lambda deployment)
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
                   - !Sub 'arn:aws:s3:::${CloudFormationBucket}'
                   - !Sub 'arn:aws:s3:::${CloudFormationBucket}/*'
               # S3 permissions for reports bucket
@@ -291,7 +135,27 @@ Resources:
                 Resource:
                   - !Sub 'arn:aws:s3:::${ReportsBucketName}'
                   - !Sub 'arn:aws:s3:::${ReportsBucketName}/*'
-              # Lambda permissions for manual backup
+
+  # IAM Role for Backup API Lambda Function
+  BackupApiLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'auto-lab-backup-api-lambda-role-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: BackupApiPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Lambda permissions for invoking backup function
               - Effect: Allow
                 Action:
                   - lambda:InvokeFunction
@@ -371,17 +235,23 @@ Outputs:
     Export:
       Name: !Sub '${AWS::StackName}-BackupLambdaFunction-Arn'
 
-  BackupApiLambdaFunctionArn:
-    Description: ARN of the backup API Lambda function
-    Value: !GetAtt BackupApiLambdaFunction.Arn
-    Export:
-      Name: !Sub '${AWS::StackName}-BackupApiLambdaFunction-Arn'
-
   ManualBackupLambdaFunctionArn:
     Description: ARN of the manual backup trigger Lambda function
     Value: !GetAtt ManualBackupLambdaFunction.Arn
     Export:
       Name: !Sub '${AWS::StackName}-ManualBackupLambdaFunction-Arn'
+
+  BackupLambdaFunctionName:
+    Description: Name of the backup Lambda function
+    Value: !Ref BackupLambdaFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-BackupLambdaFunction'
+
+  ManualBackupLambdaFunctionName:
+    Description: Name of the manual backup Lambda function
+    Value: !Ref ManualBackupLambdaFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-ManualBackupLambdaFunction'
 
   BackupScheduleRuleArn:
     Description: ARN of the EventBridge rule for scheduled backups
@@ -396,38 +266,20 @@ Outputs:
       Name: !Sub '${AWS::StackName}-BackupNotificationsTopic-Arn'
 
   BackupBucket:
-    Description: S3 bucket used for storing backups
-    Value: !Ref CloudFormationBucket
+    Description: S3 bucket used for storing backups (external bucket name)
+    Value: !Ref BackupBucketName
     Export:
       Name: !Sub '${AWS::StackName}-BackupBucket'
-Outputs:
-  BackupLambdaFunctionName:
-    Description: Name of the backup Lambda function
-    Value: !Ref BackupLambdaFunction
-    Export:
-      Name: !Sub '${AWS::StackName}-BackupLambdaFunction'
 
-  ManualBackupLambdaFunctionName:
-    Description: Name of the manual backup Lambda function
-    Value: !Ref ManualBackupLambdaFunction
+  BackupBucketName:
+    Description: Name of the S3 bucket used for storing backups
+    Value: !Ref BackupBucketName
     Export:
-      Name: !Sub '${AWS::StackName}-ManualBackupLambdaFunction'
-
-  BackupScheduleRuleArn:
-    Description: ARN of the backup schedule rule
-    Value: !GetAtt BackupScheduleRule.Arn
-    Export:
-      Name: !Sub '${AWS::StackName}-BackupScheduleRule'
-
-  BackupNotificationsTopicArn:
-    Description: ARN of the backup notifications SNS topic
-    Value: !Ref BackupNotificationsTopic
-    Export:
-      Name: !Sub '${AWS::StackName}-BackupNotificationsTopic'
+      Name: !Sub '${AWS::StackName}-BackupBucketName'
 
   BackupLocation:
     Description: S3 location where backups are stored
-    Value: !Sub 's3://${CloudFormationBucket}/backups/${Environment}/'
+    Value: !Sub 's3://${BackupBucketName}/backups/${Environment}/'
     Export:
       Name: !Sub '${AWS::StackName}-BackupLocation'
 
@@ -438,8 +290,8 @@ Outputs:
       aws lambda invoke --function-name ${ManualBackupLambdaFunction} --payload '{"reason":"Manual backup requested"}' response.json
       
       View Backups:
-      aws s3 ls s3://${CloudFormationBucket}/backups/${Environment}/ --recursive
+      aws s3 ls s3://${BackupBucketName}/backups/${Environment}/ --recursive
       
-      Backup Location: s3://${CloudFormationBucket}/backups/${Environment}/
+      Backup Location: s3://${BackupBucketName}/backups/${Environment}/
     Export:
       Name: !Sub '${AWS::StackName}-BackupInstructions'

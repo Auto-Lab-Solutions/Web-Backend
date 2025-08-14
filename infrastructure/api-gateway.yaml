@@ -99,6 +99,10 @@ Parameters:
     Type: String
     Description: Notify Lambda ARN
 
+  ApiEmailSuppressionManagerArn:
+    Type: String
+    Description: Email Suppression Manager API Lambda ARN
+
   # Custom Domain Parameters
   EnableApiCustomDomains:
     Type: String
@@ -1120,6 +1124,221 @@ Resources:
             method.response.header.Access-Control-Allow-Headers: true
             method.response.header.Access-Control-Allow-Origin: true
 
+  # Email Suppression Manager API Resources
+  EmailSuppressionResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !GetAtt RestApi.RootResourceId
+      PathPart: email-suppression
+
+  # Check suppression status: GET /email-suppression/check?email=example@domain.com
+  EmailSuppressionCheckResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref EmailSuppressionResource
+      PathPart: check
+
+  EmailSuppressionCheckMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref EmailSuppressionCheckResource
+      HttpMethod: GET
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref StaffAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiEmailSuppressionManagerArn}/invocations'
+
+  # List suppressed emails: GET /email-suppression/list
+  EmailSuppressionListResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref EmailSuppressionResource
+      PathPart: list
+
+  EmailSuppressionListMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref EmailSuppressionListResource
+      HttpMethod: GET
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref StaffAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiEmailSuppressionManagerArn}/invocations'
+
+  # Add to suppression: POST /email-suppression/add
+  EmailSuppressionAddResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref EmailSuppressionResource
+      PathPart: add
+
+  EmailSuppressionAddMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref EmailSuppressionAddResource
+      HttpMethod: POST
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref StaffAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiEmailSuppressionManagerArn}/invocations'
+
+  EmailSuppressionAddOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref EmailSuppressionAddResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            ResponseTemplates:
+              application/json: ''
+        PassthroughBehavior: WHEN_NO_MATCH
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  # Remove from suppression: DELETE /email-suppression/remove?email=example@domain.com
+  EmailSuppressionRemoveResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref EmailSuppressionResource
+      PathPart: remove
+
+  EmailSuppressionRemoveMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref EmailSuppressionRemoveResource
+      HttpMethod: DELETE
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref StaffAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiEmailSuppressionManagerArn}/invocations'
+
+  EmailSuppressionRemoveOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref EmailSuppressionRemoveResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,DELETE'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            ResponseTemplates:
+              application/json: ''
+        PassthroughBehavior: WHEN_NO_MATCH
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  # Get email analytics: GET /email-suppression/analytics
+  EmailSuppressionAnalyticsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref EmailSuppressionResource
+      PathPart: analytics
+
+  EmailSuppressionAnalyticsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref EmailSuppressionAnalyticsResource
+      HttpMethod: GET
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref StaffAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiEmailSuppressionManagerArn}/invocations'
+
+  # Cleanup expired suppressions: POST /email-suppression/cleanup
+  EmailSuppressionCleanupResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref EmailSuppressionResource
+      PathPart: cleanup
+
+  EmailSuppressionCleanupMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref EmailSuppressionCleanupResource
+      HttpMethod: POST
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref StaffAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiEmailSuppressionManagerArn}/invocations'
+
+  EmailSuppressionCleanupOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref EmailSuppressionCleanupResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,POST'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            ResponseTemplates:
+              application/json: ''
+        PassthroughBehavior: WHEN_NO_MATCH
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+
   # Custom Domain Configuration for REST API
   ApiCustomDomain:
     Type: AWS::ApiGateway::DomainName
@@ -1380,6 +1599,14 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/authorizers/${StaffAuthorizerOptional}'
 
+  ApiEmailSuppressionManagerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ApiEmailSuppressionManagerArn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/*'
+
   # API Gateway Stage
   ApiStage:
     Type: AWS::ApiGateway::Stage
@@ -1525,14 +1752,17 @@ Resources:
       - UsersMethod
       - AppointmentsGetMethod
       - AppointmentsPostMethod
+      - AppointmentsOptionsMethod
       - AppointmentsIdPatchMethod
       - UnavailableSlotsGetMethod
       - UnavailableSlotsPostMethod
       - OrdersGetMethod
       - OrdersPostMethod
+      - OrdersOptionsMethod
       - OrdersIdPatchMethod
       - InquiriesGetMethod
       - InquiriesPostMethod
+      - InquiriesOptionsMethod
       - ReportUploadUrlsPostMethod
       - GetStaffRolesMethod
       - MessagesNotifyPostMethod
@@ -1559,9 +1789,19 @@ Resources:
       - MessagesNotifyOptionsMethod
       - ReportUploadUrlsOptionsMethod
       - AnalyticsPostMethod
-      - InquiriesOptionsMethod
-      - AppointmentsOptionsMethod
-      - OrdersOptionsMethod
+      - EmailSuppressionCheckMethod
+      - EmailSuppressionListMethod
+      - EmailSuppressionAddMethod
+      - EmailSuppressionRemoveMethod
+      - EmailSuppressionAnalyticsMethod
+      - EmailSuppressionCleanupMethod
+      - EmailSuppressionOptionsMethod
+      - EmailSuppressionCheckOptionsMethod
+      - EmailSuppressionListOptionsMethod
+      - EmailSuppressionAddOptionsMethod
+      - EmailSuppressionRemoveOptionsMethod
+      - EmailSuppressionAnalyticsOptionsMethod
+      - EmailSuppressionCleanupOptionsMethod
     Properties:
       RestApiId: !Ref RestApi
       Description: !Sub 'API Deployment for ${Environment} - Updated for Stage Separation'

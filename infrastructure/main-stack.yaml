@@ -5,7 +5,16 @@ Parameters:
   Environment:
     Type: String
     Default: production
-    Description: Environment name
+    Description: Environment name (development, production)
+
+  # Lambda Functions
+  LambdaStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: 
+      - DynamoDBStack
+      - S3CloudFrontStack
+      - NotificationQueueStack
+      - SESBounceComplaintStack
   
   S3BucketName:
     Type: String
@@ -16,6 +25,33 @@ Parameters:
     Type: String
     Default: auto-lab-cloudformation-templates
     Description: S3 bucket containing CloudFormation templates and Lambda packages
+
+  BackupBucketName:
+    Type: String
+    Default: auto-lab-backups
+    Description: S3 bucket name for storing backups (must exist outside stack - not managed by CloudFormation)
+
+  # Reports CloudFront Custom Domain Parameters
+  ReportsDomainName:
+    Type: String
+    Description: Custom domain name for reports CloudFront distribution (e.g., reports.autolabsolutions.com)
+    Default: ''
+
+  ReportsHostedZoneId:
+    Type: String
+    Description: Route53 hosted zone ID for reports domain
+    Default: ''
+
+  ReportsAcmCertificateArn:
+    Type: String
+    Description: ACM certificate ARN for reports domain (must be in us-east-1)
+    Default: ''
+
+  EnableReportsCustomDomain:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+    Description: Whether to enable custom domain for reports CloudFront distribution
 
   StripeSecretKey:
     Type: String
@@ -157,6 +193,7 @@ Conditions:
   ShouldDeployFrontend: !Equals [!Ref EnableFrontendWebsite, 'true']
   ShouldEnableFirebase: !Equals [!Ref EnableFirebaseNotifications, 'true']
   ShouldEnableApiCustomDomains: !Equals [!Ref EnableApiCustomDomains, 'true']
+  ShouldEnableReportsCustomDomain: !Equals [!Ref EnableReportsCustomDomain, 'true']
 
 Resources:
   # DynamoDB Tables
@@ -189,7 +226,7 @@ Resources:
         InvoicesTable: !GetAtt DynamoDBStack.Outputs.InvoicesTable
         CloudFormationBucket: !Ref CloudFormationBucket
         ReportsBucketName: !Sub 'auto-lab-reports-${AWS::AccountId}-${Environment}'
-        CloudFrontDomain: !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName
+        CloudFrontDomain: !If [ShouldEnableReportsCustomDomain, !Ref ReportsDomainName, !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName]
         FrontendRootUrl: !Ref FrontendRootUrl
 
   # Lambda Functions
@@ -221,7 +258,7 @@ Resources:
         StripeWebhookSecret: !Ref StripeWebhookSecret
         Auth0Domain: !Ref Auth0Domain
         Auth0Audience: !Ref Auth0Audience
-        CloudFrontDomain: !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName
+        CloudFrontDomain: !If [ShouldEnableReportsCustomDomain, !Ref ReportsDomainName, !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName]
         ReportsBucketName: !Sub 'auto-lab-reports-${AWS::AccountId}-${Environment}'
         FrontendRootUrl: !Ref FrontendRootUrl
         SharedKey: !Ref SharedKey
@@ -232,6 +269,8 @@ Resources:
         InvoiceGenerationQueueUrl: !GetAtt InvoiceQueueStack.Outputs.InvoiceGenerationQueueUrl
         FromEmail: !Ref FromEmail
         SesRegion: !Ref SesRegion
+        EmailSuppressionTableName: !GetAtt SESBounceComplaintStack.Outputs.EmailSuppressionTableName
+        EmailAnalyticsTableName: !GetAtt SESBounceComplaintStack.Outputs.EmailAnalyticsTableName
 
   # API Gateway
   ApiGatewayStack:
@@ -315,7 +354,7 @@ Resources:
         PaymentsTable: !GetAtt DynamoDBStack.Outputs.PaymentsTableName
         InvoicesTable: !GetAtt DynamoDBStack.Outputs.InvoicesTableName
         ReportsBucketName: !GetAtt S3CloudFrontStack.Outputs.ReportsBucketName
-        CloudFrontDomain: !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomain
+        CloudFrontDomain: !If [ShouldEnableReportsCustomDomain, !Ref ReportsDomainName, !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName]
         FrontendRootUrl: !Ref FrontendRootUrl
 
   # Notification Queue Stack
@@ -340,7 +379,7 @@ Resources:
         PaymentsTable: !GetAtt DynamoDBStack.Outputs.PaymentsTableName
         InvoicesTable: !GetAtt DynamoDBStack.Outputs.InvoicesTableName
         ReportsBucketName: !GetAtt S3CloudFrontStack.Outputs.ReportsBucketName
-        CloudFrontDomain: !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomain
+        CloudFrontDomain: !If [ShouldEnableReportsCustomDomain, !Ref ReportsDomainName, !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName]
         FrontendRootUrl: !Ref FrontendRootUrl
         FromEmail: !Ref FromEmail
         WebSocketApiId: !GetAtt WebSocketStack.Outputs.WebSocketApiId
@@ -356,6 +395,10 @@ Resources:
       Parameters:
         Environment: !Ref Environment
         S3BucketName: !Ref S3BucketName
+        EnableCustomDomain: !Ref EnableReportsCustomDomain
+        DomainName: !Ref ReportsDomainName
+        HostedZoneId: !Ref ReportsHostedZoneId
+        AcmCertificateArn: !Ref ReportsAcmCertificateArn
 
   # Frontend Website Stack
   FrontendWebsiteStack:
@@ -381,12 +424,24 @@ Resources:
       Parameters:
         Environment: !Ref Environment
         CloudFormationBucket: !Ref CloudFormationBucket
+        BackupBucketName: !Ref BackupBucketName
         ReportsBucketName: !GetAtt S3CloudFrontStack.Outputs.ReportsBucketName
       Tags:
         - Key: Environment
           Value: !Ref Environment
         - Key: Purpose
           Value: BackupSystem
+
+  # SES Bounce and Complaint Handling System
+  SESBounceComplaintStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/ses-bounce-complaint-system.yaml'
+      Parameters:
+        EnvironmentName: !Ref Environment
+        FromEmail: !Ref FromEmail
+        SesRegion: !Ref SesRegion
+        CloudFormationBucket: !Ref CloudFormationBucket
 
 Outputs:
   RestApiId:
@@ -424,6 +479,20 @@ Outputs:
     Value: !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName
     Export:
       Name: !Sub '${AWS::StackName}-CloudFrontDomainName'
+
+  ReportsDomainName:
+    Description: Reports Domain Name (Custom or CloudFront)
+    Value: !If [ShouldEnableReportsCustomDomain, !Ref ReportsDomainName, !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName]
+    Export:
+      Name: !Sub '${AWS::StackName}-ReportsDomainName'
+
+  ReportsBaseUrl:
+    Description: Base URL for reports (with https://)
+    Value: !Sub 
+      - 'https://${Domain}'
+      - Domain: !If [ShouldEnableReportsCustomDomain, !Ref ReportsDomainName, !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName]
+    Export:
+      Name: !Sub '${AWS::StackName}-ReportsBaseUrl'
 
   # Frontend Website Outputs
   FrontendWebsiteURL:
@@ -504,6 +573,12 @@ Outputs:
     Export:
       Name: !Sub '${AWS::StackName}-BackupLocation'
 
+  BackupBucketName:
+    Description: Name of the S3 bucket used for storing backups
+    Value: !GetAtt BackupSystemStack.Outputs.BackupBucketName
+    Export:
+      Name: !Sub '${AWS::StackName}-BackupBucketName'
+
   BackupNotificationsTopic:
     Description: SNS topic for backup notifications
     Value: !GetAtt BackupSystemStack.Outputs.BackupNotificationsTopicArn
@@ -515,3 +590,34 @@ Outputs:
     Value: !GetAtt BackupSystemStack.Outputs.BackupInstructions
     Export:
       Name: !Sub '${AWS::StackName}-BackupInstructions'
+
+  # SES Bounce and Complaint System Outputs
+  SESBounceTopicArn:
+    Description: ARN of the SES Bounce Notification SNS Topic
+    Value: !GetAtt SESBounceComplaintStack.Outputs.SESBounceTopicArn
+    Export:
+      Name: !Sub '${AWS::StackName}-SESBounceTopicArn'
+
+  SESComplaintTopicArn:
+    Description: ARN of the SES Complaint Notification SNS Topic
+    Value: !GetAtt SESBounceComplaintStack.Outputs.SESComplaintTopicArn
+    Export:
+      Name: !Sub '${AWS::StackName}-SESComplaintTopicArn'
+
+  SESDeliveryTopicArn:
+    Description: ARN of the SES Delivery Notification SNS Topic
+    Value: !GetAtt SESBounceComplaintStack.Outputs.SESDeliveryTopicArn
+    Export:
+      Name: !Sub '${AWS::StackName}-SESDeliveryTopicArn'
+
+  EmailSuppressionTableName:
+    Description: Name of the Email Suppression DynamoDB Table
+    Value: !GetAtt SESBounceComplaintStack.Outputs.EmailSuppressionTableName
+    Export:
+      Name: !Sub '${AWS::StackName}-EmailSuppressionTableName'
+
+  EmailAnalyticsTableName:
+    Description: Name of the Email Analytics DynamoDB Table
+    Value: !GetAtt SESBounceComplaintStack.Outputs.EmailAnalyticsTableName
+    Export:
+      Name: !Sub '${AWS::StackName}-EmailAnalyticsTableName'

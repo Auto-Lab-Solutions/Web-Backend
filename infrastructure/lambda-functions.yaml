@@ -142,6 +142,16 @@ Parameters:
     Description: SQS Queue URL for asynchronous invoice processing
     Default: ""
 
+  EmailSuppressionTableName:
+    Type: String
+    Description: Email suppression DynamoDB table name
+    Default: ""
+
+  EmailAnalyticsTableName:
+    Type: String
+    Description: Email analytics DynamoDB table name
+    Default: ""
+
 Conditions:
   IsProduction: !Equals [!Ref Environment, 'production']
 
@@ -198,6 +208,10 @@ Resources:
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${PaymentsTable}/index/*'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InvoicesTable}'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InvoicesTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailSuppressionTableName}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailSuppressionTableName}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailAnalyticsTableName}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailAnalyticsTableName}/index/*'
         - PolicyName: S3Access
           PolicyDocument:
             Version: '2012-10-17'
@@ -238,6 +252,12 @@ Resources:
                   - ses:GetSendStatistics
                   - ses:VerifyEmailIdentity
                   - ses:ListVerifiedEmailAddresses
+                  - ses:PutSuppressedDestination
+                  - ses:DeleteSuppressedDestination
+                  - ses:GetSuppressedDestination
+                  - ses:ListSuppressedDestinations
+                  - ses:PutAccountSuppressionAttributes
+                  - ses:GetAccountSuppressionAttributes
                 Resource: '*'
 
   # Staff Authorizer Lambda
@@ -365,6 +385,7 @@ Resources:
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
           FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -392,6 +413,7 @@ Resources:
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
           FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -476,6 +498,7 @@ Resources:
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
           FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -503,6 +526,7 @@ Resources:
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
           FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -540,6 +564,7 @@ Resources:
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
           FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -599,6 +624,7 @@ Resources:
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
           FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -637,6 +663,7 @@ Resources:
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
           FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -679,6 +706,7 @@ Resources:
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
           FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -1032,6 +1060,31 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
+  # Email Suppression Manager API Function
+  ApiEmailSuppressionManager:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'api-email-suppression-manager-${Environment}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !Ref LambdaExecutionRole
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          ANALYTICS_TABLE_NAME: !Ref EmailAnalyticsTableName
+          SHARED_KEY: !Ref SharedKey
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: 'lambda/api-email-suppression-manager.zip'
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: AutoLabSolutions
+        - Key: Purpose
+          Value: EmailSuppressionAPI
+
 Outputs:
   StaffAuthorizerArn:
     Description: Staff Authorizer Lambda ARN
@@ -1178,4 +1231,10 @@ Outputs:
     Value: !GetAtt ApiBackupRestore.Arn
     Export:
       Name: !Sub '${AWS::StackName}-ApiBackupRestoreArn'
+
+  ApiEmailSuppressionManagerArn:
+    Description: Email Suppression Manager API Lambda ARN
+    Value: !GetAtt ApiEmailSuppressionManager.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiEmailSuppressionManagerArn'
 

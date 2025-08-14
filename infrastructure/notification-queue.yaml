@@ -170,7 +170,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub 'sqs-process-email-notification-queue-${EnvironmentName}'
-      Runtime: python3.9
+      Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt EmailNotificationProcessorRole.Arn
       Code:
@@ -202,7 +202,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub 'sqs-process-websocket-notification-queue-${EnvironmentName}'
-      Runtime: python3.9
+      Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt WebSocketNotificationProcessorRole.Arn
       Code:
@@ -232,7 +232,7 @@ Resources:
     Condition: ShouldEnableFirebase
     Properties:
       FunctionName: !Sub 'sqs-process-firebase-notification-queue-${EnvironmentName}'
-      Runtime: python3.9
+      Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt FirebaseNotificationProcessorRole.Arn
       Code:
