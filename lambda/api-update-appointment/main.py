@@ -47,13 +47,15 @@ def lambda_handler(event, context):
         scenario = determine_update_scenario(body)
         
         # Validate permissions based on scenario
-        permission_result = validate_permissions(scenario, staff_roles, current_status, staff_user_id, assigned_mechanic_id, payment_completed)
+        permission_result = validate_permissions(scenario, staff_roles, current_status, staff_user_id, assigned_mechanic_id)
         if not permission_result['allowed']:
             return resp.error_response(permission_result['message'], 403)
         
         # Process updates based on scenario
         if scenario == 'basic_info':
             # Scenario 1: Update basic appointment info
+            if payment_completed and ('serviceId' in body or 'planId' in body):
+                return resp.error_response("Cannot update serviceId or planId after payment is completed", 400)
             update_data = process_basic_info_updates(body, existing_appointment)
             
         elif scenario == 'scheduling':
@@ -114,7 +116,7 @@ def determine_update_scenario(body):
         return 'basic_info'
 
 
-def validate_permissions(scenario, staff_roles, current_status, staff_user_id, assigned_mechanic_id, payment_completed):
+def validate_permissions(scenario, staff_roles, current_status, staff_user_id, assigned_mechanic_id):
     """Validate if the user has permission for this update scenario"""
     
     if scenario == 'basic_info':
@@ -123,8 +125,6 @@ def validate_permissions(scenario, staff_roles, current_status, staff_user_id, a
             return {'allowed': False, 'message': 'Unauthorized: CUSTOMER_SUPPORT role required'}
         if current_status not in ['PENDING', 'SCHEDULED', 'ONGOING']:
             return {'allowed': False, 'message': f'Cannot update basic info when status is {current_status}'}
-        if payment_completed:
-            return {'allowed': False, 'message': 'Cannot update basic info when payment is completed'}
             
     elif scenario == 'scheduling':
         # Scenario 2: Scheduling updates
@@ -303,33 +303,39 @@ def send_update_notifications(appointment_id, scenario, update_data, updated_app
     
     # Queue email notification to customer
     try:
-        customer_user_id = updated_appointment.get('createdUserId')
-        if customer_user_id:
-            user_record = db.get_user_record(customer_user_id)
-            if user_record and user_record.get('email'):
-                customer_email = user_record.get('email')
-                customer_name = user_record.get('name', 'Valued Customer')
-                
-                # Format appointment data for email
-                email_appointment_data = format_appointment_data_for_email(updated_appointment)
-                
-                # Handle special case for report ready notification
-                if 'reportUrl' in update_data and update_data.get('reportUrl'):
-                    notify.queue_report_ready_email(
-                        customer_email, 
-                        customer_name, 
-                        email_appointment_data, 
-                        update_data.get('reportUrl')
-                    )
-                    return  # Exit early for report updates
-                
-                # Send appropriate email based on scenario
-                if scenario == 'MECHANIC_ASSIGNMENT' and 'scheduledDate' in update_data:
-                    # Appointment scheduled with mechanic
-                    notify.queue_appointment_scheduled_email(customer_email, customer_name, email_appointment_data)
-                elif any(key in update_data for key in ['assignedMechanic', 'scheduledDate', 'timeSlot', 'status']):
-                    # General appointment update
-                    notify.queue_appointment_updated_email(customer_email, customer_name, email_appointment_data)
+        # Get customer information from appointment record
+        is_buyer = updated_appointment.get('isBuyer', True)
+        if is_buyer:
+            customer_email = updated_appointment.get('buyerEmail')
+            customer_name = updated_appointment.get('buyerName', 'Valued Customer')
+        else:
+            customer_email = updated_appointment.get('sellerEmail')
+            customer_name = updated_appointment.get('sellerName', 'Valued Customer')
+        
+        if customer_email:
+            # Handle special case for report ready notification
+            if 'reportUrl' in update_data and update_data.get('reportUrl'):
+                # Use unified function for preprocessing
+                email_appointment_data, changes = email.prepare_email_data_and_changes(updated_appointment, update_data, 'appointment')
+                notify.queue_report_ready_email(
+                    customer_email, 
+                    customer_name, 
+                    email_appointment_data, 
+                    update_data.get('reportUrl')
+                )
+                return  # Exit early for report updates
+            
+            # Send appropriate email based on scenario
+            if scenario == 'status':
+                # Status update - send status-specific email
+                email_appointment_data, changes = email.prepare_email_data_and_changes(updated_appointment, update_data, 'appointment')
+                notify.queue_appointment_updated_email(customer_email, customer_name, email_appointment_data, changes, 'status')
+            else:
+                # General appointment update (including scheduling changes) - send general update email
+                email_appointment_data, changes = email.prepare_email_data_and_changes(updated_appointment, update_data, 'appointment')
+                notify.queue_appointment_updated_email(customer_email, customer_name, email_appointment_data, changes, 'general')
+        else:
+            print("No customer email found in appointment record")
                     
     except Exception as e:
         print(f"Failed to queue email notification: {str(e)}")
@@ -363,65 +369,6 @@ def send_update_notifications(appointment_id, scenario, update_data, updated_app
     except Exception as e:
         print(f"Failed to queue Firebase notification: {str(e)}")
         # Don't fail the update if notification queueing fails
-
-
-def format_appointment_data_for_email(appointment_data):
-    """Format appointment data for email notifications"""
-    # Get service and plan names
-    service_name = "Service"
-    plan_name = "Plan"
-    
-    try:
-        service_id = appointment_data.get('serviceId')
-        plan_id = appointment_data.get('planId')
-        if service_id and plan_id:
-            service_plan_names = db.get_service_plan_names(service_id, plan_id)
-            if service_plan_names:
-                service_name, plan_name = service_plan_names
-    except Exception as e:
-        print(f"Error getting service plan names: {str(e)}")
-    
-    # Format vehicle info from database fields
-    vehicle_info = {
-        'make': appointment_data.get('carMake', 'N/A'),
-        'model': appointment_data.get('carModel', 'N/A'),
-        'year': appointment_data.get('carYear', 'N/A')
-    }
-    
-    # Format scheduled time slot for display
-    scheduled_slot = appointment_data.get('scheduledTimeSlot', {})
-    time_slot = "TBD"
-    if scheduled_slot and isinstance(scheduled_slot, dict):
-        start = scheduled_slot.get('start', '')
-        end = scheduled_slot.get('end', '')
-        if start and end:
-            time_slot = f"{start} - {end}"
-    
-    # Get mechanic name if assigned
-    assigned_mechanic = "Our team"
-    assigned_mechanic_id = appointment_data.get('assignedMechanicId')
-    if assigned_mechanic_id:
-        try:
-            mechanic_record = db.get_staff_record_by_user_id(assigned_mechanic_id)
-            if mechanic_record:
-                assigned_mechanic = mechanic_record.get('name', 'Our team')
-        except Exception as e:
-            print(f"Error getting mechanic name: {str(e)}")
-    
-    return {
-        'appointmentId': appointment_data.get('appointmentId'),
-        'services': [{
-            'serviceName': service_name,
-            'planName': plan_name,
-        }],
-        'vehicleInfo': vehicle_info,
-        'scheduledDate': appointment_data.get('scheduledDate'),
-        'timeSlot': time_slot,
-        'assignedMechanic': assigned_mechanic,
-        'location': appointment_data.get('location', 'Auto Lab Solutions Service Center'),
-        'status': appointment_data.get('status'),
-        'reportType': appointment_data.get('reportType')
-    }
 
 
 

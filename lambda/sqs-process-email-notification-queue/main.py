@@ -1,11 +1,5 @@
 import json
-import os
-import sys
 import traceback
-
-# Add the common_lib directory to the Python path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'common_lib'))
-
 import db_utils as db
 import email_utils as email
 
@@ -77,20 +71,16 @@ def send_email_notification(notification_type, customer_email, customer_name, da
             
         elif notification_type == 'appointment_updated':
             changes = data.get('changes')
-            return email.send_appointment_updated_email(customer_email, customer_name, data, changes)
-            
-        elif notification_type == 'appointment_scheduled':
-            return email.send_appointment_scheduled_email(customer_email, customer_name, data)
+            update_type = data.get('update_type', 'general')
+            return email.send_appointment_updated_email(customer_email, customer_name, data, changes, update_type)
             
         elif notification_type == 'order_created':
             return email.send_order_created_email(customer_email, customer_name, data)
             
         elif notification_type == 'order_updated':
             changes = data.get('changes')
-            return email.send_order_updated_email(customer_email, customer_name, data, changes)
-            
-        elif notification_type == 'order_scheduled':
-            return email.send_order_scheduled_email(customer_email, customer_name, data)
+            update_type = data.get('update_type', 'general')
+            return email.send_order_updated_email(customer_email, customer_name, data, changes, update_type)
             
         elif notification_type == 'report_ready':
             report_url = data.get('report_url')

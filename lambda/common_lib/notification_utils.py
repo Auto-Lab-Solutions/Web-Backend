@@ -70,31 +70,25 @@ def queue_appointment_created_email(customer_email, customer_name, appointment_d
     """Queue appointment created email notification"""
     return queue_email_notification('appointment_created', customer_email, customer_name, appointment_data)
 
-def queue_appointment_updated_email(customer_email, customer_name, appointment_data, changes=None):
+def queue_appointment_updated_email(customer_email, customer_name, appointment_data, changes=None, update_type='general'):
     """Queue appointment updated email notification"""
     data = appointment_data.copy()
     if changes:
         data['changes'] = changes
+    data['update_type'] = update_type
     return queue_email_notification('appointment_updated', customer_email, customer_name, data)
-
-def queue_appointment_scheduled_email(customer_email, customer_name, appointment_data):
-    """Queue appointment scheduled email notification"""
-    return queue_email_notification('appointment_scheduled', customer_email, customer_name, appointment_data)
 
 def queue_order_created_email(customer_email, customer_name, order_data):
     """Queue order created email notification"""
     return queue_email_notification('order_created', customer_email, customer_name, order_data)
 
-def queue_order_updated_email(customer_email, customer_name, order_data, changes=None):
+def queue_order_updated_email(customer_email, customer_name, order_data, changes=None, update_type='general'):
     """Queue order updated email notification"""
     data = order_data.copy()
     if changes:
         data['changes'] = changes
+    data['update_type'] = update_type
     return queue_email_notification('order_updated', customer_email, customer_name, data)
-
-def queue_order_scheduled_email(customer_email, customer_name, order_data):
-    """Queue order scheduled email notification"""
-    return queue_email_notification('order_scheduled', customer_email, customer_name, order_data)
 
 def queue_report_ready_email(customer_email, customer_name, appointment_or_order_data, report_url):
     """Queue report ready email notification"""

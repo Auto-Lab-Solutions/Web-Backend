@@ -3,6 +3,8 @@ import os
 import json
 from datetime import datetime
 from botocore.exceptions import ClientError
+import db_utils as db
+import response_utils as resp
 
 # Initialize SES client
 ses_client = boto3.client('ses')
@@ -24,25 +26,19 @@ class EmailTemplate:
     # Email subjects
     APPOINTMENT_CREATED = "Your Appointment Request Has Been Received"
     APPOINTMENT_UPDATED = "Your Appointment Has Been Updated"
-    APPOINTMENT_SCHEDULED = "Your Appointment Has Been Scheduled"
-    APPOINTMENT_REPORT_READY = "Your Vehicle Report is Ready"
-    
     ORDER_CREATED = "Your Service Order Has Been Created"
     ORDER_UPDATED = "Your Service Order Has Been Updated"
-    ORDER_SCHEDULED = "Your Service Order Has Been Scheduled"
-    ORDER_REPORT_READY = "Your Service Report is Ready"
     
+    APPOINTMENT_REPORT_READY = "Your Vehicle Report is Ready"
     PAYMENT_CONFIRMED = "Payment Confirmation - Invoice Generated"
     
     # Email types for analytics
     TYPE_APPOINTMENT_CREATED = "appointment_created"
     TYPE_APPOINTMENT_UPDATED = "appointment_updated"
-    TYPE_APPOINTMENT_SCHEDULED = "appointment_scheduled"
-    TYPE_APPOINTMENT_REPORT = "appointment_report"
     TYPE_ORDER_CREATED = "order_created"
     TYPE_ORDER_UPDATED = "order_updated"
-    TYPE_ORDER_SCHEDULED = "order_scheduled"
-    TYPE_ORDER_REPORT = "order_report"
+
+    TYPE_APPOINTMENT_REPORT = "appointment_report"
     TYPE_PAYMENT_CONFIRMED = "payment_confirmed"
 
 def send_email(to_email, subject, html_body, text_body=None, email_type=None):
@@ -244,9 +240,19 @@ def send_order_created_email(customer_email, customer_name, order_data):
         email_type=EmailTemplate.TYPE_ORDER_CREATED
     )
 
-def send_appointment_updated_email(customer_email, customer_name, appointment_data, changes=None):
+def send_appointment_updated_email(customer_email, customer_name, appointment_data, changes=None, update_type='general'):
     """Send email when appointment is updated"""
-    subject = EmailTemplate.APPOINTMENT_UPDATED
+    
+    # Determine email subject and title based on update type
+    if update_type == 'status':
+        current_status = appointment_data.get('status', 'Unknown')
+        subject = f"Appointment Status Updated - {format_status_display(current_status)}"
+        email_title = f"Appointment Status Changed to {format_status_display(current_status)}"
+        intro_message = f"Your appointment status has been updated to <strong>{format_status_display(current_status)}</strong>."
+    else:
+        subject = EmailTemplate.APPOINTMENT_UPDATED
+        email_title = "Appointment Updated"
+        intro_message = "Your appointment has been updated. Please review the changes below and contact us if you have any questions."
     
     # Format appointment details
     services = format_services(appointment_data.get('services', []))
@@ -256,9 +262,14 @@ def send_appointment_updated_email(customer_email, customer_name, appointment_da
     changes_html = ""
     if changes:
         for field, change in changes.items():
-            old_value = change.get('old', 'N/A')
-            new_value = change.get('new', 'N/A')
-            changes_html += f"<p><strong>{format_field_name(field)}:</strong> {old_value} → {new_value}</p>"
+            # For status updates, only show new value (not old → new)
+            if update_type == 'status' and field.lower() in ['status', 'appointment status']:
+                new_value = change.get('new', 'N/A')
+                changes_html += f"<p><strong>{format_field_name(field)}:</strong> {new_value}</p>"
+            else:
+                old_value = change.get('old', 'N/A')
+                new_value = change.get('new', 'N/A')
+                changes_html += f"<p><strong>{format_field_name(field)}:</strong> {old_value} → {new_value}</p>"
     else:
         changes_html = "<p>Your appointment details have been updated. Please review the current information below.</p>"
     
@@ -267,22 +278,22 @@ def send_appointment_updated_email(customer_email, customer_name, appointment_da
     <head></head>
     <body>
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #2c3e50;">Appointment Updated</h2>
+            <h2 style="color: #2c3e50;">{email_title}</h2>
             
             <p>Dear {customer_name},</p>
             
-            <p>Your appointment has been updated. Please review the changes below and contact us if you have any questions.</p>
+            <p>{intro_message}</p>
             
             <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
                 <h3 style="color: #2c3e50; margin-top: 0;">Appointment Details:</h3>
                 <p><strong>Appointment ID:</strong> {appointment_data.get('appointmentId', 'N/A')}</p>
                 <p><strong>Services:</strong> {services}</p>
                 <p><strong>Vehicle:</strong> {vehicle_info}</p>
-                <p><strong>Current Status:</strong> {appointment_data.get('status', 'N/A')}</p>
+                <p><strong>Current Status:</strong> {format_status_display(appointment_data.get('status', 'N/A'))}</p>
             </div>
             
             <div style="background-color: #fff3cd; padding: 20px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #ffc107;">
-                <h3 style="color: #856404; margin-top: 0;">Changes Made:</h3>
+                <h3 style="color: #856404; margin-top: 0;">{'Status Update:' if update_type == 'status' else 'Changes Made:'}</h3>
                 {changes_html}
             </div>
             
@@ -303,12 +314,21 @@ def send_appointment_updated_email(customer_email, customer_name, appointment_da
         email_type=EmailTemplate.TYPE_APPOINTMENT_UPDATED
     )
 
-def send_order_updated_email(customer_email, customer_name, order_data, changes=None):
+def send_order_updated_email(customer_email, customer_name, order_data, changes=None, update_type='general'):
     """Send email when order is updated"""
-    subject = EmailTemplate.ORDER_UPDATED
+    
+    # Determine email subject and title based on update type
+    if update_type == 'status':
+        current_status = order_data.get('status', 'Unknown')
+        subject = f"Order Status Updated - {format_status_display(current_status)}"
+        email_title = f"Order Status Changed to {format_status_display(current_status)}"
+        intro_message = f"Your service order status has been updated to <strong>{format_status_display(current_status)}</strong>."
+    else:
+        subject = EmailTemplate.ORDER_UPDATED
+        email_title = "Service Order Updated"
+        intro_message = "Your service order has been updated. Please review the changes below."
     
     # Format order details
-    services = format_services(order_data.get('services', []))
     items = format_order_items(order_data.get('items', []))
     vehicle_info = format_vehicle_info(order_data.get('vehicleInfo', {}))
     
@@ -316,9 +336,14 @@ def send_order_updated_email(customer_email, customer_name, order_data, changes=
     changes_html = ""
     if changes:
         for field, change in changes.items():
-            old_value = change.get('old', 'N/A')
-            new_value = change.get('new', 'N/A')
-            changes_html += f"<p><strong>{format_field_name(field)}:</strong> {old_value} → {new_value}</p>"
+            # For status updates, only show new value (not old → new)
+            if update_type == 'status' and field.lower() in ['status', 'order status']:
+                new_value = change.get('new', 'N/A')
+                changes_html += f"<p><strong>{format_field_name(field)}:</strong> {new_value}</p>"
+            else:
+                old_value = change.get('old', 'N/A')
+                new_value = change.get('new', 'N/A')
+                changes_html += f"<p><strong>{format_field_name(field)}:</strong> {old_value} → {new_value}</p>"
     else:
         changes_html = "<p>Your order details have been updated. Please review the current information below.</p>"
     
@@ -327,11 +352,11 @@ def send_order_updated_email(customer_email, customer_name, order_data, changes=
     <head></head>
     <body>
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #2c3e50;">Service Order Updated</h2>
+            <h2 style="color: #2c3e50;">{email_title}</h2>
             
             <p>Dear {customer_name},</p>
             
-            <p>Your service order has been updated. Please review the changes below.</p>
+            <p>{intro_message}</p>
             
             <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
                 <h3 style="color: #2c3e50; margin-top: 0;">Order Details:</h3>
@@ -339,16 +364,16 @@ def send_order_updated_email(customer_email, customer_name, order_data, changes=
                 <p><strong>Services:</strong> {services}</p>
                 {f"<p><strong>Items:</strong> {items}</p>" if items else ""}
                 <p><strong>Vehicle:</strong> {vehicle_info}</p>
-                <p><strong>Current Status:</strong> {order_data.get('status', 'N/A')}</p>
+                <p><strong>Current Status:</strong> {format_status_display(order_data.get('status', 'N/A'))}</p>
                 <p><strong>Total Amount:</strong> ${order_data.get('totalAmount', '0.00')}</p>
             </div>
             
             <div style="background-color: #fff3cd; padding: 20px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #ffc107;">
-                <h3 style="color: #856404; margin-top: 0;">Changes Made:</h3>
+                <h3 style="color: #856404; margin-top: 0;">{'Status Update:' if update_type == 'status' else 'Changes Made:'}</h3>
                 {changes_html}
             </div>
             
-            <p>You can view your updated order by visiting: <a href="{FRONTEND_URL}/orders/{order_data.get('orderId')}">View Order</a></p>
+            <p>You can view your updated order by visiting: <a href="{FRONTEND_URL}/order/{order_data.get('orderId')}">View Order</a></p>
             
             <p>Thank you for choosing Auto Lab Solutions!</p>
             
@@ -365,145 +390,15 @@ def send_order_updated_email(customer_email, customer_name, order_data, changes=
         email_type=EmailTemplate.TYPE_ORDER_UPDATED
     )
 
-def send_appointment_scheduled_email(customer_email, customer_name, appointment_data):
-    """Send email when appointment is scheduled with mechanic and date/time"""
-    subject = EmailTemplate.APPOINTMENT_SCHEDULED
-    
-    # Format appointment details
-    services = format_services(appointment_data.get('services', []))
-    vehicle_info = format_vehicle_info(appointment_data.get('vehicleInfo', {}))
-    scheduled_date = format_timestamp(appointment_data.get('scheduledDate'))
-    time_slot = appointment_data.get('timeSlot', 'TBD')
-    mechanic_name = appointment_data.get('assignedMechanic', 'Our team')
-    location = appointment_data.get('location', 'Auto Lab Solutions Service Center')
-    
-    html_body = f"""
-    <html>
-    <head></head>
-    <body>
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #2c3e50;">Appointment Scheduled</h2>
-            
-            <p>Dear {customer_name},</p>
-            
-            <p>Great news! Your appointment has been scheduled with one of our experienced mechanics.</p>
-            
-            <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
-                <h3 style="color: #2c3e50; margin-top: 0;">Appointment Details:</h3>
-                <p><strong>Appointment ID:</strong> {appointment_data.get('appointmentId', 'N/A')}</p>
-                <p><strong>Services:</strong> {services}</p>
-                <p><strong>Vehicle:</strong> {vehicle_info}</p>
-            </div>
-            
-            <div style="background-color: #e8f5e8; padding: 20px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #27ae60;">
-                <h3 style="color: #27ae60; margin-top: 0;">Scheduled Details:</h3>
-                <p><strong>Date:</strong> {scheduled_date}</p>
-                <p><strong>Time Slot:</strong> {time_slot}</p>
-                <p><strong>Assigned Mechanic:</strong> {mechanic_name}</p>
-                <p><strong>Location:</strong> {location}</p>
-            </div>
-            
-            <div style="background-color: #fff3cd; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #ffc107;">
-                <h4 style="color: #856404; margin-top: 0;">Important Reminders:</h4>
-                <ul style="color: #856404;">
-                    <li>Please arrive 15 minutes before your scheduled time</li>
-                    <li>Bring your vehicle registration and any relevant documents</li>
-                    <li>If you need to reschedule, please contact us at least 24 hours in advance</li>
-                </ul>
-            </div>
-            
-            <p>You can view your appointment details by visiting: <a href="{FRONTEND_URL}/appointment/{appointment_data.get('appointmentId')}">View Appointment</a></p>
-            
-            <p>We look forward to serving you!</p>
-            
-            <p>Best regards,<br>Auto Lab Solutions Team</p>
-        </div>
-    </body>
-    </html>
-    """
-    
-    return send_email(
-        customer_email, 
-        subject, 
-        html_body, 
-        email_type=EmailTemplate.TYPE_APPOINTMENT_SCHEDULED
-    )
-
-def send_order_scheduled_email(customer_email, customer_name, order_data):
-    """Send email when order is scheduled with mechanic and date/time"""
-    subject = EmailTemplate.ORDER_SCHEDULED
-    
-    # Format order details
-    services = format_services(order_data.get('services', []))
-    items = format_order_items(order_data.get('items', []))
-    vehicle_info = format_vehicle_info(order_data.get('vehicleInfo', {}))
-    scheduled_date = format_timestamp(order_data.get('scheduledDate'))
-    time_slot = order_data.get('timeSlot', 'TBD')
-    mechanic_name = order_data.get('assignedMechanic', 'Our team')
-    
-    html_body = f"""
-    <html>
-    <head></head>
-    <body>
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #2c3e50;">Service Order Scheduled</h2>
-            
-            <p>Dear {customer_name},</p>
-            
-            <p>Your service order has been scheduled for completion.</p>
-            
-            <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
-                <h3 style="color: #2c3e50; margin-top: 0;">Order Details:</h3>
-                <p><strong>Order ID:</strong> {order_data.get('orderId', 'N/A')}</p>
-                <p><strong>Services:</strong> {services}</p>
-                {f"<p><strong>Items:</strong> {items}</p>" if items else ""}
-                <p><strong>Vehicle:</strong> {vehicle_info}</p>
-                <p><strong>Total Amount:</strong> ${order_data.get('totalAmount', '0.00')}</p>
-            </div>
-            
-            <div style="background-color: #e8f5e8; padding: 20px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #27ae60;">
-                <h3 style="color: #27ae60; margin-top: 0;">Scheduled Details:</h3>
-                <p><strong>Date:</strong> {scheduled_date}</p>
-                <p><strong>Time Slot:</strong> {time_slot}</p>
-                <p><strong>Assigned Mechanic:</strong> {mechanic_name}</p>
-                <p><strong>Estimated Duration:</strong> {order_data.get('estimatedDuration', 'TBD')}</p>
-            </div>
-            
-            <p>You can track your order progress by visiting: <a href="{FRONTEND_URL}/orders/{order_data.get('orderId')}">View Order</a></p>
-            
-            <p>Thank you for choosing Auto Lab Solutions!</p>
-            
-            <p>Best regards,<br>Auto Lab Solutions Team</p>
-        </div>
-    </body>
-    </html>
-    """
-    
-    return send_email(
-        customer_email, 
-        subject, 
-        html_body, 
-        email_type=EmailTemplate.TYPE_ORDER_SCHEDULED
-    )
-
-def send_report_ready_email(customer_email, customer_name, appointment_or_order_data, report_url):
+def send_report_ready_email(customer_email, customer_name, appointment_data, report_url):
     """Send email when vehicle/service report is ready"""
-    is_appointment = 'appointmentId' in appointment_or_order_data
-    
-    if is_appointment:
-        subject = EmailTemplate.APPOINTMENT_REPORT_READY
-        item_type = "appointment"
-        item_id = appointment_or_order_data.get('appointmentId')
-        email_type = EmailTemplate.TYPE_APPOINTMENT_REPORT
-    else:
-        subject = EmailTemplate.ORDER_REPORT_READY
-        item_type = "service order"
-        item_id = appointment_or_order_data.get('orderId')
-        email_type = EmailTemplate.TYPE_ORDER_REPORT
+    subject = EmailTemplate.APPOINTMENT_REPORT_READY
+    appointment_id = appointment_data.get('appointmentId')
+    email_type = EmailTemplate.TYPE_APPOINTMENT_REPORT
     
     # Format details
-    services = format_services(appointment_or_order_data.get('services', []))
-    vehicle_info = format_vehicle_info(appointment_or_order_data.get('vehicleInfo', {}))
+    services = format_services(appointment_data.get('services', []))
+    vehicle_info = format_vehicle_info(appointment_data.get('vehicleInfo', {}))
     
     html_body = f"""
     <html>
@@ -514,27 +409,27 @@ def send_report_ready_email(customer_email, customer_name, appointment_or_order_
             
             <p>Dear {customer_name},</p>
             
-            <p>Great news! The report for your {item_type} is now ready for review.</p>
+            <p>Great news! The report for your appointment is now ready for review.</p>
             
             <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
-                <h3 style="color: #2c3e50; margin-top: 0;">{item_type.title()} Details:</h3>
-                <p><strong>{item_type.title()} ID:</strong> {item_id}</p>
+                <h3 style="color: #2c3e50; margin-top: 0;">Appointment Details:</h3>
+                <p><strong>Appointment ID:</strong> {appointment_id}</p>
                 <p><strong>Services:</strong> {services}</p>
                 <p><strong>Vehicle:</strong> {vehicle_info}</p>
-                <p><strong>Status:</strong> {appointment_or_order_data.get('status', 'Completed')}</p>
+                <p><strong>Status:</strong> {appointment_data.get('status', 'Completed')}</p>
             </div>
             
             <div style="background-color: #e8f5e8; padding: 20px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #27ae60;">
                 <h3 style="color: #27ae60; margin-top: 0;">Report Details:</h3>
                 <p><strong>Report Generated:</strong> {format_timestamp(int(datetime.now().timestamp()))}</p>
-                <p><strong>Report Type:</strong> {appointment_or_order_data.get('reportType', 'Service Report')}</p>
+                <p>
             </div>
             
             <div style="text-align: center; margin: 30px 0;">
                 <a href="{report_url}" style="background-color: #3498db; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">Download Report</a>
             </div>
             
-            <p>You can also view your {item_type} and report by visiting: <a href="{FRONTEND_URL}/{item_type}s/{item_id}">View {item_type.title()}</a></p>
+            <p>You can also view your appointment and report by visiting: <a href="{FRONTEND_URL}/appointment/{appointment_id}">View Appointment</a></p>
             
             <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
                 <p><strong>Note:</strong> This report contains important information about your vehicle's condition and the services performed. Please keep it for your records.</p>
@@ -682,7 +577,7 @@ def format_order_items(items):
             itemName = item.get('itemName', 'N/A')
             quantity = item.get('quantity', 1)
             price = item.get('price', '0.00')
-            formatted.append(f"{itemName} (Category: {categoryName}, Qty: {quantity}) - ${price}")
+            formatted.append(f"{itemName} (Quantity: {quantity}, Unit Price: ${price})")
         else:
             formatted.append(str(item))
     
@@ -762,3 +657,266 @@ def is_email_suppressed(email_address):
         print(f"Error checking email suppression status: {str(e)}")
         # In case of error, allow email to be sent (fail open)
         return False
+
+# =================================================================
+# Data Preprocessing Utils
+# =================================================================
+
+def prepare_email_data_and_changes(updated_record, update_data, record_type):
+    """Unified function to prepare both email data and changes for notifications"""
+    # Format record data for email
+    if record_type == 'appointment':
+        email_data = format_appointment_data_for_email(updated_record)
+    else:  # order
+        email_data = format_order_data_for_email(updated_record)
+    
+    # Format changes for email with proper value resolution
+    changes = format_changes_for_email(update_data, updated_record, record_type)
+    
+    return email_data, changes
+
+
+def format_changes_for_email(update_data, updated_record, record_type):
+    """Format update data into readable changes for email notifications with proper value resolution"""
+    changes = {}
+    
+    # Define human-readable field names
+    field_mappings = {
+        'serviceId': 'Service',
+        'planId': 'Plan',
+        'price': 'Price',
+        'status': 'Status',
+        'assignedMechanicId': 'Assigned Mechanic',
+        'scheduledTimeSlot': 'Scheduled Time',
+        'scheduledDate': 'Scheduled Date',
+        'isBuyer': 'Customer Type',
+        'buyerName': 'Buyer Name',
+        'buyerEmail': 'Buyer Email',
+        'buyerPhone': 'Buyer Phone',
+        'sellerName': 'Seller Name',
+        'sellerEmail': 'Seller Email',
+        'sellerPhone': 'Seller Phone',
+        'carMake': 'Vehicle Make',
+        'carModel': 'Vehicle Model',
+        'carYear': 'Vehicle Year',
+        'carLocation': 'Vehicle Location',
+        'notes': 'Notes',
+        'postNotes': 'Post-Service Notes',
+        'customerName': 'Customer Name',
+        'customerEmail': 'Customer Email',
+        'customerPhone': 'Customer Phone',
+        'deliveryLocation': 'Delivery Location',
+        'totalPrice': 'Total Price',
+        'items': 'Items'
+    }
+    
+    for field, value in update_data.items():
+        if field in ['updatedAt']:  # Skip technical fields
+            continue
+            
+        human_readable_field = field_mappings.get(field, field.title())
+        
+        # Format specific field types with proper value resolution
+        if field == 'scheduledTimeSlot' and isinstance(value, dict):
+            if value:
+                formatted_value = f"{value.get('date', '')} {value.get('start', '')} - {value.get('end', '')}"
+            else:
+                formatted_value = "Not scheduled"
+        elif field == 'isBuyer':
+            formatted_value = "Buyer" if value else "Seller"
+        elif field == 'assignedMechanicId':
+            if value:
+                try:
+                    mechanic_record = db.get_staff_record_by_user_id(value)
+                    if mechanic_record:
+                        mechanic_record = resp.convert_decimal(mechanic_record)
+                        formatted_value = mechanic_record.get('name', f"Mechanic ID: {value}")
+                    else:
+                        formatted_value = f"Mechanic ID: {value}"
+                except:
+                    formatted_value = f"Mechanic ID: {value}"
+            else:
+                formatted_value = "Unassigned"
+        elif field == 'serviceId' and record_type == 'appointment':
+            try:
+                plan_id = update_data.get('planId') or updated_record.get('planId')
+                if plan_id:
+                    service_name, _ = db.get_service_plan_names(value, plan_id)
+                    formatted_value = service_name
+                else:
+                    formatted_value = f"Service ID: {value}"
+            except:
+                formatted_value = f"Service ID: {value}"
+        elif field == 'planId' and record_type == 'appointment':
+            try:
+                service_id = update_data.get('serviceId') or updated_record.get('serviceId')
+                if service_id:
+                    _, plan_name = db.get_service_plan_names(service_id, value)
+                    formatted_value = plan_name
+                else:
+                    formatted_value = f"Plan ID: {value}"
+            except:
+                formatted_value = f"Plan ID: {value}"
+        elif field == 'items' and record_type == 'order':
+            if isinstance(value, list):
+                formatted_value = ", ".join(
+                    f"{item.get('itemName', 'Unknown')} (Quantity: {item.get('quantity', 1)}, Unit Price: ${item.get('price', 0):.2f})"
+                    for item in value if isinstance(item, dict)
+                )
+            else:
+                formatted_value = "Invalid items format"
+        elif field in ['price', 'totalPrice'] and isinstance(value, (int, float)):
+            formatted_value = f"${value:.2f}"
+        else:
+            formatted_value = str(value) if value is not None else "Not specified"
+        
+        changes[human_readable_field] = {
+            'new': formatted_value
+        }
+    
+    return changes
+
+
+def format_appointment_data_for_email(appointment_data):
+    """Format appointment data for email notifications"""
+    # Get service and plan names
+    service_name = "Service"
+    plan_name = "Plan"
+    
+    try:
+        service_id = appointment_data.get('serviceId')
+        plan_id = appointment_data.get('planId')
+        if service_id and plan_id:
+            service_name, plan_name = db.get_service_plan_names(service_id, plan_id)
+    except Exception as e:
+        print(f"Error getting service plan names: {str(e)}")
+    
+    # Format vehicle info from database fields
+    vehicle_info = {
+        'make': appointment_data.get('carMake', 'N/A'),
+        'model': appointment_data.get('carModel', 'N/A'),
+        'year': appointment_data.get('carYear', 'N/A')
+    }
+    
+    # Format scheduled time slot for display
+    scheduled_slot = appointment_data.get('scheduledTimeSlot', {})
+    time_slot = "TBD"
+    if scheduled_slot and isinstance(scheduled_slot, dict):
+        date = scheduled_slot.get('date', '')
+        start_time = scheduled_slot.get('start', '')
+        end_time = scheduled_slot.get('end', '')
+        if date and start_time and end_time:
+            time_slot = f"{date} {start_time} - {end_time}"
+        elif date:
+            time_slot = date
+    
+    # Get mechanic name if assigned
+    assigned_mechanic = "Our team"
+    assigned_mechanic_id = appointment_data.get('assignedMechanicId')
+    if assigned_mechanic_id:
+        try:
+            mechanic_record = db.get_staff_record_by_user_id(assigned_mechanic_id)
+            if mechanic_record:
+                assigned_mechanic = mechanic_record.get('name', 'Our team')
+        except Exception as e:
+            print(f"Error getting mechanic name: {str(e)}")
+    
+    # Format customer data based on isBuyer flag
+    is_buyer = appointment_data.get('isBuyer', True)
+    if is_buyer:
+        customer_data = {
+            'phoneNumber': appointment_data.get('buyerPhone', 'N/A')
+        }
+    else:
+        customer_data = {
+            'phoneNumber': appointment_data.get('sellerPhone', 'N/A')
+        }
+    
+    return {
+        'appointmentId': appointment_data.get('appointmentId'),
+        'serviceName': service_name,
+        'planName': plan_name,
+        'vehicleInfo': vehicle_info,
+        'price': f"{appointment_data.get('price', 0):.2f}",
+        'status': appointment_data.get('status', 'Processing'),
+        'customerData': customer_data,
+        'timeSlot': time_slot,
+        'assignedMechanic': assigned_mechanic,
+        'vehicleLocation': appointment_data.get('carLocation', 'N/A'),
+        'notes': appointment_data.get('notes', ''),
+        'postNotes': appointment_data.get('postNotes', '')
+    }
+
+
+def format_order_data_for_email(order_data):
+    """Format order data for email notifications"""
+    # Format items from database format
+    items = []
+    order_items = order_data.get('items', [])
+    if isinstance(order_items, list):
+        for item in order_items:
+            # Already deserialized
+            category_name, item_name = db.get_category_item_names(
+                item.get('categoryId', 0),
+                item.get('itemId', 0)
+            )
+            items.append({
+                'categoryName': category_name,
+                'itemName': item_name,
+                'quantity': item.get('quantity', 1),
+                'price': f"{item.get('price', 0):.2f}"
+            })
+    
+    # Format vehicle info from database fields
+    vehicle_info = {
+        'make': order_data.get('carMake', 'N/A'),
+        'model': order_data.get('carModel', 'N/A'),
+        'year': order_data.get('carYear', 'N/A')
+    }
+    
+    # Get mechanic name if assigned
+    assigned_mechanic = "Our team"
+    assigned_mechanic_id = order_data.get('assignedMechanicId')
+    if assigned_mechanic_id:
+        try:
+            mechanic_record = db.get_staff_record_by_user_id(assigned_mechanic_id)
+            if mechanic_record:
+                assigned_mechanic = mechanic_record.get('name', 'Our team')
+        except Exception as e:
+            print(f"Error getting mechanic name: {str(e)}")
+    
+    # Format customer data
+    customer_data = {
+        'phoneNumber': order_data.get('customerPhone', 'N/A')
+    }
+    
+    return {
+        'orderId': order_data.get('orderId'),
+        'items': items,
+        'vehicleInfo': vehicle_info,
+        'totalAmount': f"{order_data.get('totalPrice', 0):.2f}",
+        'status': order_data.get('status', 'Processing'),
+        'customerData': customer_data,
+        'scheduledDate': order_data.get('scheduledDate'),
+        'assignedMechanic': assigned_mechanic
+    }
+
+def format_status_display(status):
+    """Format status for display in emails with proper capitalization and spacing"""
+    if not status:
+        return "Unknown"
+    
+    # Status mappings for better display
+    status_mappings = {
+        'PENDING': 'Pending',
+        'SCHEDULED': 'Scheduled',
+        'ONGOING': 'In Progress',
+        'COMPLETED': 'Completed',
+        'DELIVERED': 'Delivered',
+        'CANCELLED': 'Cancelled',
+
+        'PAID': 'Paid',
+        'CONFIRMED': 'Confirmed'
+    }
+    
+    return status_mappings.get(status.upper(), status.title())
