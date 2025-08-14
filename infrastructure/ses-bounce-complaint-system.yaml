@@ -217,7 +217,7 @@ Resources:
       Role: !GetAtt SESBounceComplaintHandlerRole.Arn
       Code:
         S3Bucket: !Ref CloudFormationBucket
-        S3Key: 'lambda-packages/ses-bounce-handler.zip'
+        S3Key: 'lambda/ses-bounce-handler.zip'
       Environment:
         Variables:
           ENVIRONMENT: !Ref EnvironmentName
@@ -244,7 +244,7 @@ Resources:
       Role: !GetAtt SESBounceComplaintHandlerRole.Arn
       Code:
         S3Bucket: !Ref CloudFormationBucket
-        S3Key: 'lambda-packages/ses-complaint-handler.zip'
+        S3Key: 'lambda/ses-complaint-handler.zip'
       Environment:
         Variables:
           ENVIRONMENT: !Ref EnvironmentName
@@ -271,7 +271,7 @@ Resources:
       Role: !GetAtt SESBounceComplaintHandlerRole.Arn
       Code:
         S3Bucket: !Ref CloudFormationBucket
-        S3Key: 'lambda-packages/ses-delivery-handler.zip'
+        S3Key: 'lambda/ses-delivery-handler.zip'
       Environment:
         Variables:
           ENVIRONMENT: !Ref EnvironmentName

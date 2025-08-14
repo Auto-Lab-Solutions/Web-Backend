@@ -241,14 +241,8 @@ package_lambdas() {
         zip -r "../$lambda_name.zip" . -q
         cd - > /dev/null
         
-        # Upload to S3 - use different paths for different lambda types
-        if [[ "$lambda_name" == sqs-process-*-notification-queue ]] || [[ "$lambda_name" == "backup-restore" ]] || [[ "$lambda_name" == "api-backup-restore" ]] || [[ "$lambda_name" =~ ^ses- ]]; then
-            # Notification processor lambdas, backup lambdas, and SES bounce/complaint lambdas use lambda-packages/ path
-            aws s3 cp "dist/lambda/$lambda_name.zip" "s3://$CLOUDFORMATION_BUCKET/lambda-packages/$lambda_name.zip"
-        else
-            # Standard lambdas use lambda/ path
-            aws s3 cp "dist/lambda/$lambda_name.zip" "s3://$CLOUDFORMATION_BUCKET/lambda/$lambda_name.zip"
-        fi
+        # Upload to S3 - all lambdas use lambda/ path
+        aws s3 cp "dist/lambda/$lambda_name.zip" "s3://$CLOUDFORMATION_BUCKET/lambda/$lambda_name.zip"
         
         print_success "Packaged and uploaded $lambda_name"
     done

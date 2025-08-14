@@ -175,7 +175,7 @@ Resources:
       Role: !GetAtt EmailNotificationProcessorRole.Arn
       Code:
         S3Bucket: !Ref CloudFormationBucket
-        S3Key: 'lambda-packages/sqs-process-email-notification-queue.zip'
+        S3Key: 'lambda/sqs-process-email-notification-queue.zip'
       Timeout: 300
       Environment:
         Variables:
@@ -207,7 +207,7 @@ Resources:
       Role: !GetAtt WebSocketNotificationProcessorRole.Arn
       Code:
         S3Bucket: !Ref CloudFormationBucket
-        S3Key: 'lambda-packages/sqs-process-websocket-notification-queue.zip'
+        S3Key: 'lambda/sqs-process-websocket-notification-queue.zip'
       Timeout: 300
       Environment:
         Variables:
@@ -237,7 +237,7 @@ Resources:
       Role: !GetAtt FirebaseNotificationProcessorRole.Arn
       Code:
         S3Bucket: !Ref CloudFormationBucket
-        S3Key: 'lambda-packages/sqs-process-firebase-notification-queue.zip'
+        S3Key: 'lambda/sqs-process-firebase-notification-queue.zip'
       Timeout: 300
       Environment:
         Variables:
