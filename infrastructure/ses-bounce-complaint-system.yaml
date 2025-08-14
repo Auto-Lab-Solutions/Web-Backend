@@ -186,9 +186,9 @@ Resources:
                   - dynamodb:Scan
                 Resource:
                   - !GetAtt EmailSuppressionTable.Arn
-                  - !Sub '${EmailSuppressionTable}/index/*'
+                  - !Sub '${EmailSuppressionTable.Arn}/index/*'
                   - !GetAtt EmailAnalyticsTable.Arn
-                  - !Sub '${EmailAnalyticsTable}/index/*'
+                  - !Sub '${EmailAnalyticsTable.Arn}/index/*'
               - Effect: Allow
                 Action:
                   - ses:PutIdentityNotificationAttributes
