@@ -55,7 +55,7 @@ Resources:
           RETENTION_DAYS: !FindInMap [EnvironmentSettings, !Ref Environment, RetentionDays]
       Code:
         S3Bucket: !Ref CloudFormationBucket
-        S3Key: !Sub 'lambda/backup-restore-${Environment}.zip'
+        S3Key: 'lambda/backup-restore.zip'
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -75,7 +75,7 @@ Resources:
           BACKUP_FUNCTION_NAME: !Ref BackupLambdaFunction
       Code:
         S3Bucket: !Ref CloudFormationBucket
-        S3Key: !Sub 'lambda/api-backup-restore-${Environment}.zip'
+        S3Key: 'lambda/api-backup-restore.zip'
       Tags:
         - Key: Environment
           Value: !Ref Environment

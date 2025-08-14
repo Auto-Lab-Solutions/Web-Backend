@@ -240,3 +240,9 @@ Outputs:
     Value: !Ref InvoiceProcessorLambda
     Export:
       Name: !Sub 'sqs-invoice-processor-name-${EnvironmentName}'
+
+  InvoiceGenerationQueueUrl:
+    Description: 'URL of the invoice generation SQS queue (alternative name for InvoiceQueueUrl)'
+    Value: !Ref InvoiceGenerationQueue
+    Export:
+      Name: !Sub 'sqs-invoice-generation-queue-url-${EnvironmentName}'
