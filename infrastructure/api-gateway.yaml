@@ -1784,12 +1784,8 @@ Resources:
       - EmailSuppressionRemoveMethod
       - EmailSuppressionAnalyticsMethod
       - EmailSuppressionCleanupMethod
-      - EmailSuppressionOptionsMethod
-      - EmailSuppressionCheckOptionsMethod
-      - EmailSuppressionListOptionsMethod
       - EmailSuppressionAddOptionsMethod
       - EmailSuppressionRemoveOptionsMethod
-      - EmailSuppressionAnalyticsOptionsMethod
       - EmailSuppressionCleanupOptionsMethod
     Properties:
       RestApiId: !Ref RestApi
