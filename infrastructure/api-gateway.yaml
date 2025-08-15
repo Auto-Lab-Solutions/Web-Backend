@@ -1334,7 +1334,7 @@ Resources:
     Condition: ShouldEnableCustomDomain
     Properties:
       DomainName: !Ref ApiDomainName
-      CertificateArn: !Ref ApiAcmCertificateArn
+      RegionalCertificateArn: !Ref ApiAcmCertificateArn
       SecurityPolicy: TLS_1_2
       EndpointConfiguration:
         Types:
