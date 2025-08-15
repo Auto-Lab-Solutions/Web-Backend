@@ -1824,20 +1824,6 @@ Outputs:
 
   RateLimits:
     Description: Rate limits configured for this environment
-    Value: !Sub |
-      Environment: ${Environment}
-      
-      Global Rate Limits (All Users Combined):
-        Hourly Quota: !FindInMap [EnvironmentSettings, !Ref Environment, QuotaLimit]
-        Burst Limit: !FindInMap [EnvironmentSettings, !Ref Environment, ThrottleBurstLimit]
-        Rate Limit: !FindInMap [EnvironmentSettings, !Ref Environment, ThrottleRateLimit]
-      
-      Endpoint-Specific Limits (Global):
-        Appointments: Burst=!FindInMap [EnvironmentSettings, !Ref Environment, AppointmentsBurst], Rate=!FindInMap [EnvironmentSettings, !Ref Environment, AppointmentsRate]
-        Orders: Burst=!FindInMap [EnvironmentSettings, !Ref Environment, OrdersBurst], Rate=!FindInMap [EnvironmentSettings, !Ref Environment, OrdersRate]
-        Payments: Burst=!FindInMap [EnvironmentSettings, !Ref Environment, PaymentsBurst], Rate=!FindInMap [EnvironmentSettings, !Ref Environment, PaymentsRate]
-        Public: Burst=!FindInMap [EnvironmentSettings, !Ref Environment, PublicBurst], Rate=!FindInMap [EnvironmentSettings, !Ref Environment, PublicRate]
-        Admin: Burst=!FindInMap [EnvironmentSettings, !Ref Environment, AdminBurst], Rate=!FindInMap [EnvironmentSettings, !Ref Environment, AdminRate]
-        Messaging: Burst=!FindInMap [EnvironmentSettings, !Ref Environment, MessagingBurst], Rate=!FindInMap [EnvironmentSettings, !Ref Environment, MessagingRate]
+    Value: !Sub 'Environment: ${Environment} | Rate limiting configured per endpoint'
     Export:
       Name: !Sub '${AWS::StackName}-RateLimits'
