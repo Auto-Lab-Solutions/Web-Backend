@@ -4,6 +4,9 @@
 # This script updates WebSocket endpoints and notification queue URLs in Lambda functions
 # after the infrastructure has been deployed
 
+# Source environment configuration
+source "$(dirname "$0")/config/environments.sh"
+
 set -e
 
 # Get script directory
@@ -61,7 +64,6 @@ show_usage() {
     echo "  $0 --queues-only prod      # Update only notification queues for production"
     echo "  $0 --dry-run dev    # Show what would be updated for development"
     echo ""
-}
     echo "  --help, -h         Show this help message"
     echo ""
     echo "Arguments:"
