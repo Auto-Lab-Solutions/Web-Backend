@@ -363,7 +363,22 @@ update_invoice_processor_lambda() {
 # Update Backup Lambda function code (managed by BackupSystemStack)
 update_backup_lambda() {
     local lambda_name=$1
-    local full_function_name="${lambda_name}-${ENVIRONMENT}"
+    local full_function_name
+    
+    # Map the lambda directory names to actual CloudFormation function names
+    case "$lambda_name" in
+        "backup-restore")
+            full_function_name="auto-lab-backup-${ENVIRONMENT}"
+            ;;
+        "api-backup-restore")
+            full_function_name="auto-lab-manual-backup-${ENVIRONMENT}"
+            ;;
+        *)
+            print_error "Unknown backup lambda: $lambda_name"
+            return 1
+            ;;
+    esac
+    
     local zip_file="dist/lambda/$lambda_name.zip"
 
     if [ ! -f "$zip_file" ]; then
