@@ -299,6 +299,14 @@ update_notification_processor_lambda() {
         return 1
     fi
     
+    # Skip Firebase notification processor if Firebase is not enabled
+    if [[ "$lambda_name" == "sqs-process-firebase-notification-queue" ]]; then
+        if [[ "${ENABLE_FIREBASE_NOTIFICATIONS:-false}" != "true" ]]; then
+            print_warning "Skipping Firebase notification processor - Firebase notifications are disabled"
+            return 0
+        fi
+    fi
+    
     # Check if function exists
     if ! aws lambda get-function --function-name "$full_function_name" --region $AWS_REGION &>/dev/null; then
         print_error "Lambda function '$full_function_name' does not exist in AWS"
