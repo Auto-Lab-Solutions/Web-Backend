@@ -124,9 +124,6 @@ Parameters:
     Type: String
     Description: ARN of the ACM certificate for API domains (must be in the same region)
     Default: ''
-
-Conditions:
-  ShouldEnableCustomDomain: !Equals [!Ref EnableApiCustomDomains, 'true']
   
   TakeUserArn:
     Type: String
@@ -152,16 +149,8 @@ Conditions:
     Type: String
     Description: Get Invoices Lambda ARN
 
-  # Rate Limiting Parameters
-  RateLimitBurst:
-    Type: Number
-    Default: 50
-    Description: The API request burst limit for throttling
-    
-  RateLimitRate:
-    Type: Number
-    Default: 25
-    Description: The API request steady-state rate limit for throttling
+Conditions:
+  ShouldEnableCustomDomain: !Equals [!Ref EnableApiCustomDomains, 'true']
 
 Mappings:
   EnvironmentSettings:
