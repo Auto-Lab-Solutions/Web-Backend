@@ -259,6 +259,7 @@ Resources:
         GetMessagesArn: !GetAtt LambdaStack.Outputs.GetMessagesArn
         GetLastMessagesArn: !GetAtt LambdaStack.Outputs.GetLastMessagesArn
         SendMessageArn: !GetAtt LambdaStack.Outputs.SendMessageArn
+        ApiEmailSuppressionManagerArn: !GetAtt LambdaStack.Outputs.ApiEmailSuppressionManagerArn
         EnableApiCustomDomains: !Ref EnableApiCustomDomains
         ApiDomainName: !Ref ApiDomainName
         ApiHostedZoneId: !Ref ApiHostedZoneId
