@@ -1,0 +1,250 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'AWS SES Email Receiving and S3 Storage System for Auto Lab Solutions'
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: Environment name (development, production)
+    Default: production
+    AllowedValues:
+      - development
+      - production
+
+  EmailStorageBucketName:
+    Type: String
+    Description: S3 bucket name for storing received emails
+    Default: "auto-lab-email-storage"
+
+  SesRegion:
+    Type: String
+    Description: AWS SES region
+    Default: "ap-southeast-2"
+
+  CloudFormationBucket:
+    Type: String
+    Description: S3 bucket containing CloudFormation templates and Lambda packages
+    Default: "auto-lab-cloudformation-templates"
+
+  ToEmail:
+    Type: String
+    Description: Email address for receiving emails (environment-specific)
+    Default: "mail@autolabsolutions.com"
+
+Resources:
+  # S3 Bucket for storing received emails
+  EmailStorageBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${EmailStorageBucketName}-${AWS::AccountId}-${EnvironmentName}'
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldEmails
+            Status: Enabled
+            ExpirationInDays: 365  # Keep emails for 1 year
+            NoncurrentVersionExpirationInDays: 30
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt EmailProcessorFunction.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: emails/
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Purpose
+          Value: EmailStorage
+
+  # S3 Bucket Policy to allow SES to put objects
+  EmailStorageBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref EmailStorageBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowSESPuts
+            Effect: Allow
+            Principal:
+              Service: ses.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub '${EmailStorageBucket}/emails/*'
+            Condition:
+              StringEquals:
+                'aws:Referer': !Ref 'AWS::AccountId'
+
+  # Lambda function to process incoming emails
+  EmailProcessorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'email-processor-${EnvironmentName}'
+      Runtime: python3.9
+      Handler: main.lambda_handler
+      Role: !GetAtt EmailProcessorRole.Arn
+      Timeout: 60
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: !Sub 'lambda-packages/email-processor-${EnvironmentName}.zip'
+      Environment:
+        Variables:
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # IAM Role for the email processor Lambda
+  EmailProcessorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'EmailProcessorRole-${EnvironmentName}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub '${EmailStorageBucket}/*'
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !Ref EmailStorageBucket
+        - PolicyName: DynamoDBAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource: !GetAtt EmailMetadataTable.Arn
+
+  # Lambda permission for S3 to invoke the function
+  EmailProcessorS3Permission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref EmailProcessorFunction
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub '${EmailStorageBucket}'
+
+  # DynamoDB Table to store email metadata for quick queries
+  EmailMetadataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'EmailMetadata-${EnvironmentName}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: message_id
+          AttributeType: S
+        - AttributeName: to_email
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: N
+        - AttributeName: from_email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: message_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: ToEmailIndex
+          KeySchema:
+            - AttributeName: to_email
+              KeyType: HASH
+            - AttributeName: timestamp
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: FromEmailIndex
+          KeySchema:
+            - AttributeName: from_email
+              KeyType: HASH
+            - AttributeName: timestamp
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Purpose
+          Value: EmailMetadata
+
+  # SES Receipt Rule Set
+  SESReceiptRuleSet:
+    Type: AWS::SES::ReceiptRuleSet
+    Properties:
+      RuleSetName: !Sub 'auto-lab-email-rules-${EnvironmentName}'
+
+  # SES Receipt Rule for incoming emails
+  SESReceiptRule:
+    Type: AWS::SES::ReceiptRule
+    Properties:
+      RuleSetName: !Ref SESReceiptRuleSet
+      Rule:
+        Name: !Sub 'auto-lab-email-rule-${EnvironmentName}'
+        Enabled: true
+        Recipients:
+          - !Ref ToEmail
+        Actions:
+          - S3Action:
+              BucketName: !Ref EmailStorageBucket
+              ObjectKeyPrefix: emails/
+
+Outputs:
+  EmailStorageBucket:
+    Description: S3 bucket for storing received emails
+    Value: !Ref EmailStorageBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-EmailStorageBucket'
+
+  EmailMetadataTable:
+    Description: DynamoDB table for email metadata
+    Value: !Ref EmailMetadataTable
+    Export:
+      Name: !Sub '${AWS::StackName}-EmailMetadataTable'
+
+  EmailProcessorFunctionArn:
+    Description: Email processor Lambda function ARN
+    Value: !GetAtt EmailProcessorFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-EmailProcessorFunctionArn'
+
+  SESReceiptRuleSet:
+    Description: SES receipt rule set name
+    Value: !Ref SESReceiptRuleSet
+    Export:
+      Name: !Sub '${AWS::StackName}-SESReceiptRuleSet'
+
+  ToEmailAddress:
+    Description: Email address for receiving emails in this environment
+    Value: !Ref ToEmail
+    Export:
+      Name: !Sub '${AWS::StackName}-ToEmailAddress'
