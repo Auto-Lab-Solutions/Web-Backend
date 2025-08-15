@@ -1040,8 +1040,6 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
-
-
   # Email Suppression Manager API Function
   ApiEmailSuppressionManager:
     Type: AWS::Lambda::Function
@@ -1049,7 +1047,7 @@ Resources:
       FunctionName: !Sub 'api-email-suppression-manager-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
-      Role: !Ref LambdaExecutionRole
+      Role: !GetAtt LambdaExecutionRole.Arn
       Environment:
         Variables:
           ENVIRONMENT: !Ref Environment
