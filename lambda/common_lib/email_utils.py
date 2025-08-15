@@ -162,7 +162,7 @@ def send_appointment_created_email(customer_email, customer_name, appointment_da
                 <h3 style="color: #2c3e50; margin-top: 0;">Appointment Details:</h3>
                 <p><strong>Reference ID:</strong> {appointment_data.get('appointmentId', 'N/A')}</p>
                 <p><strong>Services Requested:</strong> {services}</p>
-                <p><strong>Total Price:</strong> ${appointment_data.get('totalPrice', 'N/A')}</p>
+                <p><strong>Total Price:</strong> AUD {appointment_data.get('totalPrice', 'N/A')}</p>
                 <p><strong>Selected Slots:</strong> {formatted_timeslots}</p>
                 <p><strong>Vehicle Info:</strong> {vehicle_info}</p>
                 <p><strong>Contact Number:</strong> {appointment_data.get('customerData', {}).get('phoneNumber', 'N/A')}</p>
@@ -213,7 +213,7 @@ def send_order_created_email(customer_email, customer_name, order_data):
                 <p><strong>Order ID:</strong> {order_data.get('orderId', 'N/A')}</p>
                 {f"<p><strong>Items:</strong> {items}</p>" if items else ""}
                 <p><strong>Vehicle:</strong> {vehicle_info}</p>
-                <p><strong>Total Amount:</strong> ${order_data.get('totalPrice', 'N/A')}</p>
+                <p><strong>Total Amount:</strong> AUD {order_data.get('totalPrice', 'N/A')}</p>
                 <p><strong>Contact Number:</strong> {order_data.get('customerData', {}).get('phoneNumber', 'N/A')}</p>
             </div>
             
@@ -365,7 +365,7 @@ def send_order_updated_email(customer_email, customer_name, order_data, changes=
                 {f"<p><strong>Items:</strong> {items}</p>" if items else ""}
                 <p><strong>Vehicle:</strong> {vehicle_info}</p>
                 <p><strong>Current Status:</strong> {format_status_display(order_data.get('status', 'N/A'))}</p>
-                <p><strong>Total Amount:</strong> ${order_data.get('totalAmount', '0.00')}</p>
+                <p><strong>Total Amount:</strong> AUD {order_data.get('totalAmount', '0.00')}</p>
             </div>
             
             <div style="background-color: #fff3cd; padding: 20px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #ffc107;">
@@ -474,7 +474,7 @@ def send_payment_confirmation_email(customer_email, customer_name, payment_data,
             
             <div style="background-color: #e8f5e8; padding: 20px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #27ae60;">
                 <h3 style="color: #27ae60; margin-top: 0;">Payment Details:</h3>
-                <p><strong>Amount Paid:</strong> ${amount}</p>
+                <p><strong>Amount Paid:</strong> AUD {amount}</p>
                 <p><strong>Payment Method:</strong> {payment_method}</p>
                 <p><strong>Payment Date:</strong> {payment_date}</p>
                 <p><strong>Reference Number:</strong> {reference_number}</p>
@@ -577,7 +577,7 @@ def format_order_items(items):
             itemName = item.get('itemName', 'N/A')
             quantity = item.get('quantity', 1)
             price = item.get('price', '0.00')
-            formatted.append(f"{itemName} (Quantity: {quantity}, Unit Price: ${price})")
+            formatted.append(f"{itemName} (Quantity: {quantity}, Unit Price: AUD {price})")
         else:
             formatted.append(str(item))
     
@@ -760,13 +760,13 @@ def format_changes_for_email(update_data, updated_record, record_type):
         elif field == 'items' and record_type == 'order':
             if isinstance(value, list):
                 formatted_value = ", ".join(
-                    f"{item.get('itemName', 'Unknown')} (Quantity: {item.get('quantity', 1)}, Unit Price: ${item.get('price', 0):.2f})"
+                    f"{item.get('itemName', 'Unknown')} (Quantity: {item.get('quantity', 1)}, Unit Price: AUD {item.get('price', 0):.2f})"
                     for item in value if isinstance(item, dict)
                 )
             else:
                 formatted_value = "Invalid items format"
         elif field in ['price', 'totalPrice'] and isinstance(value, (int, float)):
-            formatted_value = f"${value:.2f}"
+            formatted_value = f"AUD {value:.2f}"
         else:
             formatted_value = str(value) if value is not None else "Not specified"
         

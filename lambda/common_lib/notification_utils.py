@@ -365,7 +365,7 @@ def queue_message_firebase_notification(message_id, sender_name, staff_user_ids=
 def queue_payment_firebase_notification(payment_id, amount, order_id=None, staff_user_ids=None):
     """Queue Firebase notification for payment confirmation to staff"""
     title = 'Payment Received'
-    body = f'Payment of ${amount} has been confirmed'
+    body = f'Payment of AUD {amount} has been confirmed'
     if order_id:
         body += f' for Order #{order_id}'
     
