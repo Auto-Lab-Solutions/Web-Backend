@@ -1040,25 +1040,7 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
-  # Backup/Restore API Function
-  ApiBackupRestore:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: !Sub 'api-backup-restore-${Environment}'
-      Runtime: python3.11
-      Handler: main.lambda_handler
-      Role: !Sub 'arn:aws:iam::${AWS::AccountId}:role/auto-lab-backup-api-lambda-role-${Environment}'
-      Timeout: 300
-      MemorySize: 512
-      Environment:
-        Variables:
-          BACKUP_FUNCTION_NAME: !Sub 'auto-lab-backup-${Environment}'
-      Code:
-        S3Bucket: !Ref CloudFormationBucket
-        S3Key: 'lambda/api-backup-restore.zip'
-      Tags:
-        - Key: Environment
-          Value: !Ref Environment
+
 
   # Email Suppression Manager API Function
   ApiEmailSuppressionManager:
@@ -1226,11 +1208,7 @@ Outputs:
     Description: Generate Invoice Lambda ARN
     Value: !GetAtt ApiGenerateInvoice.Arn
 
-  ApiBackupRestoreArn:
-    Description: Backup/Restore API Lambda ARN
-    Value: !GetAtt ApiBackupRestore.Arn
-    Export:
-      Name: !Sub '${AWS::StackName}-ApiBackupRestoreArn'
+
 
   ApiEmailSuppressionManagerArn:
     Description: Email Suppression Manager API Lambda ARN

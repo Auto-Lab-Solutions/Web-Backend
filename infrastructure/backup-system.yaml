@@ -295,3 +295,10 @@ Outputs:
       Backup Location: s3://${BackupBucketName}/backups/${Environment}/
     Export:
       Name: !Sub '${AWS::StackName}-BackupInstructions'
+
+  # Export for API Gateway integration
+  ApiBackupRestoreArn:
+    Description: ARN of the API Backup/Restore Lambda function for API Gateway integration
+    Value: !GetAtt ManualBackupLambdaFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiBackupRestoreArn'
