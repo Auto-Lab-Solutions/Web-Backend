@@ -1604,9 +1604,8 @@ Resources:
       DeploymentId: !Ref ApiDeploymentV2
       StageName: !Ref Environment
       Description: !Sub 'API Gateway stage for ${Environment}'
-      ThrottleSettings:
-        BurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, ThrottleBurstLimit]
-        RateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, ThrottleRateLimit]
+      ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, ThrottleBurstLimit]
+      ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, ThrottleRateLimit]
       MethodSettings:
         # Appointment endpoints
         - ResourcePath: "/appointments"
