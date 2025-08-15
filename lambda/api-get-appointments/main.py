@@ -58,8 +58,8 @@ def lambda_handler(event, context):
                     return resp.error_response("Appointment not found", 404)
                 
                 # Check if this user created the appointment
-                if appointment.get('createdUserId') != user_id:
-                    return resp.error_response("Unauthorized: You can only view appointments you created", 403)
+                # if appointment.get('createdUserId') != user_id:
+                #     return resp.error_response("Unauthorized: You can only view appointments you created", 403)
                 
                 # Get assigned mechanic details if available
                 mechanic_details = None
