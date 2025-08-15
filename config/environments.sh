@@ -32,6 +32,9 @@ validate_environment() {
 # Function to get environment configuration
 get_env_config() {
     local env=$1
+    local CERTIFICATE_ARN_USEAST1="arn:aws:acm:us-east-1:899704476492:certificate/808b1a88-c14d-46f2-a9d2-e34ac47c0838"
+    local CERTIFICATE_ARN_APSOUTHEAST2="arn:aws:acm:ap-southeast-2:899704476492:certificate/51d6ed1a-d6c8-4165-bf4d-b219034ad4b4"
+    local HOSTED_ZONE_ID="Z060497817EUO8PSJGQHQ"
     
     case $env in
         development)
@@ -39,7 +42,6 @@ get_env_config() {
             export ENVIRONMENT="development"
             export AWS_REGION="ap-southeast-2"
             export STACK_NAME="auto-lab-backend-dev"
-            export S3_BUCKET_NAME="auto-lab-reports"
             export CLOUDFORMATION_BUCKET="auto-lab-cloudformation-templates-dev"
             export BACKUP_BUCKET_NAME="auto-lab-backups-dev"
             export LOG_LEVEL="DEBUG"
@@ -48,8 +50,8 @@ get_env_config() {
             
             # Frontend Configuration
             export FRONTEND_DOMAIN_NAME="dev.autolabsolutions.com"
-            export FRONTEND_HOSTED_ZONE_ID="Z060497817EUO8PSJGQHQ"
-            export FRONTEND_ACM_CERTIFICATE_ARN="arn:aws:acm:us-east-1:899704476492:certificate/808b1a88-c14d-46f2-a9d2-e34ac47c0838"
+            export FRONTEND_HOSTED_ZONE_ID="$HOSTED_ZONE_ID"
+            export FRONTEND_ACM_CERTIFICATE_ARN="$CERTIFICATE_ARN_USEAST1"
             export ENABLE_CUSTOM_DOMAIN="true"
             export ENABLE_FRONTEND_WEBSITE="true"
 
@@ -57,19 +59,20 @@ get_env_config() {
             export ENABLE_API_CUSTOM_DOMAINS="true"
             export API_DOMAIN_NAME="api-dev.autolabsolutions.com"
             export WEBSOCKET_DOMAIN_NAME="ws-dev.autolabsolutions.com"
-            export API_HOSTED_ZONE_ID="Z060497817EUO8PSJGQHQ"
-            export API_ACM_CERTIFICATE_ARN="arn:aws:acm:ap-southeast-2:899704476492:certificate/51d6ed1a-d6c8-4165-bf4d-b219034ad4b4"
+            export API_HOSTED_ZONE_ID="$HOSTED_ZONE_ID"
+            export API_ACM_CERTIFICATE_ARN="$CERTIFICATE_ARN_APSOUTHEAST2"
 
             # Reports CloudFront Custom Domain Configuration
             export ENABLE_REPORTS_CUSTOM_DOMAIN="true"
             export REPORTS_DOMAIN_NAME="reports-dev.autolabsolutions.com"
-            export REPORTS_HOSTED_ZONE_ID="Z060497817EUO8PSJGQHQ"
-            export REPORTS_ACM_CERTIFICATE_ARN="arn:aws:acm:us-east-1:899704476492:certificate/808b1a88-c14d-46f2-a9d2-e34ac47c0838"
+            export REPORTS_HOSTED_ZONE_ID="$HOSTED_ZONE_ID"
+            export REPORTS_ACM_CERTIFICATE_ARN="$CERTIFICATE_ARN_USEAST1"
 
             # SES Configuration
             export FROM_EMAIL="noreply@dev.autolabsolutions.com"
+            export TO_EMAIL="mail@dev.autolabsolutions.com"
             export SES_REGION="${AWS_REGION}"
-            
+
             # Firebase Configuration (Optional)
             # Set Firebase enabled/disabled state for development environment
             export ENABLE_FIREBASE_NOTIFICATIONS="false"  # Default disabled for development
@@ -82,7 +85,6 @@ get_env_config() {
             export ENVIRONMENT="production"
             export AWS_REGION="ap-southeast-2"
             export STACK_NAME="auto-lab-backend"
-            export S3_BUCKET_NAME="auto-lab-reports"
             export CLOUDFORMATION_BUCKET="auto-lab-cloudformation-templates"
             export BACKUP_BUCKET_NAME="auto-lab-backups"
             export LOG_LEVEL="INFO"
@@ -91,8 +93,8 @@ get_env_config() {
             
             # Frontend Configuration
             export FRONTEND_DOMAIN_NAME="autolabsolutions.com"
-            export FRONTEND_HOSTED_ZONE_ID="Z060497817EUO8PSJGQHQ"
-            export FRONTEND_ACM_CERTIFICATE_ARN="arn:aws:acm:us-east-1:899704476492:certificate/808b1a88-c14d-46f2-a9d2-e34ac47c0838"
+            export FRONTEND_HOSTED_ZONE_ID="$HOSTED_ZONE_ID"
+            export FRONTEND_ACM_CERTIFICATE_ARN="$CERTIFICATE_ARN_USEAST1"
             export ENABLE_CUSTOM_DOMAIN="true"
             export ENABLE_FRONTEND_WEBSITE="true"
 
@@ -100,17 +102,18 @@ get_env_config() {
             export ENABLE_API_CUSTOM_DOMAINS="true"
             export API_DOMAIN_NAME="api.autolabsolutions.com"
             export WEBSOCKET_DOMAIN_NAME="ws.autolabsolutions.com"
-            export API_HOSTED_ZONE_ID="Z060497817EUO8PSJGQHQ"
-            export API_ACM_CERTIFICATE_ARN="arn:aws:acm:ap-southeast-2:899704476492:certificate/51d6ed1a-d6c8-4165-bf4d-b219034ad4b4"
+            export API_HOSTED_ZONE_ID="$HOSTED_ZONE_ID"
+            export API_ACM_CERTIFICATE_ARN="$CERTIFICATE_ARN_APSOUTHEAST2"
 
             # Reports CloudFront Custom Domain Configuration
             export ENABLE_REPORTS_CUSTOM_DOMAIN="true"
             export REPORTS_DOMAIN_NAME="reports.autolabsolutions.com"
-            export REPORTS_HOSTED_ZONE_ID="Z060497817EUO8PSJGQHQ"
-            export REPORTS_ACM_CERTIFICATE_ARN="arn:aws:acm:us-east-1:899704476492:certificate/808b1a88-c14d-46f2-a9d2-e34ac47c0838"
+            export REPORTS_HOSTED_ZONE_ID="$HOSTED_ZONE_ID"
+            export REPORTS_ACM_CERTIFICATE_ARN="$CERTIFICATE_ARN_USEAST1"
 
             # SES Configuration
             export FROM_EMAIL="noreply@autolabsolutions.com"
+            export TO_EMAIL="mail@autolabsolutions.com"
             export SES_REGION="${AWS_REGION}"
             
             # Firebase Configuration (Optional)
@@ -143,13 +146,11 @@ get_env_config() {
     export ITEM_PRICES_TABLE="ItemPrices-${ENVIRONMENT}"
     export INQUIRIES_TABLE="Inquiries-${ENVIRONMENT}"
     export PAYMENTS_TABLE="Payments-${ENVIRONMENT}"
+    export EMAIL_METADATA_TABLE="EmailMetadata-${ENVIRONMENT}"
     
     # Additional configuration values
-    export REPORTS_BUCKET_NAME="${S3_BUCKET_NAME}"
-    
-    # # SES Configuration
-    # export FROM_EMAIL="${FROM_EMAIL:-noreply@autolabsolutions.com}"
-    # export SES_REGION="${SES_REGION:-ap-southeast-2}"
+    export REPORTS_BUCKET_NAME="auto-lab-reports"
+    export EMAIL_STORAGE_BUCKET="auto-lab-email-storage"
 
     # Auth0 configuration (if needed)
     export AUTH0_DOMAIN="${AUTH0_DOMAIN}"
@@ -183,7 +184,7 @@ show_env_config() {
     echo "=========================================="
     # Print all exported environment variables relevant to this script
     echo "All Environment Variables (sorted):"
-    env | grep -E '^(AWS_|STACK_NAME|S3_BUCKET_NAME|CLOUDFORMATION_BUCKET|BACKUP_BUCKET_NAME|LOG_LEVEL|LAMBDA_TIMEOUT|LAMBDA_MEMORY|FRONTEND_DOMAIN_NAME|FRONTEND_HOSTED_ZONE_ID|FRONTEND_ACM_CERTIFICATE_ARN|ENABLE_CUSTOM_DOMAIN|ENABLE_FRONTEND_WEBSITE|PYTHON_VERSION|NODEJS_VERSION|STAFF_TABLE|USERS_TABLE|CONNECTIONS_TABLE|MESSAGES_TABLE|UNAVAILABLE_SLOTS_TABLE|APPOINTMENTS_TABLE|SERVICE_PRICES_TABLE|ORDERS_TABLE|ITEM_PRICES_TABLE|INQUIRIES_TABLE|PAYMENTS_TABLE|REPORTS_BUCKET_NAME|AUTH0_DOMAIN|AUTH0_AUDIENCE|FRONTEND_REPO_OWNER|FRONTEND_REPO_NAME|FRONTEND_GITHUB_TOKEN|STRIPE_WEBHOOK_ENDPOINT_ID|STRIPE_PUBLISHABLE_KEY|STRIPE_SECRET_KEY|STRIPE_WEBHOOK_SECRET|SHARED_KEY|FIREBASE_PROJECT_ID|FIREBASE_SERVICE_ACCOUNT_KEY|FROM_EMAIL|SES_REGION)=' | sort
+    env | grep -E '^(AWS_|STACK_NAME|REPORTS_BUCKET_NAME|CLOUDFORMATION_BUCKET|BACKUP_BUCKET_NAME|LOG_LEVEL|LAMBDA_TIMEOUT|LAMBDA_MEMORY|FRONTEND_DOMAIN_NAME|FRONTEND_HOSTED_ZONE_ID|FRONTEND_ACM_CERTIFICATE_ARN|ENABLE_CUSTOM_DOMAIN|ENABLE_FRONTEND_WEBSITE|PYTHON_VERSION|NODEJS_VERSION|STAFF_TABLE|USERS_TABLE|CONNECTIONS_TABLE|MESSAGES_TABLE|UNAVAILABLE_SLOTS_TABLE|APPOINTMENTS_TABLE|SERVICE_PRICES_TABLE|ORDERS_TABLE|ITEM_PRICES_TABLE|INQUIRIES_TABLE|PAYMENTS_TABLE|REPORTS_BUCKET_NAME|AUTH0_DOMAIN|AUTH0_AUDIENCE|FRONTEND_REPO_OWNER|FRONTEND_REPO_NAME|FRONTEND_GITHUB_TOKEN|STRIPE_WEBHOOK_ENDPOINT_ID|STRIPE_PUBLISHABLE_KEY|STRIPE_SECRET_KEY|STRIPE_WEBHOOK_SECRET|SHARED_KEY|FIREBASE_PROJECT_ID|FIREBASE_SERVICE_ACCOUNT_KEY|FROM_EMAIL|SES_REGION)=' | sort
     echo "=========================================="
 }
 

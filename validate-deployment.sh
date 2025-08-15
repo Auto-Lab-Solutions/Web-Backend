@@ -507,7 +507,7 @@ validate_deployment() {
     
     # Check S3 bucket
     print_status "Checking S3 bucket..."
-    check_s3_bucket "${S3_BUCKET_NAME}-${AWS_ACCOUNT_ID}-${ENVIRONMENT}" || ((errors++))
+    check_s3_bucket "${REPORTS_BUCKET_NAME}-${AWS_ACCOUNT_ID}-${ENVIRONMENT}" || ((errors++))
     echo
     
     # Check SQS queues

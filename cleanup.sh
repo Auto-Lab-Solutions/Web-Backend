@@ -68,7 +68,7 @@ cleanup_s3_buckets() {
     print_status "Cleaning up S3 buckets..."
     
     # Empty and delete reports bucket
-    empty_s3_bucket "$S3_BUCKET_NAME"
+    empty_s3_bucket "$REPORTS_BUCKET_NAME"
     
     # Empty CloudFormation templates bucket
     empty_s3_bucket "$CLOUDFORMATION_BUCKET"
@@ -156,7 +156,7 @@ main() {
     print_status "Starting cleanup process..."
     
     # First empty S3 buckets (required before stack deletion)
-    empty_s3_bucket "$S3_BUCKET_NAME"
+    empty_s3_bucket "$REPORTS_BUCKET_NAME"
     
     # Delete the main stack
     delete_stack

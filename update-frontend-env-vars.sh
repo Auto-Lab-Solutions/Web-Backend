@@ -42,9 +42,9 @@ STACK_OUTPUTS=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --
 API_GATEWAY_BASE_URL=$(echo "$STACK_OUTPUTS" | jq -r '.[] | select(.OutputKey=="RestApiEndpoint") | .OutputValue')
 WEB_SOCKET_BASE_URL=$(echo "$STACK_OUTPUTS" | jq -r '.[] | select(.OutputKey=="WebSocketApiEndpoint") | .OutputValue')
 CLOUDFRONT_DISTRIBUTION_ID=$(echo "$STACK_OUTPUTS" | jq -r '.[] | select(.OutputKey=="FrontendCloudFrontDistributionId") | .OutputValue')
-S3_BUCKET_NAME=$(echo "$STACK_OUTPUTS" | jq -r '.[] | select(.OutputKey=="FrontendBucketName") | .OutputValue')
+FRONTEND_S3_BUCKET_NAME=$(echo "$STACK_OUTPUTS" | jq -r '.[] | select(.OutputKey=="FrontendBucketName") | .OutputValue')
 
-if [ -z "$API_GATEWAY_BASE_URL" ] || [ -z "$WEB_SOCKET_BASE_URL" ] || [ -z "$CLOUDFRONT_DISTRIBUTION_ID" ] || [ -z "$S3_BUCKET_NAME" ]; then
+if [ -z "$API_GATEWAY_BASE_URL" ] || [ -z "$WEB_SOCKET_BASE_URL" ] || [ -z "$CLOUDFRONT_DISTRIBUTION_ID" ] || [ -z "$FRONTEND_S3_BUCKET_NAME" ]; then
   echo "Error: One or more required outputs are missing from the CloudFormation stack."
   exit 1
 fi
@@ -55,7 +55,7 @@ ENV_VARS=(
   ["API_GATEWAY_BASE_URL"]="$API_GATEWAY_BASE_URL"
   ["WEB_SOCKET_BASE_URL"]="$WEB_SOCKET_BASE_URL"
   ["CLOUDFRONT_DISTRIBUTION_ID"]="$CLOUDFRONT_DISTRIBUTION_ID"
-  ["S3_BUCKET_NAME"]="$S3_BUCKET_NAME"
+  ["S3_BUCKET_NAME"]="$FRONTEND_S3_BUCKET_NAME"
   ["STRIPE_PUBLISHABLE_KEY"]="$STRIPE_PUBLISHABLE_KEY"
 )
 
