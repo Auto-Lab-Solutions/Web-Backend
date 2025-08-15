@@ -58,7 +58,7 @@ get_env_config() {
             export API_DOMAIN_NAME="api-dev.autolabsolutions.com"
             export WEBSOCKET_DOMAIN_NAME="ws-dev.autolabsolutions.com"
             export API_HOSTED_ZONE_ID="Z060497817EUO8PSJGQHQ"
-            export API_ACM_CERTIFICATE_ARN="arn:aws:acm:ap-southeast-2:899704476492:certificate/your-regional-cert-arn"
+            export API_ACM_CERTIFICATE_ARN="arn:aws:acm:ap-southeast-2:899704476492:certificate/51d6ed1a-d6c8-4165-bf4d-b219034ad4b4"
 
             # Reports CloudFront Custom Domain Configuration
             export ENABLE_REPORTS_CUSTOM_DOMAIN="true"
@@ -101,7 +101,7 @@ get_env_config() {
             export API_DOMAIN_NAME="api.autolabsolutions.com"
             export WEBSOCKET_DOMAIN_NAME="ws.autolabsolutions.com"
             export API_HOSTED_ZONE_ID="Z060497817EUO8PSJGQHQ"
-            export API_ACM_CERTIFICATE_ARN="arn:aws:acm:ap-southeast-2:899704476492:certificate/your-regional-cert-arn"
+            export API_ACM_CERTIFICATE_ARN="arn:aws:acm:ap-southeast-2:899704476492:certificate/51d6ed1a-d6c8-4165-bf4d-b219034ad4b4"
 
             # Reports CloudFront Custom Domain Configuration
             export ENABLE_REPORTS_CUSTOM_DOMAIN="true"
