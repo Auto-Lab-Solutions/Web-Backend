@@ -103,6 +103,14 @@ Parameters:
     Type: String
     Description: Email Suppression Manager API Lambda ARN
 
+  ApiGetEmailsArn:
+    Type: String
+    Description: Get Emails API Lambda ARN
+
+  ApiSendEmailArn:
+    Type: String
+    Description: Send Email API Lambda ARN
+
   # Custom Domain Parameters
   EnableApiCustomDomains:
     Type: String
@@ -1592,6 +1600,22 @@ Resources:
     Type: AWS::Lambda::Permission
     Properties:
       FunctionName: !Ref ApiEmailSuppressionManagerArn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/*'
+
+  ApiGetEmailsPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ApiGetEmailsArn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/*'
+
+  ApiSendEmailPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ApiSendEmailArn
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestApi}/*/*'

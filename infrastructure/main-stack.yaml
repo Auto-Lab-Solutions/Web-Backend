@@ -91,6 +91,22 @@ Parameters:
     Description: AWS region for SES service
     Default: "ap-southeast-2"
 
+  # Email Storage Parameters
+  ToEmail:
+    Type: String
+    Description: Email address for receiving emails (environment-specific)
+    Default: "mail@autolabsolutions.com"
+
+  EmailStorageBucketName:
+    Type: String
+    Description: S3 bucket name for storing received emails
+    Default: "auto-lab-email-storage"
+
+  EmailMetadataTableName:
+    Type: String
+    Description: DynamoDB table name for email metadata (including environment suffix)
+    Default: "EmailMetadata-production"
+
   # Frontend Website Parameters
   EnableFrontendWebsite:
     Type: String
@@ -187,6 +203,7 @@ Resources:
       - S3CloudFrontStack
       - InvoiceQueueStack
       - SESBounceComplaintStack
+      - SESEmailStorageStack
     Properties:
       TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/lambda-functions.yaml'
       Parameters:
@@ -221,6 +238,9 @@ Resources:
         SesRegion: !Ref SesRegion
         EmailSuppressionTableName: !GetAtt SESBounceComplaintStack.Outputs.EmailSuppressionTableName
         EmailAnalyticsTableName: !GetAtt SESBounceComplaintStack.Outputs.EmailAnalyticsTableName
+        EmailStorageBucket: !GetAtt SESEmailStorageStack.Outputs.EmailStorageBucket
+        EmailMetadataTable: !GetAtt SESEmailStorageStack.Outputs.EmailMetadataTable
+        ToEmail: !Ref ToEmail
 
   # API Gateway
   ApiGatewayStack:
@@ -260,6 +280,8 @@ Resources:
         GetLastMessagesArn: !GetAtt LambdaStack.Outputs.GetLastMessagesArn
         SendMessageArn: !GetAtt LambdaStack.Outputs.SendMessageArn
         ApiEmailSuppressionManagerArn: !GetAtt LambdaStack.Outputs.ApiEmailSuppressionManagerArn
+        ApiGetEmailsArn: !GetAtt LambdaStack.Outputs.ApiGetEmailsArn
+        ApiSendEmailArn: !GetAtt LambdaStack.Outputs.ApiSendEmailArn
         EnableApiCustomDomains: !Ref EnableApiCustomDomains
         ApiDomainName: !Ref ApiDomainName
         ApiHostedZoneId: !Ref ApiHostedZoneId
@@ -393,6 +415,24 @@ Resources:
         FromEmail: !Ref FromEmail
         SesRegion: !Ref SesRegion
         CloudFormationBucket: !Ref CloudFormationBucket
+
+  # SES Email Storage System
+  SESEmailStorageStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/ses-email-storage.yaml'
+      Parameters:
+        EnvironmentName: !Ref Environment
+        EmailStorageBucketName: !Ref EmailStorageBucketName
+        EmailMetadataTableName: !Ref EmailMetadataTableName
+        SesRegion: !Ref SesRegion
+        CloudFormationBucket: !Ref CloudFormationBucket
+        ToEmail: !Ref ToEmail
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: EmailStorage
 
 
 Outputs:
