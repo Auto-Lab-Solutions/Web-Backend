@@ -1344,7 +1344,7 @@ Resources:
   ApiBasePathMapping:
     Type: AWS::ApiGateway::BasePathMapping
     Condition: ShouldEnableCustomDomain
-    DependsOn: ApiDeployment
+    DependsOn: ApiDeploymentV2
     Properties:
       DomainName: !Ref ApiCustomDomain
       RestApiId: !Ref RestApi
