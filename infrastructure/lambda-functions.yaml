@@ -1074,8 +1074,7 @@ Resources:
           SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
           ANALYTICS_TABLE_NAME: !Ref EmailAnalyticsTableName
           SHARED_KEY: !Ref SharedKey
-      Code:      cd /Users/sharadaweerasinghe/Projects/Auto-Lab-Solutions/Web-Backend
-      ./build_backup_packages.sh
+      Code:
         S3Bucket: !Ref CloudFormationBucket
         S3Key: 'lambda/api-email-suppression-manager.zip'
       Tags:
