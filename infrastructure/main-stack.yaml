@@ -613,3 +613,34 @@ Outputs:
     Value: !GetAtt SESBounceComplaintStack.Outputs.EmailAnalyticsTableName
     Export:
       Name: !Sub '${AWS::StackName}-EmailAnalyticsTableName'
+
+  # SES Email Storage System Outputs
+  EmailStorageBucket:
+    Description: S3 bucket for storing received emails
+    Value: !GetAtt SESEmailStorageStack.Outputs.EmailStorageBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-EmailStorageBucket'
+
+  EmailMetadataTable:
+    Description: DynamoDB table for email metadata
+    Value: !GetAtt SESEmailStorageStack.Outputs.EmailMetadataTable
+    Export:
+      Name: !Sub '${AWS::StackName}-EmailMetadataTable'
+
+  SESReceiptRuleSet:
+    Description: SES receipt rule set name
+    Value: !GetAtt SESEmailStorageStack.Outputs.SESReceiptRuleSet
+    Export:
+      Name: !Sub '${AWS::StackName}-SESReceiptRuleSet'
+
+  EmailProcessorFunctionArn:
+    Description: Email processor Lambda function ARN
+    Value: !GetAtt SESEmailStorageStack.Outputs.EmailProcessorFunctionArn
+    Export:
+      Name: !Sub '${AWS::StackName}-EmailProcessorFunctionArn'
+
+  ToEmailAddress:
+    Description: Email address for receiving emails in this environment
+    Value: !GetAtt SESEmailStorageStack.Outputs.ToEmailAddress
+    Export:
+      Name: !Sub '${AWS::StackName}-ToEmailAddress'
