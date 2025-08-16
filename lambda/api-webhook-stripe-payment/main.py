@@ -4,8 +4,7 @@ import json
 import stripe
 import db_utils as db
 import response_utils as resp
-import sqs_utils as sqs
-import notification_utils as notify
+from notification_manager import notification_manager, invoice_manager
 
 # Set Stripe configuration
 stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
@@ -97,7 +96,7 @@ def handle_payment_succeeded(payment_intent):
             # Queue invoice generation asynchronously for faster webhook response
             if record.get('paymentStatus') == 'paid':
                 try:
-                    sqs.queue_invoice_generation(record, payment_type, payment_intent_id)
+                    invoice_manager.queue_invoice_generation(record, payment_type, payment_intent_id)
                     print(f"Invoice generation queued for {payment_type} {reference_number}")
                 except Exception as e:
                     print(f"Error queuing invoice generation: {str(e)}")
@@ -199,38 +198,16 @@ def handle_payment_canceled(payment_intent):
         print(f"Error handling payment canceled: {str(e)}")
 
 def send_payment_notification(record, record_type, status):
-    """Send payment status notification via WebSocket"""
+    """Send payment status notification via WebSocket and Firebase using PaymentManager"""
     try:
+        from payment_manager import PaymentManager
+        
         print(f"Payment notification: {record_type} {record.get(f'{record_type}Id')} status changed to {status}")
         
-        # Queue notification for customer
-        customer_user_id = record.get('createdUserId')
-        if customer_user_id:
-            customer_notification = {
-                "type": record_type,
-                "subtype": "payment-status",
-                "success": True if status == 'paid' else False,
-                "referenceNumber": record.get(f'{record_type}Id'),
-                "paymentStatus": status
-            }
-            notify.queue_websocket_notification('payment_notification', customer_notification, user_id=customer_user_id)
+        # Use PaymentManager's notification method
+        reference_id = record.get(f'{record_type}Id')
+        PaymentManager._send_payment_confirmation_notifications(record, record_type, 'stripe', reference_id)
         
-        # Queue notification for all staff
-        staff_notification = {
-            "type": record_type,
-            "subtype": "payment-status",
-            "success": True if status == 'paid' else False,
-            "referenceNumber": record.get(f'{record_type}Id'),
-            "paymentStatus": status
-        }
-        notify.queue_staff_websocket_notification(staff_notification)
-        
-        # Queue Firebase push notification to staff
-        try:
-            notify.queue_payment_firebase_notification(record.get(f'{record_type}Id'), f'stripe_payment_{status}')
-        except Exception as e:
-            print(f"Failed to queue Firebase notification: {str(e)}")
-
     except Exception as e:
         print(f"Error queueing payment notification: {str(e)}")
 

@@ -1,24 +1,16 @@
 import json
-import boto3
 import os
 import logging
-from datetime import datetime, timedelta
-from decimal import Decimal
+
+# Add common_lib to the path
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'common_lib'))
+
+from email_suppression_manager import EmailSuppressionManager
 
 # Set up logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
-
-# Initialize AWS clients
-dynamodb = boto3.resource('dynamodb')
-
-# Environment variables
-ENVIRONMENT = os.environ.get('ENVIRONMENT', 'production')
-ANALYTICS_TABLE_NAME = os.environ.get('ANALYTICS_TABLE_NAME')
-MAIL_FROM_ADDRESS = os.environ.get('MAIL_FROM_ADDRESS', 'noreply@autolabsolutions.com')
-
-# DynamoDB table
-analytics_table = dynamodb.Table(ANALYTICS_TABLE_NAME)
 
 def lambda_handler(event, context):
     """
@@ -100,8 +92,8 @@ def process_delivery_notification(notification):
                 logger.warning("Delivery recipient missing email address")
                 continue
             
-            # Record delivery analytics
-            record_delivery_analytics(
+            # Record delivery analytics using EmailSuppressionManager
+            EmailSuppressionManager._record_delivery_analytics(
                 email_address=email_address,
                 timestamp=timestamp,
                 processing_time_millis=processing_time_millis,
@@ -119,40 +111,3 @@ def process_delivery_notification(notification):
     except Exception as e:
         logger.error(f"Error processing delivery notification: {str(e)}", exc_info=True)
         return False
-
-def record_delivery_analytics(email_address, timestamp, processing_time_millis,
-                             smtp_response, reporting_mta, remote_mta_ip,
-                             message_id, source_email):
-    """
-    Record delivery analytics in DynamoDB
-    """
-    try:
-        current_time = datetime.utcnow()
-        iso_timestamp = current_time.isoformat() + 'Z'
-        date_partition = current_time.strftime('%Y-%m-%d')
-        
-        # TTL: keep analytics data for 1 year (less than bounce/complaint data)
-        ttl = int((current_time + timedelta(days=365)).timestamp())
-        
-        analytics_item = {
-            'email': email_address,
-            'timestamp': iso_timestamp,
-            'event_type': 'delivery',
-            'date_partition': date_partition,
-            'processing_time_millis': processing_time_millis or 0,
-            'smtp_response': smtp_response or 'Unknown',
-            'reporting_mta': reporting_mta or 'Unknown',
-            'remote_mta_ip': remote_mta_ip or 'Unknown',
-            'message_id': message_id,
-            'source_email': source_email,
-            'environment': ENVIRONMENT,
-            'ttl': ttl,
-            'created_at': iso_timestamp,
-            'delivery_timestamp': timestamp or iso_timestamp
-        }
-        
-        analytics_table.put_item(Item=analytics_item)
-        logger.debug(f"Recorded delivery analytics for {email_address}")
-        
-    except Exception as e:
-        logger.error(f"Error recording delivery analytics: {str(e)}", exc_info=True)

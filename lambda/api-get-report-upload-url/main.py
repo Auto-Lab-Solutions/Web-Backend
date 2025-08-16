@@ -1,89 +1,25 @@
-from datetime import datetime
-import db_utils as db
+import os
+import sys
+
+# Add common_lib to path for imports
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'common_lib'))
+
 import response_utils as resp
-import request_utils as req
-import s3_utils as s3
+import business_logic_utils as biz
 
-# Environment variables
-PERMITTED_ROLES = ['MECHANIC', 'CLERK']
-
+@biz.handle_business_logic_error
 def lambda_handler(event, context):
     try:
-        # Get staff user information and body parameters
-        staff_user_email = req.get_staff_user_email(event)
-        appointment_id = req.get_body_param(event, 'appointmentId')
-        file_name = req.get_body_param(event, 'fileName')
-        file_type = req.get_body_param(event, 'fileType')
-        file_size = req.get_body_param(event, 'fileSize')
+        # Get report upload manager and validate staff authentication
+        upload_manager = biz.get_report_upload_manager()
+        staff_context = upload_manager.validate_staff_authentication(event, upload_manager.permitted_roles)
+        
+        # Generate upload URL
+        upload_data = upload_manager.generate_upload_url(event, staff_context)
+        
+        return resp.success_response(upload_data)
 
-        if not staff_user_email:
-            return resp.error_response("Unauthorized: Staff authentication required", 401)
-            
-        staff_user_record = db.get_staff_record(staff_user_email)
-        if not staff_user_record:
-            return resp.error_response(f"No staff record found for email: {staff_user_email}", 404)
-        
-        staff_roles = staff_user_record.get('roles', [])
-        staff_user_id = staff_user_record.get('userId')
-        
-        # Check if staff has required permissions
-        if not any(role in staff_roles for role in PERMITTED_ROLES):
-            return resp.error_response("Unauthorized: MECHANIC or CLERK role required", 403)
-        
-        # Validate required parameters
-        if not appointment_id or not file_name or not file_type:
-            return resp.error_response("appointmentId, fileName, and fileType are required")
-        
-        # Validate appointment exists
-        existing_appointment = db.get_appointment(appointment_id)
-        if not existing_appointment:
-            return resp.error_response("Appointment not found", 404)
-        
-        # Validate file type (only PDF allowed)
-        if file_type.lower() not in ['application/pdf', 'pdf']:
-            return resp.error_response("Only PDF files are allowed for reports")
-        
-        # Validate file size (max 10MB)
-        if file_size and int(file_size) > 10 * 1024 * 1024:
-            return resp.error_response("File size exceeds maximum limit of 10MB")
-        
-        # Generate presigned URL and metadata for report upload
-        upload_result = s3.generate_report_presigned_upload_url(
-            appointment_id=appointment_id,
-            file_name=file_name,
-            expires_in=3600  # 1 hour
-        )
-        
-        if not upload_result:
-            return resp.error_response("Failed to generate presigned URL", 500)
-        
-        # Extract results
-        presigned_url = upload_result['presignedUrl']
-        public_url = upload_result['publicUrl']
-        file_key = upload_result['fileKey']
-        content_type = upload_result['contentType']
-        
-        # Store report metadata in the appointment
-        report_metadata = {
-            'fileName': file_name,
-            'fileKey': file_key,
-            'fileType': content_type,
-            'fileSize': file_size,
-            'uploadedBy': staff_user_id,
-            'uploadedAt': int(datetime.now().timestamp()),
-            'publicUrl': public_url
-        }
-        
-        return resp.success_response({
-            "message": "Presigned URL generated successfully",
-            "presignedUrl": presigned_url,
-            "publicUrl": public_url,
-            "fileKey": file_key,
-            "reportMetadata": report_metadata,
-            "expiresIn": 3600
-        })
-        
     except Exception as e:
-        print(f"Error in upload reports lambda: {str(e)}")
+        print(f"Error in get report upload URL lambda: {str(e)}")
         return resp.error_response("Internal server error", 500)
 

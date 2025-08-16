@@ -1,12 +1,18 @@
 import json
 import os
+import sys
 import time
 import boto3
 import logging
 from firebase_admin import credentials, messaging, initialize_app
 from botocore.exceptions import ClientError
+
+# Add common_lib to path for imports
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'common_lib'))
+
 import db_utils as db
 import response_utils as resp
+import business_logic_utils as biz
 
 # Configure logging
 logger = logging.getLogger()
@@ -232,50 +238,53 @@ def send_firebase_notification(notification_data):
         logger.error(f"Error sending Firebase notification: {str(e)}")
         return False
 
+@biz.handle_business_logic_error
 def lambda_handler(event, context):
     """
-    Process Firebase notification messages from SQS queue
+    Process Firebase notification messages from SQS queue with enhanced error handling
     """
-    logger.info(f"Processing {len(event['Records'])} Firebase notification messages")
-    
-    processed_count = 0
-    failed_count = 0
-    
-    for record in event['Records']:
-        try:
-            # Parse the SQS message
-            message_body = json.loads(record['body'])
-            logger.info(f"Processing Firebase notification: {message_body.get('notification_type', 'unknown')}")
-            
-            # Send the Firebase notification
-            success = send_firebase_notification(message_body)
-            
-            if success:
-                processed_count += 1
-                logger.info(f"Successfully processed Firebase notification: {message_body.get('notification_type')}")
-            else:
+    try:
+        logger.info(f"Processing {len(event.get('Records', []))} Firebase notification messages")
+        
+        processed_count = 0
+        failed_count = 0
+        
+        for record in event.get('Records', []):
+            try:
+                # Parse the SQS message
+                message_body = json.loads(record['body'])
+                notification_type = message_body.get('notification_type', 'unknown')
+                logger.info(f"Processing Firebase notification: {notification_type}")
+                
+                # Send the Firebase notification
+                success = send_firebase_notification(message_body)
+                
+                if success:
+                    processed_count += 1
+                    logger.info(f"Successfully processed Firebase notification: {notification_type}")
+                else:
+                    failed_count += 1
+                    logger.error(f"Failed to process Firebase notification: {notification_type}")
+                
+            except json.JSONDecodeError as e:
                 failed_count += 1
-                logger.error(f"Failed to process Firebase notification: {message_body.get('notification_type')}")
-            
-        except json.JSONDecodeError as e:
-            failed_count += 1
-            logger.error(f"Failed to parse SQS message body as JSON: {str(e)}")
-        except Exception as e:
-            failed_count += 1
-            logger.error(f"Error processing Firebase notification message: {str(e)}")
-    
-    logger.info(f"Firebase notification processing completed - Processed: {processed_count}, Failed: {failed_count}")
-    
-    # Return success if at least one message was processed successfully
-    # Failed messages will be retried automatically by SQS
-    return {
-        'statusCode': 200,
-        'body': json.dumps({
+                logger.error(f"Failed to parse SQS message body as JSON: {str(e)}")
+            except Exception as e:
+                failed_count += 1
+                logger.error(f"Error processing Firebase notification message: {str(e)}")
+        
+        logger.info(f"Firebase notification processing completed - Processed: {processed_count}, Failed: {failed_count}")
+        
+        # Return success response using standard response format
+        return resp.success_response({
+            'message': f'Successfully processed {processed_count} Firebase notifications',
             'processed': processed_count,
             'failed': failed_count,
-            'message': f'Successfully processed {processed_count} Firebase notifications'
+            'total_messages': len(event.get('Records', []))
         })
-    }
+        
+    except Exception as e:
+        logger.error(f"Critical error in Firebase notification processing: {str(e)}")
+        raise biz.BusinessLogicError(f"Firebase notification processing failed: {str(e)}", 500)
 
-# Import time module for timestamp
-import time
+

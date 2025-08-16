@@ -2,7 +2,7 @@ import uuid
 import db_utils as db
 import response_utils as resp
 import request_utils as req
-import notification_utils as notify
+from notification_manager import notification_manager
 
 def lambda_handler(event, context):
     try:
@@ -93,22 +93,31 @@ def validate_inquiry_data(inquiry_data):
 def send_inquiry_notifications(inquiry_id, inquiry_data):
     """Send notifications to staff about new inquiry"""
     try:
+        # Extract data from DynamoDB format
+        first_name = inquiry_data.get('firstName', {}).get('S', '') if isinstance(inquiry_data.get('firstName'), dict) else inquiry_data.get('firstName', '')
+        last_name = inquiry_data.get('lastName', {}).get('S', '') if isinstance(inquiry_data.get('lastName'), dict) else inquiry_data.get('lastName', '')
+        email = inquiry_data.get('email', {}).get('S', '') if isinstance(inquiry_data.get('email'), dict) else inquiry_data.get('email', '')
+        message = inquiry_data.get('message', {}).get('S', '') if isinstance(inquiry_data.get('message'), dict) else inquiry_data.get('message', '')
+        
+        customer_name = f"{first_name} {last_name}".strip()
+        
+        # Prepare WebSocket notification data
         notification_data = {
             "type": "inquiry",
             "subtype": "create",
             "inquiryId": inquiry_id,
-            "customerName": f"{inquiry_data.get('firstName', {}).get('S', '')} {inquiry_data.get('lastName', {}).get('S', '')}",
-            "email": inquiry_data.get('email', {}).get('S', ''),
-            "message": inquiry_data.get('message', {}).get('S', '')[:100] + "..." if len(inquiry_data.get('message', {}).get('S', '')) > 100 else inquiry_data.get('message', {}).get('S', '')
+            "customerName": customer_name,
+            "email": email,
+            "message": message[:100] + "..." if len(message) > 100 else message
         }
         
         # Queue WebSocket notification to all staff
-        notify.queue_staff_websocket_notification(notification_data)
+        notification_manager.queue_staff_websocket_notification(notification_data)
         
-        # Queue Firebase push notification to all staff
-        notify.queue_inquiry_firebase_notification(inquiry_id, 'create')
+        # Queue Firebase push notification to all staff with customer name
+        notification_manager.queue_inquiry_firebase_notification(inquiry_id, customer_name)
         
-        print(f"Inquiry notification queued for staff")
+        print(f"Inquiry notification queued for staff - Customer: {customer_name}")
         
     except Exception as e:
         print(f"Error queueing inquiry notifications: {str(e)}")

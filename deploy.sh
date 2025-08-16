@@ -183,22 +183,51 @@ check_prerequisites() {
             exit 1
         fi
         
+        # Validate Firebase Service Account Key format (should be base64)
+        if ! echo "$FIREBASE_SERVICE_ACCOUNT_KEY" | base64 -d > /dev/null 2>&1; then
+            print_error "FIREBASE_SERVICE_ACCOUNT_KEY appears to be invalid base64"
+            print_error "Please ensure it's properly base64-encoded service account JSON"
+            exit 1
+        fi
+        
+        # Validate that decoded JSON contains required Firebase fields
+        local decoded_key
+        decoded_key=$(echo "$FIREBASE_SERVICE_ACCOUNT_KEY" | base64 -d 2>/dev/null)
+        if ! echo "$decoded_key" | python3 -m json.tool > /dev/null 2>&1; then
+            print_error "FIREBASE_SERVICE_ACCOUNT_KEY contains invalid JSON"
+            exit 1
+        fi
+        
+        # Check for required fields in service account JSON
+        if ! echo "$decoded_key" | grep -q '"type".*"service_account"'; then
+            print_error "Firebase service account key missing 'type: service_account'"
+            exit 1
+        fi
+        
+        if ! echo "$decoded_key" | grep -q '"project_id"'; then
+            print_error "Firebase service account key missing 'project_id'"
+            exit 1
+        fi
+        
+        # Verify project_id matches FIREBASE_PROJECT_ID
+        local key_project_id
+        key_project_id=$(echo "$decoded_key" | python3 -c "import sys, json; print(json.load(sys.stdin)['project_id'])" 2>/dev/null)
+        if [[ "$key_project_id" != "$FIREBASE_PROJECT_ID" ]]; then
+            print_error "Project ID mismatch: FIREBASE_PROJECT_ID='$FIREBASE_PROJECT_ID' but service account key project_id='$key_project_id'"
+            exit 1
+        fi
+        
         print_success "Firebase configuration validated"
         print_status "  Project ID: $FIREBASE_PROJECT_ID"
-        print_status "  Service Account Key: ****[REDACTED]****"
-    else
-        # Firebase is disabled or not configured
-        if [[ -n "$FIREBASE_PROJECT_ID" ]] || [[ -n "$FIREBASE_SERVICE_ACCOUNT_KEY" ]]; then
-            print_warning "Firebase credentials detected but Firebase is not enabled"
-            print_warning "To enable Firebase notifications: export ENABLE_FIREBASE_NOTIFICATIONS=true"
-        else
-            print_status "Firebase notifications are DISABLED (default)"
-            print_status "To enable Firebase notifications:"
-            print_status "  1. Create a Firebase project in Google Console"
-            print_status "  2. Enable Firebase Cloud Messaging (FCM)"
-            print_status "  3. Set: export ENABLE_FIREBASE_NOTIFICATIONS=true"
-            print_status "  4. Set: export FIREBASE_PROJECT_ID='your-firebase-project-id'"
-            print_status "  5. Set: export FIREBASE_SERVICE_ACCOUNT_KEY='base64-encoded-json'"
+        print_status "  Service Account Key: ****[VERIFIED]****"
+        
+        # Check for Firebase dependencies in requirements
+        if [[ -f "lambda/sqs-process-firebase-notification-queue/requirements.txt" ]]; then
+            if grep -q "firebase-admin" lambda/sqs-process-firebase-notification-queue/requirements.txt; then
+                print_success "Firebase admin SDK dependency found in requirements"
+            else
+                print_warning "Firebase admin SDK not found in requirements.txt"
+            fi
         fi
     fi
     
@@ -1146,14 +1175,10 @@ main() {
     
     # Show Firebase status
     if [[ "${ENABLE_FIREBASE_NOTIFICATIONS:-false}" == "true" ]]; then
-        echo "  ✓ Firebase notifications ENABLED"
-        echo "    - SQS Firebase Notification Queue for asynchronous Firebase processing"
-        echo "    - Firebase Notification Processor Lambda (sqs-process-firebase-notification-queue)"
-        echo "    - Project ID: ${FIREBASE_PROJECT_ID}"
+        echo "  ✓ Firebase Notification Processor Lambda (sqs-process-firebase-notification-queue)"
+        echo "  ✓ Firebase Cloud Messaging configured for push notifications"
     else
-        echo "  • Firebase notifications DISABLED"
-        echo "    - No Firebase resources deployed"
-        echo "    - Firebase calls will be gracefully skipped"
+        echo "  ✗ Firebase Notifications are disabled"
     fi
     
     echo "  ✓ Payment confirmation Lambdas updated with async support"

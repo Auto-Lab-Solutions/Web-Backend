@@ -1,7 +1,12 @@
 import json
+import sys
+import os
+
+# Add common_lib to the path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'common_lib'))
+
+from email_manager import EmailManager
 import traceback
-import db_utils as db
-import email_utils as email
 
 def lambda_handler(event, context):
     """
@@ -11,6 +16,9 @@ def lambda_handler(event, context):
     failed = 0
     
     try:
+        # Initialize email manager
+        email_manager = EmailManager()
+        
         # Process each SQS record
         for record in event.get('Records', []):
             try:
@@ -26,7 +34,7 @@ def lambda_handler(event, context):
                 print(f"Processing email notification: {notification_type} for {customer_email}")
                 
                 # Route to appropriate email function based on notification type
-                success = send_email_notification(notification_type, customer_email, customer_name, data)
+                success = send_email_notification(email_manager, notification_type, customer_email, customer_name, data)
                 
                 if success:
                     processed += 1
@@ -61,34 +69,35 @@ def lambda_handler(event, context):
             'body': json.dumps({'error': 'Internal server error'})
         }
 
-def send_email_notification(notification_type, customer_email, customer_name, data):
+
+def send_email_notification(email_manager, notification_type, customer_email, customer_name, data):
     """
-    Route email notifications to appropriate email utility functions
+    Route email notifications to appropriate email manager functions
     """
     try:
         if notification_type == 'appointment_created':
-            return email.send_appointment_created_email(customer_email, customer_name, data)
+            return email_manager.send_appointment_created_email(customer_email, customer_name, data)
             
         elif notification_type == 'appointment_updated':
             changes = data.get('changes')
             update_type = data.get('update_type', 'general')
-            return email.send_appointment_updated_email(customer_email, customer_name, data, changes, update_type)
+            return email_manager.send_appointment_updated_email(customer_email, customer_name, data, changes, update_type)
             
         elif notification_type == 'order_created':
-            return email.send_order_created_email(customer_email, customer_name, data)
+            return email_manager.send_order_created_email(customer_email, customer_name, data)
             
         elif notification_type == 'order_updated':
             changes = data.get('changes')
             update_type = data.get('update_type', 'general')
-            return email.send_order_updated_email(customer_email, customer_name, data, changes, update_type)
+            return email_manager.send_order_updated_email(customer_email, customer_name, data, changes, update_type)
             
         elif notification_type == 'report_ready':
             report_url = data.get('report_url')
-            return email.send_report_ready_email(customer_email, customer_name, data, report_url)
+            return email_manager.send_report_ready_email(customer_email, customer_name, data, report_url)
             
         elif notification_type == 'payment_confirmed':
             invoice_url = data.get('invoice_url')
-            return email.send_payment_confirmation_email(customer_email, customer_name, data, invoice_url)
+            return email_manager.send_payment_confirmation_email(customer_email, customer_name, data, invoice_url)
             
         else:
             print(f"Unknown email notification type: {notification_type}")

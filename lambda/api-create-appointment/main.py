@@ -1,128 +1,35 @@
-from datetime import datetime
-import uuid
-import db_utils as db
 import response_utils as resp
 import request_utils as req
-import wsgw_utils as wsgw
-import email_utils as email
-import notification_utils as notify
+import validation_utils as valid
+import business_logic_utils as biz
+from appointment_manager import AppointmentManager
 
-PERMITTED_ROLE = 'CUSTOMER_SUPPORT'
-
-APPOINTMENTS_LIMIT = 3 # Maximum number of appointments per day
-wsgw_client = wsgw.get_apigateway_client()
-
+@biz.handle_business_logic_error
+@valid.handle_validation_error
 def lambda_handler(event, context):
+    """Create a new appointment with business logic validation and notifications"""
+    
+    # Extract request parameters
     staff_user_email = req.get_staff_user_email(event)
     user_id = req.get_body_param(event, 'userId')
     appointment_data = req.get_body_param(event, 'appointmentData')
-
-    if staff_user_email:
-        staff_user_record = db.get_staff_record(staff_user_email)
-        if not staff_user_record:
-            return resp.error_response(f"No staff record found for email: {staff_user_email}.")
-        staff_roles = staff_user_record.get('roles', [])
-        if PERMITTED_ROLE not in staff_roles:
-            return resp.error_response("Unauthorized: Insufficient permissions.")
-        user_id = staff_user_record.get('userId')
-    else:
-        if not user_id:
-            return resp.error_response("userId is required for non-staff users.")
-        user_record = db.get_user_record(user_id)
-        if not user_record:
-            return resp.error_response(f"No user record found for userId: {user_id}.")
-
-    # Validate appointment data
-    valid, msg = req.validate_appointment_data(appointment_data, staff_user=bool(staff_user_email))
-    if not valid:
-        return resp.error_response(msg)
     
-    # Check if the user has reached the appointment limit for today
-    if not staff_user_email:
-        today = datetime.now().date()
-        appointment_count = db.get_daily_unpaid_appointments_count(user_id, today)
-        if appointment_count >= APPOINTMENTS_LIMIT:
-            return resp.error_response("Appointment limit reached for today.")
-
-    # Generate unique appointment ID
-    appointment_id = str(uuid.uuid4())
-
-    # Get price by service and plan
-    price = db.get_service_pricing(
-        service_id=appointment_data.get('serviceId'),
-        plan_id=appointment_data.get('planId')
+    # Validate appointment data structure
+    valid_data, error_msg = valid.AppointmentDataValidator.validate_appointment_data(
+        appointment_data, 
+        staff_user=bool(staff_user_email)
     )
-    if price is None:
-        return resp.error_response("Invalid service or plan. Please check the serviceId and planId provided.")
-
-    # Build appointment data
-    db_appointment_data = db.build_appointment_data(
-        appointment_id=appointment_id,
-        service_id=appointment_data.get('serviceId'),
-        plan_id=appointment_data.get('planId'),
-        is_buyer=appointment_data.get('isBuyer', True),
-        buyer_data=appointment_data.get('buyerData', {}),
-        car_data=appointment_data.get('carData', {}),
-        seller_data=appointment_data.get('sellerData', {}),
-        notes=appointment_data.get('notes', ''),
-        selected_slots=appointment_data.get('selectedSlots', []),
-        created_user_id=user_id,
-        price=price
+    if not valid_data:
+        raise valid.ValidationError(error_msg)
+    
+    # Use business logic manager to handle the complete workflow
+    result = AppointmentManager.create_appointment(
+        staff_user_email=staff_user_email,
+        user_id=user_id,
+        appointment_data=appointment_data
     )
-
-    # Create appointment in database
-    success = db.create_appointment(db_appointment_data)
-    if not success:
-        return resp.error_response("Failed to create appointment")
     
-    # Queue email notification to customer
-    try:
-        service_name, plan_name = db.get_service_plan_names(appointment_data.get('serviceId'), appointment_data.get('planId'))
-        email_appointment_data = {
-            'appointmentId': appointment_id,
-            'services': [{
-                'serviceName': service_name,
-                'planName': plan_name,
-            }],
-            'totalPrice': f"{price:.2f}",
-            'selectedSlots': appointment_data.get('selectedSlots', []),
-            'vehicleInfo': appointment_data.get('carData', {}),
-            'customerData': appointment_data.get('buyerData', {}) if appointment_data.get('isBuyer', True) else appointment_data.get('sellerData', {}),
-        }
-        
-        customer_email = appointment_data.get('buyerData', {}).get('email') if appointment_data.get('isBuyer', True) else appointment_data.get('sellerData', {}).get('email')
-        customer_name = appointment_data.get('buyerData', {}).get('name') if appointment_data.get('isBuyer', True) else appointment_data.get('sellerData', {}).get('name')
-        
-        notify.queue_appointment_created_email(customer_email, customer_name, email_appointment_data)
-    
-    except Exception as e:
-        print(f"Failed to queue appointment creation email: {str(e)}")
-        # Don't fail the appointment creation if email queueing fails
-
-    # Queue staff WebSocket notifications
-    try:
-        staff_notification_data = {
-            "type": "appointment",
-            "subtype": "create",
-            "success": True,
-            "appointmentId": appointment_id,
-            "appointmentData": appointment_data
-        }
-        notify.queue_staff_websocket_notification(staff_notification_data, assigned_to=user_id)
-    except Exception as e:
-        print(f"Failed to queue staff WebSocket notification: {str(e)}")
-
-    # Queue Firebase push notification to staff
-    try:
-        notify.queue_appointment_firebase_notification(appointment_id, 'create')
-    except Exception as e:
-        print(f"Failed to queue Firebase notification: {str(e)}")
-
-    # Return success response
-    return resp.success_response({
-        "message": "Appointment created successfully",
-        "appointmentId": appointment_id
-    })
+    return resp.success_response(result)
 
 
 

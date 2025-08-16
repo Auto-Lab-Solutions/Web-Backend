@@ -1,115 +1,44 @@
-from datetime import datetime, timedelta
-from collections import defaultdict, Counter
-import db_utils as db
+
+from datetime import datetime
 import response_utils as resp
 import request_utils as req
+from ..common_lib.data_access_utils import get_analytics_manager
+from ..common_lib.exceptions import BusinessLogicError
 
 def lambda_handler(event, context):
     """
-    Main lambda handler for analytics queries
-    Supports various query types for generating reports, graphs, and tables
+    Main lambda handler for analytics queries (manager-based)
     """
     try:
-        # Get staff user email from the authorizer context
-        staff_user_email = req.get_staff_user_email(event)
-        
-        # Get query parameters
+        analytics_manager = get_analytics_manager()
+        staff_context = analytics_manager.validate_analytics_access(event)
         query_type = req.get_body_param(event, 'queryType')
         parameters = req.get_body_param(event, 'parameters') or {}
-        
         if not query_type:
             return resp.error_response("Query type is required")
-        
-        # Determine user context
-        if staff_user_email:
-            # Staff user access
-            staff_user_record = db.get_staff_record(staff_user_email)
-            if not staff_user_record:
-                return resp.error_response(f"No staff record found for email: {staff_user_email}", 404)
-            
-            staff_roles = staff_user_record.get('roles', [])
-            staff_user_id = staff_user_record.get('userId')
-            
-            # Check if user has analytics access (assuming CUSTOMER_SUPPORT, CLERK, or ADMIN roles can access analytics)
-            if not any(role in staff_roles for role in ['CUSTOMER_SUPPORT', 'CLERK', 'ADMIN', 'MANAGER']):
-                return resp.error_response("Unauthorized: Analytics access requires appropriate staff role", 403)
-            
-            user_context = {
-                'user_id': staff_user_id,
-                'user_email': staff_user_email,
-                'is_staff': True,
-                'roles': staff_roles
-            }
-        else:
-            return resp.error_response("Unauthorized: Analytics access requires staff authentication", 401)
-        
-        # Route to appropriate query handler
-        result = route_query(query_type, parameters, user_context)
-        
+        user_context = {
+            'user_id': staff_context.get('staff_user_id'),
+            'user_email': staff_context.get('staff_user_email'),
+            'is_staff': True,
+            'roles': staff_context.get('staff_roles', [])
+        }
+        result = analytics_manager.route_analytics_query(query_type, parameters, user_context)
         return resp.success_response({
             'queryType': query_type,
             'data': resp.convert_decimal(result),
             'timestamp': datetime.now().isoformat()
         })
-        
-    except ValueError as e:
-        return resp.error_response(str(e), 400)
+    except BusinessLogicError as e:
+        return resp.error_response(str(e), getattr(e, 'status_code', 400))
     except Exception as e:
         print(f"Error in analytics query: {str(e)}")
         return resp.error_response(f"Internal server error: {str(e)}", 500)
 
-def route_query(query_type, parameters, user_context):
-    """Route the query to the appropriate handler function"""
-    
-    query_handlers = {
-        # Orders analytics
-        'orders_by_category': get_orders_by_category,
-        'orders_by_item': get_orders_by_item,
-        'orders_by_status': get_orders_by_status,
-        'orders_by_mechanic': get_orders_by_mechanic,
-        'daily_orders': get_daily_orders,
-        'monthly_orders': get_monthly_orders,
-        'orders_revenue': get_orders_revenue,
-        
-        # Appointments analytics
-        'appointments_by_service': get_appointments_by_service,
-        'appointments_by_plan': get_appointments_by_plan,
-        'appointments_by_status': get_appointments_by_status,
-        'appointments_by_mechanic': get_appointments_by_mechanic_analytics,
-        'daily_appointments': get_daily_appointments,
-        'monthly_appointments': get_monthly_appointments,
-        'appointments_revenue': get_appointments_revenue,
-        
-        # Combined analytics
-        'daily_income': get_daily_income,
-        'monthly_income': get_monthly_income,
-        'yearly_income': get_yearly_income,
-        'revenue_breakdown': get_revenue_breakdown,
-        
-        # Staff analytics
-        'staff_performance': get_staff_performance,
-        'mechanic_workload': get_mechanic_workload,
-        
-        # Customer analytics
-        'customer_activity': get_customer_activity,
-        'top_customers': get_top_customers,
-        
-        # Trend analytics
-        'daily_trends': get_daily_trends,
-        'monthly_trends': get_monthly_trends,
-        'service_popularity': get_service_popularity,
-        'item_popularity': get_item_popularity,
-        
-        # Summary analytics
-        'dashboard_summary': get_dashboard_summary,
-        'financial_summary': get_financial_summary,
-    }
-    
-    handler = query_handlers.get(query_type)
-    if not handler:
-        raise ValueError(f"Unsupported query type: {query_type}")
-    
-    return handler(parameters, user_context)
+# All analytics logic is now handled by AnalyticsManager. Legacy analytics functions have been removed.
+
+
+
+# All analytics logic is now handled by AnalyticsManager. Legacy analytics functions have been removed.
 
 # ==================== ORDERS ANALYTICS ====================
 

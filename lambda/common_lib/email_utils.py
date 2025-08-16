@@ -146,35 +146,104 @@ def send_appointment_created_email(customer_email, customer_name, appointment_da
     vehicle_info = format_vehicle_info(appointment_data.get('vehicleInfo', {}))
     
     html_body = f"""
+    <!DOCTYPE html>
     <html>
-    <head></head>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Appointment Request Received</title>
+        <style>
+            * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+            body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; }}
+            .container {{ max-width: 600px; margin: 0 auto; background-color: #18181B; color: #F3F4F6; }}
+            .header {{ background: linear-gradient(135deg, #27272A 0%, #3F3F46 100%); padding: 40px 30px; text-align: center; }}
+            .header h1 {{ color: #22C55E; font-size: 28px; font-weight: 700; margin-bottom: 8px; }}
+            .header p {{ color: #a1a1aa; font-size: 16px; }}
+            .content {{ padding: 30px; }}
+            .greeting {{ font-size: 18px; color: #F3F4F6; margin-bottom: 20px; }}
+            .message {{ color: #a1a1aa; margin-bottom: 30px; line-height: 1.7; }}
+            .details-card {{ background-color: #27272A; border: 1px solid #3f3f46; border-radius: 12px; padding: 25px; margin: 25px 0; }}
+            .details-card h3 {{ color: #22C55E; font-size: 20px; font-weight: 600; margin-bottom: 20px; display: flex; align-items: center; }}
+            .details-card h3::before {{ content: "📋"; margin-right: 8px; }}
+            .details-table {{ width: 100%; }}
+            .details-row {{ display: flex; padding: 12px 0; border-bottom: 1px solid #3f3f46; }}
+            .details-row:last-child {{ border-bottom: none; }}
+            .details-label {{ font-weight: 600; color: #F3F4F6; width: 140px; flex-shrink: 0; }}
+            .details-value {{ color: #a1a1aa; flex: 1; }}
+            .highlight {{ color: #22C55E; font-weight: 600; }}
+            .price {{ color: #F59E0B; font-weight: 700; font-size: 18px; }}
+            .action-buttons {{ text-align: center; margin: 35px 0; }}
+            .btn {{ display: inline-block; padding: 14px 28px; margin: 8px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; transition: all 0.3s ease; }}
+            .btn-primary {{ background-color: #22C55E; color: #0F172A; }}
+            .btn-secondary {{ background-color: transparent; color: #F3F4F6; border: 2px solid #3f3f46; }}
+            .info-box {{ background-color: #3F3F46; border-left: 4px solid #22C55E; padding: 20px; margin: 25px 0; border-radius: 8px; }}
+            .info-box p {{ color: #F3F4F6; margin: 0; }}
+            .footer {{ background-color: #09090b; padding: 25px 30px; text-align: center; border-top: 1px solid #3f3f46; }}
+            .footer p {{ color: #a1a1aa; margin: 0; }}
+            .company-name {{ color: #22C55E; font-weight: 600; }}
+        </style>
+    </head>
     <body>
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #2c3e50;">Appointment Request Received</h2>
-            
-            <p>Dear {customer_name},</p>
-            
-            <p>Thank you for requesting an appointment with Auto Lab Solutions. We have received your request and will process it shortly.</p>
-            
-            <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
-                <h3 style="color: #2c3e50; margin-top: 0;">Appointment Details:</h3>
-                <p><strong>Reference ID:</strong> {appointment_data.get('appointmentId', 'N/A')}</p>
-                <p><strong>Services Requested:</strong> {services}</p>
-                <p><strong>Total Price:</strong> AUD {appointment_data.get('totalPrice', 'N/A')}</p>
-                <p><strong>Selected Slots:</strong> {formatted_timeslots}</p>
-                <p><strong>Vehicle Info:</strong> {vehicle_info}</p>
-                <p><strong>Contact Number:</strong> {appointment_data.get('customerData', {}).get('phoneNumber', 'N/A')}</p>
+        <div class="container">
+            <div class="header">
+                <h1>🚗 Auto Lab Solutions</h1>
+                <p>Your automotive service request has been received</p>
             </div>
             
-            <p>Our team will review your request and contact you within an hour to confirm the appointment details and schedule.</p>
-
-            <p>You can complete your payment online to secure your appointment slot. Please visit: <a href="{FRONTEND_URL}/appointment/{appointment_data.get('appointmentId')}">Pay Now</a></p>
+            <div class="content">
+                <p class="greeting">Dear {customer_name},</p>
+                
+                <p class="message">
+                    Thank you for choosing Auto Lab Solutions for your automotive needs. We have successfully received your appointment request and our team will review it shortly.
+                </p>
+                
+                <div class="details-card">
+                    <h3>Appointment Details</h3>
+                    <table class="details-table">
+                        <tr class="details-row">
+                            <td class="details-label">Reference ID:</td>
+                            <td class="details-value highlight">{appointment_data.get('appointmentId', 'N/A')}</td>
+                        </tr>
+                        <tr class="details-row">
+                            <td class="details-label">Services:</td>
+                            <td class="details-value">{services}</td>
+                        </tr>
+                        <tr class="details-row">
+                            <td class="details-label">Total Price:</td>
+                            <td class="details-value price">AUD {appointment_data.get('totalPrice', 'N/A')}</td>
+                        </tr>
+                        <tr class="details-row">
+                            <td class="details-label">Selected Slots:</td>
+                            <td class="details-value">{formatted_timeslots}</td>
+                        </tr>
+                        <tr class="details-row">
+                            <td class="details-label">Vehicle:</td>
+                            <td class="details-value">{vehicle_info}</td>
+                        </tr>
+                        <tr class="details-row">
+                            <td class="details-label">Contact Number:</td>
+                            <td class="details-value">{appointment_data.get('customerData', {}).get('phoneNumber', 'N/A')}</td>
+                        </tr>
+                    </table>
+                </div>
+                
+                <div class="info-box">
+                    <p><strong>⏱️ What happens next?</strong> Our team will review your request and contact you within 1 hour to confirm the appointment details and finalize the schedule.</p>
+                </div>
+                
+                <div class="action-buttons">
+                    <a href="{FRONTEND_URL}/appointment/{appointment_data.get('appointmentId')}" class="btn btn-primary">💳 Complete Payment</a>
+                    <a href="{FRONTEND_URL}/appointment/{appointment_data.get('appointmentId')}" class="btn btn-secondary">📱 Track Status</a>
+                </div>
+                
+                <p class="message">
+                    If you have any questions or need to make changes to your appointment, please don't hesitate to contact our support team.
+                </p>
+            </div>
             
-            <p>You can also track your appointment status by visiting: <a href="{FRONTEND_URL}/appointment/{appointment_data.get('appointmentId')}">View Appointment</a></p>
-            
-            <p>If you have any questions, please don't hesitate to contact us.</p>
-            
-            <p>Best regards,<br>Auto Lab Solutions Team</p>
+            <div class="footer">
+                <p>Best regards,<br><span class="company-name">Auto Lab Solutions Team</span></p>
+            </div>
         </div>
     </body>
     </html>
@@ -196,36 +265,101 @@ def send_order_created_email(customer_email, customer_name, order_data):
     vehicle_info = format_vehicle_info(order_data.get('vehicleInfo', {}))
     
     html_body = f"""
+    <!DOCTYPE html>
     <html>
-    <head></head>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Service Order Created</title>
+        <style>
+            * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+            body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; }}
+            .container {{ max-width: 600px; margin: 0 auto; background-color: #18181B; color: #F3F4F6; }}
+            .header {{ background: linear-gradient(135deg, #27272A 0%, #3F3F46 100%); padding: 40px 30px; text-align: center; }}
+            .header h1 {{ color: #22C55E; font-size: 28px; font-weight: 700; margin-bottom: 8px; }}
+            .header p {{ color: #a1a1aa; font-size: 16px; }}
+            .content {{ padding: 30px; }}
+            .greeting {{ font-size: 18px; color: #F3F4F6; margin-bottom: 20px; }}
+            .message {{ color: #a1a1aa; margin-bottom: 30px; line-height: 1.7; }}
+            .details-card {{ background-color: #27272A; border: 1px solid #3f3f46; border-radius: 12px; padding: 25px; margin: 25px 0; }}
+            .details-card h3 {{ color: #22C55E; font-size: 20px; font-weight: 600; margin-bottom: 20px; display: flex; align-items: center; }}
+            .details-card h3::before {{ content: "🔧"; margin-right: 8px; }}
+            .details-table {{ width: 100%; }}
+            .details-row {{ display: flex; padding: 12px 0; border-bottom: 1px solid #3f3f46; }}
+            .details-row:last-child {{ border-bottom: none; }}
+            .details-label {{ font-weight: 600; color: #F3F4F6; width: 140px; flex-shrink: 0; }}
+            .details-value {{ color: #a1a1aa; flex: 1; }}
+            .highlight {{ color: #22C55E; font-weight: 600; }}
+            .price {{ color: #F59E0B; font-weight: 700; font-size: 18px; }}
+            .action-buttons {{ text-align: center; margin: 35px 0; }}
+            .btn {{ display: inline-block; padding: 14px 28px; margin: 8px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; transition: all 0.3s ease; }}
+            .btn-primary {{ background-color: #22C55E; color: #0F172A; }}
+            .btn-secondary {{ background-color: transparent; color: #F3F4F6; border: 2px solid #3f3f46; }}
+            .info-box {{ background-color: #3F3F46; border-left: 4px solid #22C55E; padding: 20px; margin: 25px 0; border-radius: 8px; }}
+            .info-box p {{ color: #F3F4F6; margin: 0; }}
+            .footer {{ background-color: #09090b; padding: 25px 30px; text-align: center; border-top: 1px solid #3f3f46; }}
+            .footer p {{ color: #a1a1aa; margin: 0; }}
+            .company-name {{ color: #22C55E; font-weight: 600; }}
+        </style>
+    </head>
     <body>
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #2c3e50;">New Order Created</h2>
-            
-            <p>Dear {customer_name},</p>
-            
-            <p>Thank you for placing your order with Auto Lab Solutions. We have received your order and will begin processing it shortly.</p>
-            
-            <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
-                <h3 style="color: #2c3e50; margin-top: 0;">Order Details:</h3>
-                <p><strong>Order ID:</strong> {order_data.get('orderId', 'N/A')}</p>
-                {f"<p><strong>Items:</strong> {items}</p>" if items else ""}
-                <p><strong>Vehicle:</strong> {vehicle_info}</p>
-                <p><strong>Total Amount:</strong> AUD {order_data.get('totalPrice', 'N/A')}</p>
-                <p><strong>Contact Number:</strong> {order_data.get('customerData', {}).get('phoneNumber', 'N/A')}</p>
+        <div class="container">
+            <div class="header">
+                <h1>🚗 Auto Lab Solutions</h1>
+                <p>Your service order has been created successfully</p>
             </div>
             
-            <p>Our team will review your order and contact you to confirm the service details and schedule.</p>
-
-            <p>You can complete your payment online to confirm your order. Please visit: <a href="{FRONTEND_URL}/order/{order_data.get('orderId')}">Pay Now</a></p>
+            <div class="content">
+                <p class="greeting">Dear {customer_name},</p>
+                
+                <p class="message">
+                    Thank you for placing your service order with Auto Lab Solutions. We have received your order and our expert team will begin processing it shortly.
+                </p>
+                
+                <div class="details-card">
+                    <h3>Order Details</h3>
+                    <table class="details-table">
+                        <tr class="details-row">
+                            <td class="details-label">Order ID:</td>
+                            <td class="details-value highlight">{order_data.get('orderId', 'N/A')}</td>
+                        </tr>
+                        {f'<tr class="details-row"><td class="details-label">Items:</td><td class="details-value">{items}</td></tr>' if items else ""}
+                        <tr class="details-row">
+                            <td class="details-label">Vehicle:</td>
+                            <td class="details-value">{vehicle_info}</td>
+                        </tr>
+                        <tr class="details-row">
+                            <td class="details-label">Total Amount:</td>
+                            <td class="details-value price">AUD {order_data.get('totalPrice', 'N/A')}</td>
+                        </tr>
+                        <tr class="details-row">
+                            <td class="details-label">Contact Number:</td>
+                            <td class="details-value">{order_data.get('customerData', {}).get('phoneNumber', 'N/A')}</td>
+                        </tr>
+                    </table>
+                </div>
+                
+                <div class="info-box">
+                    <p><strong>⏱️ What happens next?</strong> Our team will review your order and contact you to confirm the service details and schedule. We'll keep you updated throughout the process.</p>
+                </div>
+                
+                <div class="action-buttons">
+                    <a href="{FRONTEND_URL}/order/{order_data.get('orderId')}" class="btn btn-primary">💳 Complete Payment</a>
+                    <a href="{FRONTEND_URL}/order/{order_data.get('orderId')}" class="btn btn-secondary">📱 Track Order</a>
+                </div>
+                
+                <p class="message">
+                    If you have any questions about your order or need assistance, please don't hesitate to contact our support team.
+                </p>
+                
+                <p class="message">
+                    Thank you for choosing Auto Lab Solutions for your automotive service needs!
+                </p>
+            </div>
             
-            <p>You also can track your order status by visiting: <a href="{FRONTEND_URL}/order/{order_data.get('orderId')}">View Order</a></p>
-            
-            <p>If you have any questions, please don't hesitate to contact us.</p>
-            
-            <p>Thank you for choosing Auto Lab Solutions!</p>
-            
-            <p>Best regards,<br>Auto Lab Solutions Team</p>
+            <div class="footer">
+                <p>Best regards,<br><span class="company-name">Auto Lab Solutions Team</span></p>
+            </div>
         </div>
     </body>
     </html>
@@ -272,34 +406,100 @@ def send_appointment_updated_email(customer_email, customer_name, appointment_da
         changes_html = "<p>Your appointment details have been updated. Please review the current information below.</p>"
     
     html_body = f"""
+    <!DOCTYPE html>
     <html>
-    <head></head>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{email_title}</title>
+        <style>
+            * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+            body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; }}
+            .container {{ max-width: 600px; margin: 0 auto; background-color: #18181B; color: #F3F4F6; }}
+            .header {{ background: linear-gradient(135deg, #27272A 0%, #3F3F46 100%); padding: 40px 30px; text-align: center; }}
+            .header h1 {{ color: #F59E0B; font-size: 28px; font-weight: 700; margin-bottom: 8px; }}
+            .header p {{ color: #a1a1aa; font-size: 16px; }}
+            .content {{ padding: 30px; }}
+            .greeting {{ font-size: 18px; color: #F3F4F6; margin-bottom: 20px; }}
+            .message {{ color: #a1a1aa; margin-bottom: 30px; line-height: 1.7; }}
+            .details-card {{ background-color: #27272A; border: 1px solid #3f3f46; border-radius: 12px; padding: 25px; margin: 25px 0; }}
+            .details-card h3 {{ color: #22C55E; font-size: 20px; font-weight: 600; margin-bottom: 20px; display: flex; align-items: center; }}
+            .details-card h3::before {{ content: "📋"; margin-right: 8px; }}
+            .changes-card {{ background-color: #3F3F46; border-left: 4px solid #F59E0B; border-radius: 12px; padding: 25px; margin: 25px 0; }}
+            .changes-card h3 {{ color: #F59E0B; font-size: 20px; font-weight: 600; margin-bottom: 20px; display: flex; align-items: center; }}
+            .changes-card h3::before {{ content: "✏️"; margin-right: 8px; }}
+            .details-table {{ width: 100%; }}
+            .details-row {{ display: flex; padding: 12px 0; border-bottom: 1px solid #3f3f46; }}
+            .details-row:last-child {{ border-bottom: none; }}
+            .details-label {{ font-weight: 600; color: #F3F4F6; width: 140px; flex-shrink: 0; }}
+            .details-value {{ color: #a1a1aa; flex: 1; }}
+            .highlight {{ color: #22C55E; font-weight: 600; }}
+            .price {{ color: #F59E0B; font-weight: 700; font-size: 18px; }}
+            .status {{ padding: 6px 12px; border-radius: 20px; font-weight: 600; font-size: 14px; background-color: #22C55E; color: #0F172A; }}
+            .action-buttons {{ text-align: center; margin: 35px 0; }}
+            .btn {{ display: inline-block; padding: 14px 28px; margin: 8px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; transition: all 0.3s ease; }}
+            .btn-primary {{ background-color: #22C55E; color: #0F172A; }}
+            .btn-secondary {{ background-color: transparent; color: #F3F4F6; border: 2px solid #3f3f46; }}
+            .warning-box {{ background-color: #3F3F46; border-left: 4px solid #F59E0B; padding: 20px; margin: 25px 0; border-radius: 8px; }}
+            .warning-box p {{ color: #F3F4F6; margin: 0; }}
+            .footer {{ background-color: #09090b; padding: 25px 30px; text-align: center; border-top: 1px solid #3f3f46; }}
+            .footer p {{ color: #a1a1aa; margin: 0; }}
+            .company-name {{ color: #22C55E; font-weight: 600; }}
+        </style>
+    </head>
     <body>
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #2c3e50;">{email_title}</h2>
-            
-            <p>Dear {customer_name},</p>
-            
-            <p>{intro_message}</p>
-            
-            <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
-                <h3 style="color: #2c3e50; margin-top: 0;">Appointment Details:</h3>
-                <p><strong>Appointment ID:</strong> {appointment_data.get('appointmentId', 'N/A')}</p>
-                <p><strong>Services:</strong> {services}</p>
-                <p><strong>Vehicle:</strong> {vehicle_info}</p>
-                <p><strong>Current Status:</strong> {format_status_display(appointment_data.get('status', 'N/A'))}</p>
+        <div class="container">
+            <div class="header">
+                <h1>🚗 Auto Lab Solutions</h1>
+                <p>Appointment update notification</p>
             </div>
             
-            <div style="background-color: #fff3cd; padding: 20px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #ffc107;">
-                <h3 style="color: #856404; margin-top: 0;">{'Status Update:' if update_type == 'status' else 'Changes Made:'}</h3>
-                {changes_html}
+            <div class="content">
+                <p class="greeting">Dear {customer_name},</p>
+                
+                <p class="message">{intro_message}</p>
+                
+                <div class="details-card">
+                    <h3>Current Appointment Details</h3>
+                    <table class="details-table">
+                        <tr class="details-row">
+                            <td class="details-label">Appointment ID:</td>
+                            <td class="details-value highlight">{appointment_data.get('appointmentId', 'N/A')}</td>
+                        </tr>
+                        <tr class="details-row">
+                            <td class="details-label">Services:</td>
+                            <td class="details-value">{services}</td>
+                        </tr>
+                        <tr class="details-row">
+                            <td class="details-label">Vehicle:</td>
+                            <td class="details-value">{vehicle_info}</td>
+                        </tr>
+                        <tr class="details-row">
+                            <td class="details-label">Current Status:</td>
+                            <td class="details-value"><span class="status">{format_status_display(appointment_data.get('status', 'N/A'))}</span></td>
+                        </tr>
+                    </table>
+                </div>
+                
+                <div class="changes-card">
+                    <h3>{'Status Update' if update_type == 'status' else 'Changes Made'}</h3>
+                    <div class="changes-content">
+                        {changes_html}
+                    </div>
+                </div>
+                
+                <div class="action-buttons">
+                    <a href="{FRONTEND_URL}/appointment/{appointment_data.get('appointmentId')}" class="btn btn-primary">📱 View Full Details</a>
+                </div>
+                
+                <div class="warning-box">
+                    <p><strong>⚠️ Important:</strong> If you have any questions about these changes or need immediate assistance, please contact us right away.</p>
+                </div>
             </div>
             
-            <p>You can view your updated appointment by visiting: <a href="{FRONTEND_URL}/appointment/{appointment_data.get('appointmentId')}">View Appointment</a></p>
-            
-            <p>If you have any questions about these changes, please contact us immediately.</p>
-            
-            <p>Best regards,<br>Auto Lab Solutions Team</p>
+            <div class="footer">
+                <p>Best regards,<br><span class="company-name">Auto Lab Solutions Team</span></p>
+            </div>
         </div>
     </body>
     </html>
@@ -346,36 +546,102 @@ def send_order_updated_email(customer_email, customer_name, order_data, changes=
         changes_html = "<p>Your order details have been updated. Please review the current information below.</p>"
     
     html_body = f"""
+    <!DOCTYPE html>
     <html>
-    <head></head>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{email_title}</title>
+        <style>
+            * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+            body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; }}
+            .container {{ max-width: 600px; margin: 0 auto; background-color: #18181B; color: #F3F4F6; }}
+            .header {{ background: linear-gradient(135deg, #27272A 0%, #3F3F46 100%); padding: 40px 30px; text-align: center; }}
+            .header h1 {{ color: #F59E0B; font-size: 28px; font-weight: 700; margin-bottom: 8px; }}
+            .header p {{ color: #a1a1aa; font-size: 16px; }}
+            .content {{ padding: 30px; }}
+            .greeting {{ font-size: 18px; color: #F3F4F6; margin-bottom: 20px; }}
+            .message {{ color: #a1a1aa; margin-bottom: 30px; line-height: 1.7; }}
+            .details-card {{ background-color: #27272A; border: 1px solid #3f3f46; border-radius: 12px; padding: 25px; margin: 25px 0; }}
+            .details-card h3 {{ color: #22C55E; font-size: 20px; font-weight: 600; margin-bottom: 20px; display: flex; align-items: center; }}
+            .details-card h3::before {{ content: "🔧"; margin-right: 8px; }}
+            .changes-card {{ background-color: #3F3F46; border-left: 4px solid #F59E0B; border-radius: 12px; padding: 25px; margin: 25px 0; }}
+            .changes-card h3 {{ color: #F59E0B; font-size: 20px; font-weight: 600; margin-bottom: 20px; display: flex; align-items: center; }}
+            .changes-card h3::before {{ content: "✏️"; margin-right: 8px; }}
+            .details-table {{ width: 100%; }}
+            .details-row {{ display: flex; padding: 12px 0; border-bottom: 1px solid #3f3f46; }}
+            .details-row:last-child {{ border-bottom: none; }}
+            .details-label {{ font-weight: 600; color: #F3F4F6; width: 140px; flex-shrink: 0; }}
+            .details-value {{ color: #a1a1aa; flex: 1; }}
+            .highlight {{ color: #22C55E; font-weight: 600; }}
+            .price {{ color: #F59E0B; font-weight: 700; font-size: 18px; }}
+            .status {{ padding: 6px 12px; border-radius: 20px; font-weight: 600; font-size: 14px; background-color: #22C55E; color: #0F172A; }}
+            .action-buttons {{ text-align: center; margin: 35px 0; }}
+            .btn {{ display: inline-block; padding: 14px 28px; margin: 8px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; transition: all 0.3s ease; }}
+            .btn-primary {{ background-color: #22C55E; color: #0F172A; }}
+            .footer {{ background-color: #09090b; padding: 25px 30px; text-align: center; border-top: 1px solid #3f3f46; }}
+            .footer p {{ color: #a1a1aa; margin: 0; }}
+            .company-name {{ color: #22C55E; font-weight: 600; }}
+        </style>
+    </head>
     <body>
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #2c3e50;">{email_title}</h2>
-            
-            <p>Dear {customer_name},</p>
-            
-            <p>{intro_message}</p>
-            
-            <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
-                <h3 style="color: #2c3e50; margin-top: 0;">Order Details:</h3>
-                <p><strong>Order ID:</strong> {order_data.get('orderId', 'N/A')}</p>
-                <p><strong>Services:</strong> {services}</p>
-                {f"<p><strong>Items:</strong> {items}</p>" if items else ""}
-                <p><strong>Vehicle:</strong> {vehicle_info}</p>
-                <p><strong>Current Status:</strong> {format_status_display(order_data.get('status', 'N/A'))}</p>
-                <p><strong>Total Amount:</strong> AUD {order_data.get('totalAmount', '0.00')}</p>
+        <div class="container">
+            <div class="header">
+                <h1>🚗 Auto Lab Solutions</h1>
+                <p>Service order update notification</p>
             </div>
             
-            <div style="background-color: #fff3cd; padding: 20px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #ffc107;">
-                <h3 style="color: #856404; margin-top: 0;">{'Status Update:' if update_type == 'status' else 'Changes Made:'}</h3>
-                {changes_html}
+            <div class="content">
+                <p class="greeting">Dear {customer_name},</p>
+                
+                <p class="message">{intro_message}</p>
+                
+                <div class="details-card">
+                    <h3>Current Order Details</h3>
+                    <table class="details-table">
+                        <tr class="details-row">
+                            <td class="details-label">Order ID:</td>
+                            <td class="details-value highlight">{order_data.get('orderId', 'N/A')}</td>
+                        </tr>
+                        <tr class="details-row">
+                            <td class="details-label">Services:</td>
+                            <td class="details-value">{services}</td>
+                        </tr>
+                        {f'<tr class="details-row"><td class="details-label">Items:</td><td class="details-value">{items}</td></tr>' if items else ""}
+                        <tr class="details-row">
+                            <td class="details-label">Vehicle:</td>
+                            <td class="details-value">{vehicle_info}</td>
+                        </tr>
+                        <tr class="details-row">
+                            <td class="details-label">Current Status:</td>
+                            <td class="details-value"><span class="status">{format_status_display(order_data.get('status', 'N/A'))}</span></td>
+                        </tr>
+                        <tr class="details-row">
+                            <td class="details-label">Total Amount:</td>
+                            <td class="details-value price">AUD {order_data.get('totalAmount', '0.00')}</td>
+                        </tr>
+                    </table>
+                </div>
+                
+                <div class="changes-card">
+                    <h3>{'Status Update' if update_type == 'status' else 'Changes Made'}</h3>
+                    <div class="changes-content">
+                        {changes_html}
+                    </div>
+                </div>
+                
+                <div class="action-buttons">
+                    <a href="{FRONTEND_URL}/order/{order_data.get('orderId')}" class="btn btn-primary">📱 View Updated Order</a>
+                </div>
+                
+                <p class="message">
+                    Thank you for choosing Auto Lab Solutions for your automotive service needs!
+                </p>
             </div>
             
-            <p>You can view your updated order by visiting: <a href="{FRONTEND_URL}/order/{order_data.get('orderId')}">View Order</a></p>
-            
-            <p>Thank you for choosing Auto Lab Solutions!</p>
-            
-            <p>Best regards,<br>Auto Lab Solutions Team</p>
+            <div class="footer">
+                <p>Best regards,<br><span class="company-name">Auto Lab Solutions Team</span></p>
+            </div>
         </div>
     </body>
     </html>
@@ -399,41 +665,109 @@ def send_report_ready_email(customer_email, customer_name, appointment_data, rep
     vehicle_info = format_vehicle_info(appointment_data.get('vehicleInfo', {}))
     
     html_body = f"""
+    <!DOCTYPE html>
     <html>
-    <head></head>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Vehicle Report Ready</title>
+        <style>
+            * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+            body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; }}
+            .container {{ max-width: 600px; margin: 0 auto; background-color: #18181B; color: #F3F4F6; }}
+            .header {{ background: linear-gradient(135deg, #22C55E 0%, #16A34A 100%); padding: 40px 30px; text-align: center; }}
+            .header h1 {{ color: #FFFFFF; font-size: 28px; font-weight: 700; margin-bottom: 8px; }}
+            .header p {{ color: #DCFCE7; font-size: 16px; }}
+            .content {{ padding: 30px; }}
+            .greeting {{ font-size: 18px; color: #F3F4F6; margin-bottom: 20px; }}
+            .message {{ color: #a1a1aa; margin-bottom: 30px; line-height: 1.7; }}
+            .details-card {{ background-color: #27272A; border: 1px solid #3f3f46; border-radius: 12px; padding: 25px; margin: 25px 0; }}
+            .details-card h3 {{ color: #22C55E; font-size: 20px; font-weight: 600; margin-bottom: 20px; display: flex; align-items: center; }}
+            .details-card h3::before {{ content: "📋"; margin-right: 8px; }}
+            .report-card {{ background-color: #065F46; border: 1px solid #22C55E; border-radius: 12px; padding: 25px; margin: 25px 0; }}
+            .report-card h3 {{ color: #22C55E; font-size: 20px; font-weight: 600; margin-bottom: 20px; display: flex; align-items: center; }}
+            .report-card h3::before {{ content: "📄"; margin-right: 8px; }}
+            .details-table {{ width: 100%; }}
+            .details-row {{ display: flex; padding: 12px 0; border-bottom: 1px solid #3f3f46; }}
+            .details-row:last-child {{ border-bottom: none; }}
+            .details-label {{ font-weight: 600; color: #F3F4F6; width: 140px; flex-shrink: 0; }}
+            .details-value {{ color: #a1a1aa; flex: 1; }}
+            .highlight {{ color: #22C55E; font-weight: 600; }}
+            .status {{ padding: 6px 12px; border-radius: 20px; font-weight: 600; font-size: 14px; background-color: #22C55E; color: #0F172A; }}
+            .action-buttons {{ text-align: center; margin: 35px 0; }}
+            .btn {{ display: inline-block; padding: 16px 32px; margin: 8px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; transition: all 0.3s ease; }}
+            .btn-primary {{ background-color: #22C55E; color: #0F172A; }}
+            .btn-secondary {{ background-color: transparent; color: #F3F4F6; border: 2px solid #3f3f46; }}
+            .footer {{ background-color: #09090b; padding: 25px 30px; text-align: center; border-top: 1px solid #3f3f46; }}
+            .footer p {{ color: #a1a1aa; margin: 0; }}
+            .company-name {{ color: #22C55E; font-weight: 600; }}
+        </style>
+    </head>
     <body>
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #2c3e50;">Your Report is Ready</h2>
-            
-            <p>Dear {customer_name},</p>
-            
-            <p>Great news! The report for your appointment is now ready for review.</p>
-            
-            <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin: 20px 0;">
-                <h3 style="color: #2c3e50; margin-top: 0;">Appointment Details:</h3>
-                <p><strong>Appointment ID:</strong> {appointment_id}</p>
-                <p><strong>Services:</strong> {services}</p>
-                <p><strong>Vehicle:</strong> {vehicle_info}</p>
-                <p><strong>Status:</strong> {appointment_data.get('status', 'Completed')}</p>
+        <div class="container">
+            <div class="header">
+                <h1>📄 Report Ready</h1>
+                <p>Your vehicle inspection report is now available</p>
             </div>
             
-            <div style="background-color: #e8f5e8; padding: 20px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #27ae60;">
-                <h3 style="color: #27ae60; margin-top: 0;">Report Details:</h3>
-                <p><strong>Report Generated:</strong> {format_timestamp(int(datetime.now().timestamp()))}</p>
-                <p><strong>Download Link:</strong> <a href="{report_url}">Download your report</a></p>
+            <div class="content">
+                <p class="greeting">Dear {customer_name},</p>
+                
+                <p class="message">
+                    <strong>Excellent news!</strong> We've completed the inspection and analysis of your vehicle. Your comprehensive report is now ready for review and download.
+                </p>
+                
+                <div class="details-card">
+                    <h3>Appointment Details</h3>
+                    <table class="details-table">
+                        <tr class="details-row">
+                            <td class="details-label">Appointment ID:</td>
+                            <td class="details-value highlight">{appointment_id}</td>
+                        </tr>
+                        <tr class="details-row">
+                            <td class="details-label">Services:</td>
+                            <td class="details-value">{services}</td>
+                        </tr>
+                        <tr class="details-row">
+                            <td class="details-label">Vehicle:</td>
+                            <td class="details-value">{vehicle_info}</td>
+                        </tr>
+                        <tr class="details-row">
+                            <td class="details-label">Status:</td>
+                            <td class="details-value"><span class="status">{appointment_data.get('status', 'Completed')}</span></td>
+                        </tr>
+                    </table>
+                </div>
+                
+                <div class="report-card">
+                    <h3>Report Information</h3>
+                    <table class="details-table" style="border-bottom: 1px solid #22C55E;">
+                        <tr class="details-row" style="border-bottom: 1px solid #22C55E;">
+                            <td class="details-label" style="color: #DCFCE7;">Report Generated:</td>
+                            <td class="details-value" style="color: #DCFCE7;">{format_timestamp(int(datetime.now().timestamp()))}</td>
+                        </tr>
+                        <tr class="details-row" style="border-bottom: none;">
+                            <td class="details-label" style="color: #DCFCE7;">Download Link:</td>
+                            <td class="details-value">
+                                <a href="{report_url}" style="color: #22C55E; font-weight: 600; text-decoration: none;">📥 Click to download</a>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+                
+                <div class="action-buttons">
+                    <a href="{report_url}" class="btn btn-primary">📥 Download Report</a>
+                    <a href="{FRONTEND_URL}/appointment/{appointment_id}" class="btn btn-secondary">📱 View Appointment</a>
+                </div>
+                
+                <p class="message">
+                    Your report contains detailed findings, recommendations, and any maintenance suggestions for your vehicle. If you have any questions about the report or need clarification on any findings, our expert team is here to help.
+                </p>
             </div>
             
-            <div style="text-align: center; margin: 30px 0;">
-                <a href="{report_url}" style="background-color: #3498db; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">Download Report</a>
+            <div class="footer">
+                <p>Thank you for choosing <span class="company-name">Auto Lab Solutions</span>!<br>Best regards, Auto Lab Solutions Team</p>
             </div>
-            
-            <p>You can also view your appointment and report by visiting: <a href="{FRONTEND_URL}/appointment/{appointment_id}">View Appointment</a></p>
-            
-            <p>If you have any questions about the report, please don't hesitate to contact us.</p>
-            
-            <p>Thank you for choosing Auto Lab Solutions!</p>
-            
-            <p>Best regards,<br>Auto Lab Solutions Team</p>
         </div>
     </body>
     </html>
@@ -456,38 +790,102 @@ def send_payment_confirmation_email(customer_email, customer_name, payment_data,
     payment_date = format_timestamp(payment_data.get('paymentDate', int(datetime.now().timestamp())))
     
     html_body = f"""
+    <!DOCTYPE html>
     <html>
-    <head></head>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Payment Confirmation</title>
+        <style>
+            * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+            body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; }}
+            .container {{ max-width: 600px; margin: 0 auto; background-color: #18181B; color: #F3F4F6; }}
+            .header {{ background: linear-gradient(135deg, #22C55E 0%, #16A34A 100%); padding: 40px 30px; text-align: center; }}
+            .header h1 {{ color: #FFFFFF; font-size: 28px; font-weight: 700; margin-bottom: 8px; }}
+            .header p {{ color: #DCFCE7; font-size: 16px; }}
+            .content {{ padding: 30px; }}
+            .greeting {{ font-size: 18px; color: #F3F4F6; margin-bottom: 20px; }}
+            .message {{ color: #a1a1aa; margin-bottom: 30px; line-height: 1.7; }}
+            .payment-card {{ background-color: #065F46; border: 1px solid #22C55E; border-radius: 12px; padding: 25px; margin: 25px 0; }}
+            .payment-card h3 {{ color: #22C55E; font-size: 20px; font-weight: 600; margin-bottom: 20px; display: flex; align-items: center; }}
+            .payment-card h3::before {{ content: "💳"; margin-right: 8px; }}
+            .details-table {{ width: 100%; }}
+            .details-row {{ display: flex; padding: 12px 0; border-bottom: 1px solid #22C55E; }}
+            .details-row:last-child {{ border-bottom: none; }}
+            .details-label {{ font-weight: 600; color: #DCFCE7; width: 160px; flex-shrink: 0; }}
+            .details-value {{ color: #DCFCE7; flex: 1; }}
+            .amount {{ color: #F59E0B; font-weight: 700; font-size: 24px; }}
+            .status {{ padding: 8px 16px; border-radius: 20px; font-weight: 600; font-size: 14px; background-color: #22C55E; color: #0F172A; }}
+            .action-buttons {{ text-align: center; margin: 35px 0; }}
+            .btn {{ display: inline-block; padding: 16px 32px; margin: 8px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; transition: all 0.3s ease; }}
+            .btn-primary {{ background-color: #22C55E; color: #0F172A; }}
+            .info-box {{ background-color: #3F3F46; border-left: 4px solid #22C55E; padding: 20px; margin: 25px 0; border-radius: 8px; }}
+            .info-box p {{ color: #F3F4F6; margin: 0; }}
+            .footer {{ background-color: #09090b; padding: 25px 30px; text-align: center; border-top: 1px solid #3f3f46; }}
+            .footer p {{ color: #a1a1aa; margin: 0; }}
+            .company-name {{ color: #22C55E; font-weight: 600; }}
+        </style>
+    </head>
     <body>
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #27ae60;">Payment Confirmation</h2>
-            
-            <p>Dear {customer_name},</p>
-            
-            <p>Thank you for your payment! We have successfully received and processed your payment.</p>
-            
-            <div style="background-color: #e8f5e8; padding: 20px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #27ae60;">
-                <h3 style="color: #27ae60; margin-top: 0;">Payment Details:</h3>
-                <p><strong>Amount Paid:</strong> AUD {amount}</p>
-                <p><strong>Payment Method:</strong> {payment_method}</p>
-                <p><strong>Payment Date:</strong> {payment_date}</p>
-                <p><strong>Reference Number:</strong> {reference_number}</p>
-                <p><strong>Transaction Status:</strong> Completed</p>
+        <div class="container">
+            <div class="header">
+                <h1>✅ Payment Confirmed</h1>
+                <p>Your payment has been successfully processed</p>
             </div>
             
-            <div style="text-align: center; margin: 30px 0;">
-                <a href="{invoice_url}" style="background-color: #3498db; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">Download Invoice</a>
+            <div class="content">
+                <p class="greeting">Dear {customer_name},</p>
+                
+                <p class="message">
+                    <strong>Thank you for your payment!</strong> We have successfully received and processed your payment. Your transaction is now complete and your invoice has been generated.
+                </p>
+                
+                <div class="payment-card">
+                    <h3>Payment Summary</h3>
+                    <table class="details-table">
+                        <tr class="details-row">
+                            <td class="details-label">Amount Paid:</td>
+                            <td class="details-value amount">AUD {amount}</td>
+                        </tr>
+                        <tr class="details-row">
+                            <td class="details-label">Payment Method:</td>
+                            <td class="details-value">{payment_method}</td>
+                        </tr>
+                        <tr class="details-row">
+                            <td class="details-label">Payment Date:</td>
+                            <td class="details-value">{payment_date}</td>
+                        </tr>
+                        <tr class="details-row">
+                            <td class="details-label">Reference Number:</td>
+                            <td class="details-value">{reference_number}</td>
+                        </tr>
+                        <tr class="details-row">
+                            <td class="details-label">Transaction Status:</td>
+                            <td class="details-value"><span class="status">✅ Completed</span></td>
+                        </tr>
+                    </table>
+                </div>
+                
+                <div class="action-buttons">
+                    <a href="{invoice_url}" class="btn btn-primary">📄 Download Invoice</a>
+                </div>
+                
+                <div class="info-box">
+                    <p><strong>📋 Important:</strong> Please save this invoice for your records. You may need it for warranty claims, tax purposes, or future service references.</p>
+                </div>
+                
+                <p class="message">
+                    Your payment confirmation has been recorded in our system. If you need additional documentation or have any questions about this payment, please don't hesitate to contact our support team.
+                </p>
+                
+                <p class="message">
+                    <strong>Thank you for choosing Auto Lab Solutions for your automotive service needs!</strong>
+                </p>
             </div>
             
-            <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
-                <p><strong>Important:</strong> Please save this invoice for your records. You may need it for warranty claims or tax purposes.</p>
+            <div class="footer">
+                <p>Best regards,<br><span class="company-name">Auto Lab Solutions Team</span></p>
             </div>
-            
-            <p>If you have any questions about this payment or need additional documentation, please contact us.</p>
-            
-            <p>Thank you for choosing Auto Lab Solutions!</p>
-            
-            <p>Best regards,<br>Auto Lab Solutions Team</p>
         </div>
     </body>
     </html>

@@ -6,9 +6,8 @@ import db_utils as db
 import response_utils as resp
 import request_utils as req
 import wsgw_utils as wsgw
-import sqs_utils as sqs
 import email_utils as email
-import notification_utils as notify
+from notification_manager import notification_manager, invoice_manager
 
 # Set Stripe secret key from environment
 stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
@@ -93,14 +92,14 @@ def lambda_handler(event, context):
         if updated_record.get('paymentStatus') == 'paid':
             try:
                 # Queue invoice generation asynchronously for faster response
-                sqs.queue_invoice_generation(updated_record, payment_type, payment_intent_id)
+                invoice_manager.queue_invoice_generation(updated_record, payment_type, payment_intent_id)
                 print(f"Invoice generation queued for {payment_type} {reference_number}")
             except Exception as e:
                 print(f"Error queuing invoice generation: {str(e)}")
                 # Fallback to synchronous processing if queue fails
                 try:
-                    # Use shared utility for invoice generation
-                    sqs.generate_invoice_synchronously(updated_record, payment_type, payment_intent_id)
+                    # Use invoice manager for synchronous generation
+                    invoice_manager._generate_invoice_synchronously(updated_record, payment_type, payment_intent_id)
                 except Exception as sync_error:
                     print(f"Error in synchronous invoice generation fallback: {str(sync_error)}")
         
@@ -120,7 +119,7 @@ def lambda_handler(event, context):
         return resp.error_response("Internal server error", 500)
 
 def send_payment_confirmation_notification(record, record_type, status='paid'):
-    """Send payment confirmation notification"""
+    """Send payment confirmation notification via WebSocket and Firebase"""
     try:
         receiverConnections = []
         # Notify customer
@@ -133,6 +132,7 @@ def send_payment_confirmation_notification(record, record_type, status='paid'):
         staff_connections = db.get_all_staff_connections()
         receiverConnections.extend(staff_connections)
 
+        # Send WebSocket notifications
         for connection in receiverConnections:
             wsgw.send_notification(wsgw_client, connection.get('connectionId'), {
                 "type": record_type,
@@ -142,11 +142,13 @@ def send_payment_confirmation_notification(record, record_type, status='paid'):
                 "paymentStatus": "paid"
             })
         
-        # Queue Firebase push notification to staff
-        notify.queue_payment_firebase_notification(record.get(f'{record_type}Id'), 'stripe_payment_confirmed')
+        # Queue enhanced Firebase push notification to staff
+        reference_id = record.get(f'{record_type}Id')
+        amount = record.get('price') or record.get('paymentAmount')
+        notification_manager.queue_payment_firebase_notification(reference_id, 'stripe_payment_confirmed', amount)
                     
     except Exception as e:
         print(f"Error sending payment confirmation notification: {str(e)}")
-        # Don't fail the payment if email fails
+        # Don't fail the payment if notification fails
 
 

@@ -1,7 +1,7 @@
 import db_utils as db
 import response_utils as resp
 import request_utils as req
-import notification_utils as notify
+from notification_manager import notification_manager
 
 valid_statuses = [
     'TYPING',
@@ -51,12 +51,12 @@ def lambda_handler(event, context):
             # User is typing - notify assigned staff or all staff
             action_sender_record = db.get_user_record(action_sender_id)
             assigned_to = action_sender_record.get('assignedTo') if action_sender_record else None
-            notify.queue_staff_websocket_notification(notification, assigned_to=assigned_to)
+            notification_manager.queue_staff_websocket_notification(notification, assigned_to=assigned_to)
         else:
             # Staff is typing - notify specific client
             if not client_id:
                 return resp.error_response("clientId is required for TYPING status.")
-            notify.queue_websocket_notification('typing_notification', notification, user_id=client_id)
+            notification_manager.queue_websocket_notification('typing_notification', notification, user_id=client_id)
         
         return resp.success_response(
             { "message": f"Notification queued successfully for TYPING status." },
@@ -89,7 +89,7 @@ def lambda_handler(event, context):
             return resp.error_response("You are not authorized to send RECEIVED/VIEWED notifications for this message.")
         
         # Queue notification to message sender
-        notify.queue_websocket_notification('message_status_notification', notification, user_id=msg_sender_id)
+        notification_manager.queue_websocket_notification('message_status_notification', notification, user_id=msg_sender_id)
 
         update_status = db.update_message_status(
             message_id=message_id,
@@ -129,10 +129,10 @@ def lambda_handler(event, context):
         # Queue notification to message receiver(s)
         if msg_receiver_id == 'ALL':
             # Broadcast to all staff
-            notify.queue_staff_websocket_notification(notification)
+            notification_manager.queue_staff_websocket_notification(notification)
         else:
             # Send to specific user
-            notify.queue_websocket_notification('message_edit_notification', notification, user_id=msg_receiver_id)
+            notification_manager.queue_websocket_notification('message_edit_notification', notification, user_id=msg_receiver_id)
 
         return resp.success_response(
             { "message": f"Notification queued successfully for {status}." }, 

@@ -2,8 +2,8 @@ import time
 import db_utils as db
 import response_utils as resp
 import request_utils as req
-import sqs_utils as sqs
 import email_utils as email
+from notification_manager import invoice_manager
 
 
 def lambda_handler(event, context):
@@ -98,48 +98,39 @@ def lambda_handler(event, context):
             "totalAmount": total_amount,
         }
         
-        # Generate invoice synchronously using sqs_utils
-        invoice_generation_result = sqs.generate_invoice_synchronously(
+        # Generate invoice synchronously using invoice manager
+        invoice_generation_success = invoice_manager._generate_invoice_synchronously(
             record_data, 
             "invoice", 
             payment_intent_id
         )
         
-        if invoice_generation_result.get('success'):
-            # Extract invoice details from the result
-            invoice_result = invoice_generation_result.get('invoice_result', {})
-            
-            if invoice_result.get('success'):
-                invoice_url = invoice_result.get('invoice_url')
-                
+        if invoice_generation_success:
+            # Since the invoice manager handles all the processing internally,
+            # we can return success with the provided data
+            try:
                 # Send payment confirmation email after successful invoice generation
-                try:
-                    send_payment_confirmation_email_for_manual_invoice(
-                        customer_data, 
-                        record_data, 
-                        invoice_url, 
-                        payment_method
-                    )
-                except Exception as email_error:
-                    print(f"Error sending payment confirmation email: {str(email_error)}")
-                    # Don't fail the invoice generation if email fails
-                
-                return resp.success_response({
-                    "message": "Invoice generated successfully",
-                    "invoice_id": invoice_result['invoice_id'],
-                    "invoice_url": invoice_result['invoice_url'],
-                    "reference_number": reference_number,
-                    "payment_method": payment_method,
-                    "generated_at": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-                })
-            else:
-                return resp.error_response(
-                    f"Failed to generate invoice: {invoice_result.get('error', 'Unknown error')}", 
-                    500
+                send_payment_confirmation_email_for_manual_invoice(
+                    customer_data, 
+                    record_data, 
+                    None,  # Invoice URL is handled internally by the manager
+                    payment_method
                 )
+            except Exception as email_error:
+                print(f"Error sending payment confirmation email: {str(email_error)}")
+                # Don't fail the invoice generation if email fails
+            
+            return resp.success_response({
+                "message": "Invoice generated successfully",
+                "invoice_id": transaction_data['id'],
+                "reference_number": reference_number,
+                "payment_method": payment_method,
+                "payment_intent_id": payment_intent_id,
+                "generated_at": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+            })
         else:
             return resp.error_response(
-                f"Failed to generate invoice: {invoice_generation_result.get('error', 'Unknown error')}", 
+                "Failed to generate invoice. Please check the logs for more details.", 
                 500
             )
         

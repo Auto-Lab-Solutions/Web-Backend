@@ -1,11 +1,17 @@
 
-def lambda_handler(event, context):
-    connection_id = event.get('connectionId')
-    domain = event.get('domain')
-    stage = event.get('stage')
-    request_body = event.get('body', {})
-    
-    user_id = request_body.get('userId', '')
-    print(f"Received ping for connection {connection_id} with userId {user_id}")
+from ..common_lib.websocket_utils import get_ping_manager
+from ..common_lib.exceptions import BusinessLogicError
 
-    return {}
+def lambda_handler(event, context):
+    """
+    Handle WebSocket ping (manager-based)
+    """
+    try:
+        ping_manager = get_ping_manager()
+        return ping_manager.handle_ping(event)
+    except BusinessLogicError as e:
+        print(f"Ping handling failed: {str(e)}")
+        return {"statusCode": e.status_code}
+    except Exception as e:
+        print(f"Unexpected error in ws-ping: {str(e)}")
+        return {"statusCode": 500}

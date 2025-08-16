@@ -1,28 +1,16 @@
 import json
-import boto3
 import os
+import sys
 import logging
-from datetime import datetime, timedelta
-from decimal import Decimal
-from botocore.exceptions import ClientError
+
+# Add common_lib to the path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'common_lib'))
+
+from email_suppression_manager import EmailSuppressionManager
 
 # Set up logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
-
-# Initialize AWS clients
-dynamodb = boto3.resource('dynamodb')
-ses_client = boto3.client('ses')
-
-# Environment variables
-ENVIRONMENT = os.environ.get('ENVIRONMENT', 'production')
-SUPPRESSION_TABLE_NAME = os.environ.get('SUPPRESSION_TABLE_NAME')
-ANALYTICS_TABLE_NAME = os.environ.get('ANALYTICS_TABLE_NAME')
-MAIL_FROM_ADDRESS = os.environ.get('MAIL_FROM_ADDRESS', 'noreply@autolabsolutions.com')
-
-# DynamoDB tables
-suppression_table = dynamodb.Table(SUPPRESSION_TABLE_NAME)
-analytics_table = dynamodb.Table(ANALYTICS_TABLE_NAME)
 
 def lambda_handler(event, context):
     """

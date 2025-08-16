@@ -2,6 +2,8 @@ import json
 import os
 import sys
 import datetime
+import csv
+import io
 import boto3
 from botocore.exceptions import ClientError
 
@@ -11,81 +13,113 @@ import response_utils as resp
 
 def lambda_handler(event, context):
     """
-    Auto Lab Solutions - Backup/Restore Lambda Function
+    Auto Lab Solutions - Enhanced Backup/Restore Lambda Function
     
-    This function handles both automated and manual backup requests.
+    This function handles both automated and manual backup requests with cleanup functionality.
     It backs up DynamoDB tables and S3 objects (reports and invoices).
-    It can also handle restoration requests based on the event parameters.
+    It also performs data cleanup based on age policies for different tables.
     
-    What gets backed up:
-    - All DynamoDB tables for the environment
-    - All S3 objects from the reports bucket (includes both reports and invoices)
+    Weekly Schedule:
+    - Runs once per week (Sunday at 2 AM UTC)
+    - Performs cleanup of old records before backup
+    - Backs up deleted records to CSV files in S3
+    - Performs regular backup of all remaining data
+    
+    Cleanup Policies:
+    - UnavailableSlots, Connections: Records older than 2 days
+    - Other tables (except excluded): Records older than 2 months
+    - Excluded from cleanup: EmailSuppression, ItemPrices, ServicePrices, Staff, Users
     
     Event structure:
     {
-        "operation": "backup" | "restore",
+        "operation": "backup" | "restore" | "cleanup",
         "backup_timestamp": "2025-08-10-14-30-00" (required for restore),
         "tables": ["table1", "table2"] (optional, defaults to all tables),
         "clear_tables": true/false (restore only, default: true),
         "create_backup": true/false (restore only, default: true),
         "manual_trigger": true/false,
         "triggered_by": "username",
-        "reason": "Manual backup requested"
+        "reason": "Manual backup requested",
+        "skip_cleanup": true/false (backup only, default: false)
     }
     """
     try:
         # Log the incoming event
-        print(f"Backup/Restore Lambda triggered with event: {json.dumps(event, default=str)}")
+        print(f"Enhanced Backup/Restore Lambda triggered with event: {json.dumps(event, default=str)}")
         
         # Determine operation type
         operation = event.get('operation', 'backup')
         
         if operation == 'backup':
-            return handle_backup(event, context)
+            return handle_backup_with_cleanup(event, context)
         elif operation == 'restore':
             return handle_restore(event, context)
+        elif operation == 'cleanup':
+            return handle_cleanup_only(event, context)
         elif operation == 'list_backups':
             return handle_list_backups(event, context)
         else:
-            return resp.error_response(f"Invalid operation: {operation}. Must be 'backup', 'restore', or 'list_backups'", 400)
+            return resp.error_response(f"Invalid operation: {operation}. Must be 'backup', 'restore', 'cleanup', or 'list_backups'", 400)
             
     except Exception as e:
         print(f"Error in lambda_handler: {str(e)}")
         return resp.error_response(f"Internal server error: {str(e)}", 500)
 
-def handle_backup(event, context):
-    """Handle backup operations"""
+def handle_backup_with_cleanup(event, context):
+    """Handle backup operations with data cleanup"""
     try:
-        environment = os.environ.get('ENVIRONMENT', 'production')
+        environment = os.environ.get('ENVIRONMENT')
         backup_bucket = os.environ.get('BACKUP_BUCKET')
         reports_bucket = os.environ.get('REPORTS_BUCKET')
         retention_days = int(os.environ.get('RETENTION_DAYS', '30'))
+        skip_cleanup = event.get('skip_cleanup', False)
         
         if not backup_bucket:
             return resp.error_response("BACKUP_BUCKET environment variable not set", 500)
         
         timestamp = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
         backup_prefix = f"backups/{environment}/{timestamp}"
+        cleanup_prefix = f"cleanup/{environment}/{timestamp}"
         
         results = {
-            'operation': 'backup',
+            'operation': 'backup_with_cleanup',
             'timestamp': timestamp,
             'environment': environment,
             'backup_location': f"s3://{backup_bucket}/{backup_prefix}",
+            'cleanup_location': f"s3://{backup_bucket}/{cleanup_prefix}",
+            'archive_location': f"s3://{backup_bucket}/archive/{environment}",
             'tables_backed_up': [],
+            'tables_cleaned_up': {},
             'reports_and_invoices_backed_up': False,
             'errors': [],
-            'request_id': context.aws_request_id if context else 'unknown'
+            'request_id': context.aws_request_id if context else 'unknown',
+            'cleanup_skipped': skip_cleanup
         }
         
         # Get list of DynamoDB tables to backup
         tables = get_dynamodb_tables(environment)
         
-        # Backup DynamoDB tables
+        # Perform cleanup before backup (unless skipped)
+        if not skip_cleanup:
+            print("Starting data cleanup process...")
+            for table_name in tables:
+                try:
+                    cleanup_result = cleanup_old_records(table_name, backup_bucket, cleanup_prefix)
+                    if cleanup_result['cleaned_count'] > 0:
+                        results['tables_cleaned_up'][table_name] = cleanup_result
+                        print(f"Cleaned up {cleanup_result['cleaned_count']} old records from {table_name}")
+                except Exception as e:
+                    error_msg = f"Failed to cleanup table {table_name}: {str(e)}"
+                    print(error_msg)
+                    results['errors'].append(error_msg)
+        
+        # Backup remaining DynamoDB tables
+        print("Starting backup process...")
         for table_name in tables:
             try:
                 print(f"Backing up table: {table_name}")
-                backup_table_data(table_name, backup_bucket, f"{backup_prefix}/dynamodb/{table_name}.json")
+                table_backup_key = build_backup_s3_key(backup_prefix, "dynamodb", f"{table_name}.json")
+                backup_table_data(table_name, backup_bucket, table_backup_key)
                 results['tables_backed_up'].append(table_name)
             except Exception as e:
                 error_msg = f"Failed to backup table {table_name}: {str(e)}"
@@ -93,22 +127,22 @@ def handle_backup(event, context):
                 results['errors'].append(error_msg)
         
         # Backup reports and invoices from S3 bucket if specified
-        # Note: Both reports and invoices are stored in the same reports bucket
-        # - Reports: stored under reports/ prefix
-        # - Invoices: stored under invoices/ prefix
         if reports_bucket:
             try:
                 print(f"Backing up reports and invoices from: {reports_bucket}")
-                backup_s3_objects(reports_bucket, backup_bucket, f"{backup_prefix}/reports-and-invoices/")
+                reports_backup_prefix = build_backup_s3_key(backup_prefix, "reports-and-invoices")
+                backup_s3_objects(reports_bucket, backup_bucket, reports_backup_prefix)
                 results['reports_and_invoices_backed_up'] = True
             except Exception as e:
                 error_msg = f"Failed to backup reports and invoices: {str(e)}"
                 print(error_msg)
                 results['errors'].append(error_msg)
         
-        # Clean up old backups
+        # Clean up old backups (but not archive files)
         try:
-            cleanup_old_backups(backup_bucket, f"backups/{environment}/", retention_days)
+            cleanup_old_backups(backup_bucket, build_s3_key("backups", environment), retention_days)
+            cleanup_old_backups(backup_bucket, build_s3_key("cleanup", environment), retention_days)
+            # Note: Archive files in /archive/{environment}/ are never deleted automatically
         except Exception as e:
             error_msg = f"Failed to cleanup old backups: {str(e)}"
             print(error_msg)
@@ -116,8 +150,8 @@ def handle_backup(event, context):
         
         # Save backup manifest
         try:
-            manifest_key = f"{backup_prefix}/backup-manifest.json"
-            s3.put_object(backup_bucket, manifest_key, json.dumps(results, indent=2))
+            manifest_key = build_backup_s3_key(backup_prefix, "backup-manifest.json")
+            s3.put_object(backup_bucket, manifest_key, json.dumps(results, indent=2, default=str))
         except Exception as e:
             error_msg = f"Failed to save backup manifest: {str(e)}"
             print(error_msg)
@@ -128,8 +162,8 @@ def handle_backup(event, context):
         return resp.success_response(results, status_code)
         
     except Exception as e:
-        print(f"Error in handle_backup: {str(e)}")
-        return resp.error_response(f"Backup failed: {str(e)}", 500)
+        print(f"Error in handle_backup_with_cleanup: {str(e)}")
+        return resp.error_response(f"Backup with cleanup failed: {str(e)}", 500)
 
 def handle_restore(event, context):
     """
@@ -143,7 +177,7 @@ def handle_restore(event, context):
     - create_backup: Create pre-restore backup (default: True)
     """
     try:
-        environment = os.environ.get('ENVIRONMENT', 'production')
+        environment = os.environ.get('ENVIRONMENT')
         backup_bucket = os.environ.get('BACKUP_BUCKET')
         
         if not backup_bucket:
@@ -174,7 +208,7 @@ def handle_restore(event, context):
         }
         
         # Validate backup exists
-        manifest_key = f"{backup_prefix}/backup-manifest.json"
+        manifest_key = build_backup_s3_key(backup_prefix, "backup-manifest.json")
         try:
             manifest_content = s3.get_object(backup_bucket, manifest_key)
             backup_manifest = json.loads(manifest_content)
@@ -190,10 +224,11 @@ def handle_restore(event, context):
         if create_pre_restore_backup:
             try:
                 pre_restore_timestamp = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
-                pre_restore_prefix = f"backups/{environment}/pre-restore-{pre_restore_timestamp}"
+                pre_restore_prefix = build_s3_key("backups", environment, f"pre-restore-{pre_restore_timestamp}")
                 
                 for table_name in tables_to_restore:
-                    backup_table_data(table_name, backup_bucket, f"{pre_restore_prefix}/dynamodb/{table_name}.json")
+                    table_backup_key = build_backup_s3_key(pre_restore_prefix, "dynamodb", f"{table_name}.json")
+                    backup_table_data(table_name, backup_bucket, table_backup_key)
                 
                 print(f"Created pre-restore backup at: {pre_restore_prefix}")
             except Exception as e:
@@ -207,7 +242,7 @@ def handle_restore(event, context):
                 print(f"Restoring table: {table_name}")
                 
                 # Get backup data
-                backup_key = f"{backup_prefix}/dynamodb/{table_name}.json"
+                backup_key = build_backup_s3_key(backup_prefix, "dynamodb", f"{table_name}.json")
                 backup_data_str = s3.get_object(backup_bucket, backup_key)
                 backup_data = json.loads(backup_data_str)
                 
@@ -249,6 +284,62 @@ def handle_restore(event, context):
         print(f"Error in handle_restore: {str(e)}")
         return resp.error_response(f"Restore failed: {str(e)}", 500)
 
+def handle_cleanup_only(event, context):
+    """Handle cleanup operations only without backup"""
+    try:
+        environment = os.environ.get('ENVIRONMENT')
+        backup_bucket = os.environ.get('BACKUP_BUCKET')
+        
+        if not backup_bucket:
+            return resp.error_response("BACKUP_BUCKET environment variable not set", 500)
+        
+        timestamp = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
+        cleanup_prefix = f"cleanup/{environment}/{timestamp}"
+        
+        results = {
+            'operation': 'cleanup_only',
+            'timestamp': timestamp,
+            'environment': environment,
+            'cleanup_location': f"s3://{backup_bucket}/{cleanup_prefix}",
+            'archive_location': f"s3://{backup_bucket}/archive/{environment}",
+            'tables_cleaned_up': {},
+            'errors': [],
+            'request_id': context.aws_request_id if context else 'unknown'
+        }
+        
+        # Get list of DynamoDB tables to cleanup
+        tables = get_dynamodb_tables(environment)
+        
+        # Perform cleanup on all tables
+        print("Starting cleanup-only process...")
+        for table_name in tables:
+            try:
+                cleanup_result = cleanup_old_records(table_name, backup_bucket, cleanup_prefix)
+                if cleanup_result['cleaned_count'] > 0:
+                    results['tables_cleaned_up'][table_name] = cleanup_result
+                    print(f"Cleaned up {cleanup_result['cleaned_count']} old records from {table_name}")
+            except Exception as e:
+                error_msg = f"Failed to cleanup table {table_name}: {str(e)}"
+                print(error_msg)
+                results['errors'].append(error_msg)
+        
+        # Save cleanup manifest
+        try:
+            manifest_key = build_cleanup_s3_key(cleanup_prefix, "cleanup-manifest.json")
+            s3.put_object(backup_bucket, manifest_key, json.dumps(results, indent=2, default=str))
+        except Exception as e:
+            error_msg = f"Failed to save cleanup manifest: {str(e)}"
+            print(error_msg)
+            results['errors'].append(error_msg)
+        
+        # Return appropriate status
+        status_code = 200 if not results['errors'] else 207
+        return resp.success_response(results, status_code)
+        
+    except Exception as e:
+        print(f"Error in handle_cleanup_only: {str(e)}")
+        return resp.error_response(f"Cleanup failed: {str(e)}", 500)
+
 def get_dynamodb_tables(environment):
     """Get list of DynamoDB tables for the environment"""
     return [
@@ -263,7 +354,9 @@ def get_dynamodb_tables(environment):
         f'ItemPrices-{environment}',
         f'Inquiries-{environment}',
         f'Payments-{environment}',
-        f'Invoices-{environment}'
+        f'Invoices-{environment}',
+        f'EmailSuppression-{environment}',
+        f'EmailMetadata-{environment}',
     ]
 
 def backup_table_data(table_name, bucket, s3_key):
@@ -299,7 +392,7 @@ def backup_s3_objects(source_bucket, backup_bucket, backup_prefix):
         invoice_count = 0
         
         for obj_key in objects:
-            backup_key = f"{backup_prefix}{obj_key}"
+            backup_key = build_s3_key(backup_prefix, obj_key)
             s3.copy_object(source_bucket, obj_key, backup_bucket, backup_key)
             object_count += 1
             
@@ -321,18 +414,23 @@ def backup_s3_objects(source_bucket, backup_bucket, backup_prefix):
             raise
 
 def cleanup_old_backups(bucket, prefix, retention_days):
-    """Delete backups older than retention_days"""
+    """Delete backups older than retention_days (but preserve archive CSV files)"""
     cutoff_date = datetime.datetime.now() - datetime.timedelta(days=retention_days)
     
     objects = s3.list_objects_with_metadata(bucket, prefix)
     deleted_count = 0
     
     for obj in objects:
+        # Never delete archive CSV files (they contain cumulative deleted records)
+        if '/archive/' in obj['Key'] and obj['Key'].endswith('_archive.csv'):
+            print(f"Preserving archive file: {obj['Key']}")
+            continue
+        
         if obj['LastModified'].replace(tzinfo=None) < cutoff_date:
             s3.delete_object(bucket, obj['Key'])
             deleted_count += 1
     
-    print(f"Cleaned up {deleted_count} old backup files")
+    print(f"Cleaned up {deleted_count} old backup files (preserved archive CSV files)")
 
 def clear_table(table_name):
     """Clear all items from a DynamoDB table"""
@@ -387,7 +485,7 @@ def restore_table_data(table_name, backup_data):
 def restore_s3_objects_from_backup(backup_bucket, backup_prefix, target_bucket):
     """Restore S3 objects from backup to target bucket"""
     try:
-        backup_s3_prefix = f"{backup_prefix}/reports-and-invoices/"
+        backup_s3_prefix = build_backup_s3_key(backup_prefix, "reports-and-invoices")
         
         # List all objects in the backup S3 location
         objects = s3.list_objects_with_metadata(backup_bucket, backup_s3_prefix)
@@ -402,7 +500,9 @@ def restore_s3_objects_from_backup(backup_bucket, backup_prefix, target_bucket):
         
         for obj in objects:
             # Get the original object key by removing the backup prefix
-            original_key = obj['Key'][len(backup_s3_prefix):]
+            # Add trailing slash to ensure proper prefix matching
+            prefix_with_slash = backup_s3_prefix + ('/' if not backup_s3_prefix.endswith('/') else '')
+            original_key = obj['Key'][len(prefix_with_slash):] if obj['Key'].startswith(prefix_with_slash) else obj['Key']
             
             if not original_key:  # Skip if the key is empty after prefix removal
                 continue
@@ -436,14 +536,14 @@ def restore_s3_objects_from_backup(backup_bucket, backup_prefix, target_bucket):
 def handle_list_backups(event, context):
     """Handle listing available backups"""
     try:
-        environment = os.environ.get('ENVIRONMENT', 'production')
+        environment = os.environ.get('ENVIRONMENT')
         backup_bucket = os.environ.get('BACKUP_BUCKET')
         
         if not backup_bucket:
             return resp.error_response("BACKUP_BUCKET environment variable not set", 500)
         
         # List backups for the environment
-        backup_prefix = f"backups/{environment}/"
+        backup_prefix = build_s3_key("backups", environment)
         backups = []
         
         try:
@@ -458,7 +558,7 @@ def handle_list_backups(event, context):
             
             # Get details for each backup
             for timestamp in sorted(backup_timestamps, reverse=True):
-                manifest_key = f"{backup_prefix}{timestamp}/backup-manifest.json"
+                manifest_key = build_backup_s3_key(backup_prefix, timestamp, "backup-manifest.json")
                 try:
                     manifest_content = s3.get_object(backup_bucket, manifest_key)
                     manifest = json.loads(manifest_content)
@@ -490,3 +590,280 @@ def handle_list_backups(event, context):
     except Exception as e:
         print(f"Error in handle_list_backups: {str(e)}")
         return resp.error_response(f"Failed to list backups: {str(e)}", 500)
+
+def cleanup_old_records(table_name, backup_bucket, cleanup_prefix):
+    """
+    Clean up old records from DynamoDB table based on table-specific policies.
+    Returns dict with cleanup results.
+    """
+    try:
+        # Extract base table name (remove environment suffix)
+        base_table_name = table_name.split('-')[0]
+        
+        # Tables that should be excluded from cleanup
+        excluded_tables = {'EmailSuppression', 'ItemPrices', 'ServicePrices', 'Staff', 'Users'}
+        
+        if base_table_name in excluded_tables:
+            print(f"Skipping cleanup for excluded table: {table_name}")
+            return {
+                'cleaned_count': 0,
+                'archive_key': '',
+                'reason': 'excluded_table'
+            }
+        
+        # Determine cleanup age policy
+        if base_table_name in ['UnavailableSlots', 'Connections']:
+            cutoff_days = 2
+        else:
+            cutoff_days = 60  # 2 months
+        
+        cutoff_date = datetime.datetime.now() - datetime.timedelta(days=cutoff_days)
+        cutoff_timestamp = int(cutoff_date.timestamp())
+        
+        print(f"Cleaning up records older than {cutoff_days} days ({cutoff_date.isoformat()}) from {table_name}")
+        
+        # Get old records to cleanup
+        old_records = get_old_records(table_name, base_table_name, cutoff_timestamp)
+        
+        if not old_records:
+            print(f"No old records found in {table_name}")
+            return {
+                'cleaned_count': 0,
+                'archive_key': '',
+                'reason': 'no_old_records'
+            }
+        
+        # Backup old records to CSV before deletion (append to existing file)
+        # Include environment in archive path: archive/{environment}/TableName_archive.csv
+        environment = os.environ.get('ENVIRONMENT')
+        csv_key = build_cleanup_s3_key("archive", environment, f"{base_table_name}_archive.csv")
+        append_records_to_csv(old_records, backup_bucket, csv_key, table_name)
+        
+        # Delete old records
+        deleted_count = delete_old_records(table_name, old_records)
+        
+        print(f"Successfully cleaned up {deleted_count} records from {table_name}")
+        
+        return {
+            'cleaned_count': deleted_count,
+            'archive_key': csv_key,
+            'cutoff_date': cutoff_date.isoformat(),
+            'cutoff_days': cutoff_days,
+            'archive_type': 'cumulative'
+        }
+        
+    except Exception as e:
+        print(f"Error during cleanup of {table_name}: {str(e)}")
+        raise
+
+def get_old_records(table_name, base_table_name, cutoff_timestamp):
+    """Get records that are older than the cutoff timestamp"""
+    try:
+        # Get all items from table
+        items = db.scan_all_items(table_name)
+        
+        if not items:
+            return []
+        
+        old_records = []
+        
+        for item in items:
+            # Deserialize the item for easier processing
+            record = db.deserialize_item_json_safe(item)
+            if not record:
+                continue
+            
+            # Determine the timestamp field based on table type
+            timestamp_field = get_timestamp_field(base_table_name)
+            
+            if timestamp_field and timestamp_field in record:
+                record_timestamp = parse_timestamp(record[timestamp_field])
+                
+                if record_timestamp and record_timestamp < cutoff_timestamp:
+                    old_records.append(record)
+            else:
+                # If no timestamp field, check common fields
+                for common_field in ['createdAt', 'updatedAt', 'timestamp', 'created_at', 'updated_at']:
+                    if common_field in record:
+                        record_timestamp = parse_timestamp(record[common_field])
+                        if record_timestamp and record_timestamp < cutoff_timestamp:
+                            old_records.append(record)
+                            break
+        
+        print(f"Found {len(old_records)} old records in {table_name}")
+        return old_records
+        
+    except Exception as e:
+        print(f"Error getting old records from {table_name}: {str(e)}")
+        raise
+
+def get_timestamp_field(base_table_name):
+    """Get the primary timestamp field for each table type"""
+    timestamp_fields = {
+        'Messages': 'timestamp',
+        'Appointments': 'createdAt',
+        'Orders': 'createdAt',
+        'Inquiries': 'createdAt',
+        'Payments': 'createdAt',
+        'Invoices': 'createdAt',
+        'UnavailableSlots': 'date',  # Special handling needed
+        'EmailMetadata': 'timestamp',
+        'Connections': 'connectedAt'
+    }
+    return timestamp_fields.get(base_table_name)
+
+def parse_timestamp(timestamp_value):
+    """Parse various timestamp formats to Unix timestamp"""
+    try:
+        if isinstance(timestamp_value, (int, float)):
+            # Already a Unix timestamp
+            return int(timestamp_value)
+        elif isinstance(timestamp_value, str):
+            # Try parsing ISO format
+            try:
+                dt = datetime.datetime.fromisoformat(timestamp_value.replace('Z', '+00:00'))
+                return int(dt.timestamp())
+            except:
+                # Try parsing date format (YYYY-MM-DD)
+                try:
+                    dt = datetime.datetime.strptime(timestamp_value, '%Y-%m-%d')
+                    return int(dt.timestamp())
+                except:
+                    return None
+        return None
+    except Exception:
+        return None
+
+def append_records_to_csv(records, bucket, s3_key, table_name):
+    """Append records to existing CSV file in S3, creating cumulative archive"""
+    try:
+        if not records:
+            return
+        
+        # Check if CSV file already exists
+        existing_records = []
+        existing_fieldnames = set()
+        file_exists = False
+        
+        try:
+            # Try to download existing CSV
+            existing_csv_content = s3.get_object(bucket, s3_key)
+            if existing_csv_content:
+                file_exists = True
+                # Parse existing CSV
+                csv_reader = csv.DictReader(io.StringIO(existing_csv_content))
+                existing_fieldnames = set(csv_reader.fieldnames or [])
+                existing_records = list(csv_reader)
+                print(f"Found existing archive with {len(existing_records)} records for {table_name}")
+        except Exception as e:
+            # File doesn't exist or is empty, start fresh
+            print(f"No existing archive found for {table_name}, creating new one")
+            file_exists = False
+        
+        # Get all unique keys from both existing and new records
+        all_keys = existing_fieldnames.copy()
+        for record in records:
+            all_keys.update(record.keys())
+        
+        # Add timestamp for when record was archived
+        all_keys.add('archived_at')
+        
+        fieldnames = sorted(list(all_keys))
+        
+        # Create new CSV content with all records (existing + new)
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        
+        # Write header
+        writer.writeheader()
+        
+        # Write existing records first (if any)
+        for existing_record in existing_records:
+            # Ensure all fields are present
+            csv_record = {}
+            for key in fieldnames:
+                csv_record[key] = existing_record.get(key, '')
+            writer.writerow(csv_record)
+        
+        # Write new records with archive timestamp
+        archive_timestamp = datetime.datetime.now().isoformat()
+        for record in records:
+            # Convert complex objects to strings for CSV
+            csv_record = {'archived_at': archive_timestamp}
+            for key in fieldnames:
+                if key == 'archived_at':
+                    continue  # Already set
+                value = record.get(key, '')
+                if isinstance(value, (dict, list)):
+                    csv_record[key] = json.dumps(value)
+                else:
+                    csv_record[key] = str(value) if value is not None else ''
+            writer.writerow(csv_record)
+        
+        # Upload updated CSV to S3
+        csv_content = output.getvalue()
+        s3.put_object(bucket, s3_key, csv_content)
+        
+        total_records = len(existing_records) + len(records)
+        print(f"Updated archive for {table_name}: {len(records)} new records added, {total_records} total records in {s3_key}")
+        
+    except Exception as e:
+        print(f"Error appending records to CSV archive: {str(e)}")
+        raise
+
+def delete_old_records(table_name, records):
+    """Delete old records from DynamoDB table"""
+    try:
+        if not records:
+            return 0
+        
+        # Get table key schema to identify primary keys
+        key_schema = db.get_table_key_schema(table_name)
+        key_names = [key['AttributeName'] for key in key_schema]
+        
+        deleted_count = 0
+        
+        # Delete records one by one (could be optimized with batch operations)
+        for record in records:
+            try:
+                # Build key for deletion
+                key = {}
+                for key_name in key_names:
+                    if key_name in record:
+                        # Convert to DynamoDB format if needed
+                        value = record[key_name]
+                        if not db.is_dynamodb_format({key_name: value}):
+                            key[key_name] = db.convert_to_dynamodb_format(value)
+                        else:
+                            key[key_name] = value
+                
+                if len(key) == len(key_names):
+                    db.delete_item(table_name, key)
+                    deleted_count += 1
+                else:
+                    print(f"Skipping record with incomplete key: {key}")
+                
+            except Exception as e:
+                print(f"Error deleting individual record: {str(e)}")
+                continue
+        
+        print(f"Successfully deleted {deleted_count} old records from {table_name}")
+        return deleted_count
+        
+    except Exception as e:
+        print(f"Error deleting old records from {table_name}: {str(e)}")
+        raise
+
+def build_s3_key(*parts):
+    """Build standardized S3 key from parts, ensuring proper path separators"""
+    # Filter out empty parts and ensure no leading/trailing slashes
+    clean_parts = [str(part).strip('/') for part in parts if part and str(part).strip()]
+    return '/'.join(clean_parts)
+
+def build_backup_s3_key(backup_prefix, *path_parts):
+    """Build standardized backup S3 key"""
+    return build_s3_key(backup_prefix, *path_parts)
+
+def build_cleanup_s3_key(cleanup_prefix, *path_parts):
+    """Build standardized cleanup S3 key"""
+    return build_s3_key(cleanup_prefix, *path_parts)
