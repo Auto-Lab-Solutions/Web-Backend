@@ -146,6 +146,8 @@ get_env_config() {
     export ITEM_PRICES_TABLE="ItemPrices-${ENVIRONMENT}"
     export INQUIRIES_TABLE="Inquiries-${ENVIRONMENT}"
     export PAYMENTS_TABLE="Payments-${ENVIRONMENT}"
+    export INVOICES_TABLE="Invoices-${ENVIRONMENT}"
+    export EMAIL_SUPPRESSION_TABLE="EmailSuppression-${ENVIRONMENT}"
     export EMAIL_METADATA_TABLE="EmailMetadata-${ENVIRONMENT}"
     
     # Additional configuration values
