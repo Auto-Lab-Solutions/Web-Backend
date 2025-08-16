@@ -125,7 +125,7 @@ Resources:
             Principal:
               Service: ses.amazonaws.com
             Action: s3:GetBucketLocation
-            Resource: !Ref EmailStorageBucket
+            Resource: !GetAtt EmailStorageBucket.Arn
             Condition:
               StringEquals:
                 'aws:Referer': !Ref 'AWS::AccountId'
@@ -158,7 +158,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - s3:ListBucket
-                Resource: !Ref EmailStorageBucket
+                Resource: !GetAtt EmailStorageBucket.Arn
         - PolicyName: DynamoDBAccess
           PolicyDocument:
             Version: '2012-10-17'
