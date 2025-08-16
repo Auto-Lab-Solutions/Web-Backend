@@ -88,9 +88,9 @@ Resources:
         Status: Enabled
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
-        BlockPublicPolicy: true
+        BlockPublicPolicy: false
         IgnorePublicAcls: true
-        RestrictPublicBuckets: true
+        RestrictPublicBuckets: false
       LifecycleConfiguration:
         Rules:
           - Id: DeleteOldEmails
@@ -117,6 +117,15 @@ Resources:
               Service: ses.amazonaws.com
             Action: s3:PutObject
             Resource: !Sub '${EmailStorageBucket}/emails/*'
+            Condition:
+              StringEquals:
+                'aws:Referer': !Ref 'AWS::AccountId'
+          - Sid: AllowSESGetBucketLocation
+            Effect: Allow
+            Principal:
+              Service: ses.amazonaws.com
+            Action: s3:GetBucketLocation
+            Resource: !Ref EmailStorageBucket
             Condition:
               StringEquals:
                 'aws:Referer': !Ref 'AWS::AccountId'

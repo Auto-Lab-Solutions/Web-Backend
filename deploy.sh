@@ -833,9 +833,82 @@ configure_ses_notifications() {
     return 0
 }
 
+# Validate S3 bucket configuration for SES
+validate_ses_s3_configuration() {
+    print_status "Validating S3 bucket is properly configured for SES access..."
+    
+    # Get AWS Account ID
+    local account_id
+    account_id=$(aws sts get-caller-identity --query Account --output text)
+    
+    if [ -z "$account_id" ]; then
+        print_error "Could not retrieve AWS Account ID"
+        return 1
+    fi
+    
+    # Construct bucket name
+    local bucket_name="${EMAIL_STORAGE_BUCKET}-${account_id}-${ENVIRONMENT}"
+    
+    print_status "Checking bucket: $bucket_name"
+    
+    # Check if bucket exists
+    if ! aws s3api head-bucket --bucket "$bucket_name" --region "$AWS_REGION" 2>/dev/null; then
+        print_error "S3 bucket $bucket_name does not exist or is not accessible"
+        return 1
+    fi
+    
+    # Check bucket policy
+    print_status "Checking bucket policy for SES permissions..."
+    local bucket_policy
+    bucket_policy=$(aws s3api get-bucket-policy --bucket "$bucket_name" --region "$AWS_REGION" --output text --query 'Policy' 2>/dev/null)
+    
+    if [ -z "$bucket_policy" ] || [ "$bucket_policy" = "None" ]; then
+        print_error "No bucket policy found for $bucket_name"
+        print_error "SES requires specific bucket permissions to store emails"
+        return 1
+    fi
+    
+    # Check if the policy contains SES service principal
+    if echo "$bucket_policy" | grep -q "ses.amazonaws.com"; then
+        print_success "Bucket policy includes SES permissions"
+    else
+        print_error "Bucket policy does not include SES service principal permissions"
+        print_error "Please ensure the bucket policy allows ses.amazonaws.com to PutObject"
+        return 1
+    fi
+    
+    # Check public access block configuration
+    print_status "Checking public access block configuration..."
+    local public_access_block
+    public_access_block=$(aws s3api get-public-access-block --bucket "$bucket_name" --region "$AWS_REGION" 2>/dev/null)
+    
+    if echo "$public_access_block" | grep -q '"RestrictPublicBuckets": true'; then
+        print_warning "RestrictPublicBuckets is enabled - this may prevent SES access"
+        print_warning "Consider setting RestrictPublicBuckets to false for SES integration"
+    fi
+    
+    # Test SES can access the bucket by checking permissions
+    print_status "Testing SES service permissions on bucket..."
+    
+    # Create a test policy document to verify SES permissions
+    local test_result
+    test_result=$(aws s3api get-bucket-location --bucket "$bucket_name" --region "$AWS_REGION" 2>/dev/null)
+    
+    if [ $? -eq 0 ]; then
+        print_success "S3 bucket is accessible and properly configured for SES"
+    else
+        print_error "S3 bucket configuration test failed"
+        return 1
+    fi
+}
+
 # Configure SES Email Receiving
 configure_email_receiving() {
     print_status "Configuring SES email receiving..."
+    
+    # First, validate S3 bucket configuration for SES
+    print_status "Validating S3 bucket configuration for SES..."
+    validate_ses_s3_configuration
     
     # Get the rule set name from the email storage stack output
     local rule_set_name=""
