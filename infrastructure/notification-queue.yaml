@@ -194,7 +194,7 @@ Resources:
           REPORTS_BUCKET_NAME: !Ref ReportsBucketName
           CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
-          FROM_EMAIL: !Ref FromEmail
+          MAIL_FROM_ADDRESS: !Ref FromEmail
           ENVIRONMENT: !Ref EnvironmentName
 
   # Lambda function to process WebSocket notification queue

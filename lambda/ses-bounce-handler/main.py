@@ -18,7 +18,7 @@ ses_client = boto3.client('ses')
 ENVIRONMENT = os.environ.get('ENVIRONMENT', 'production')
 SUPPRESSION_TABLE_NAME = os.environ.get('SUPPRESSION_TABLE_NAME')
 ANALYTICS_TABLE_NAME = os.environ.get('ANALYTICS_TABLE_NAME')
-FROM_EMAIL = os.environ.get('FROM_EMAIL', 'noreply@autolabsolutions.com')
+MAIL_FROM_ADDRESS = os.environ.get('MAIL_FROM_ADDRESS', 'noreply@autolabsolutions.com')
 
 # DynamoDB tables
 suppression_table = dynamodb.Table(SUPPRESSION_TABLE_NAME)

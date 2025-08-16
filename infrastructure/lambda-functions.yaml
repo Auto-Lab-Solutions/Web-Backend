@@ -152,6 +152,21 @@ Parameters:
     Description: Email analytics DynamoDB table name
     Default: ""
 
+  EmailStorageBucket:
+    Type: String
+    Description: S3 bucket for storing received emails
+    Default: ""
+
+  EmailMetadataTable:
+    Type: String
+    Description: DynamoDB table for email metadata
+    Default: ""
+
+  ToEmail:
+    Type: String
+    Description: Email address for receiving emails (environment-specific)
+    Default: "mail@autolabsolutions.com"
+
 Conditions:
   IsProduction: !Equals [!Ref Environment, 'production']
 
@@ -212,6 +227,8 @@ Resources:
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailSuppressionTableName}/index/*'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailAnalyticsTableName}'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailAnalyticsTableName}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailMetadataTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailMetadataTable}/index/*'
         - PolicyName: S3Access
           PolicyDocument:
             Version: '2012-10-17'
@@ -259,6 +276,20 @@ Resources:
                   - ses:PutAccountSuppressionAttributes
                   - ses:GetAccountSuppressionAttributes
                 Resource: '*'
+        - PolicyName: S3EmailStorageAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub '${EmailStorageBucket}/*'
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !Ref EmailStorageBucket
 
   # Staff Authorizer Lambda
   StaffAuthorizer:
@@ -380,7 +411,7 @@ Resources:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           SERVICE_PRICES_TABLE: !Ref ServicePricesTable
           ENVIRONMENT: !Ref Environment
-          FROM_EMAIL: !Ref FromEmail
+          MAIL_FROM_ADDRESS: !Ref FromEmail
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
@@ -408,7 +439,7 @@ Resources:
           SERVICE_PRICES_TABLE: !Ref ServicePricesTable
           USERS_TABLE: !Ref UsersTable
           ENVIRONMENT: !Ref Environment
-          FROM_EMAIL: !Ref FromEmail
+          MAIL_FROM_ADDRESS: !Ref FromEmail
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
@@ -493,7 +524,7 @@ Resources:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           ITEM_PRICES_TABLE: !Ref ItemPricesTable
           ENVIRONMENT: !Ref Environment
-          FROM_EMAIL: !Ref FromEmail
+          MAIL_FROM_ADDRESS: !Ref FromEmail
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
@@ -521,7 +552,7 @@ Resources:
           ITEM_PRICES_TABLE: !Ref ItemPricesTable
           USERS_TABLE: !Ref UsersTable
           ENVIRONMENT: !Ref Environment
-          FROM_EMAIL: !Ref FromEmail
+          MAIL_FROM_ADDRESS: !Ref FromEmail
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
@@ -560,7 +591,7 @@ Resources:
           CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
-          FROM_EMAIL: !Ref FromEmail
+          MAIL_FROM_ADDRESS: !Ref FromEmail
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
           FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
@@ -620,7 +651,7 @@ Resources:
           CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
-          FROM_EMAIL: !Ref FromEmail
+          MAIL_FROM_ADDRESS: !Ref FromEmail
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
           FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
@@ -659,7 +690,7 @@ Resources:
           CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
-          FROM_EMAIL: !Ref FromEmail
+          MAIL_FROM_ADDRESS: !Ref FromEmail
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
           FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
@@ -1035,7 +1066,7 @@ Resources:
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           SHARED_KEY: !Ref SharedKey
           ENVIRONMENT: !Ref Environment
-          FROM_EMAIL: !Ref FromEmail
+          MAIL_FROM_ADDRESS: !Ref FromEmail
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -1064,6 +1095,61 @@ Resources:
           Value: AutoLabSolutions
         - Key: Purpose
           Value: EmailSuppressionAPI
+
+  # API Get Emails Function
+  ApiGetEmails:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'api-get-emails-${Environment}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          STAFF_TABLE: !Ref StaffTable
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: 'lambda/api-get-emails.zip'
+      Timeout: 30
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: AutoLabSolutions
+        - Key: Purpose
+          Value: EmailAPI
+
+  # API Send Email Function
+  ApiSendEmail:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'api-send-email-${Environment}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          MAIL_FROM_ADDRESS: !Ref FromEmail
+          NO_REPLY_EMAIL: !Ref ToEmail
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          STAFF_TABLE: !Ref StaffTable
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: 'lambda/api-send-email.zip'
+      Timeout: 60
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: AutoLabSolutions
+        - Key: Purpose
+          Value: EmailAPI
 
 Outputs:
   StaffAuthorizerArn:
@@ -1206,11 +1292,21 @@ Outputs:
     Description: Generate Invoice Lambda ARN
     Value: !GetAtt ApiGenerateInvoice.Arn
 
-
-
   ApiEmailSuppressionManagerArn:
     Description: Email Suppression Manager API Lambda ARN
     Value: !GetAtt ApiEmailSuppressionManager.Arn
     Export:
       Name: !Sub '${AWS::StackName}-ApiEmailSuppressionManagerArn'
+
+  ApiGetEmailsArn:
+    Description: Get Emails API Lambda ARN
+    Value: !GetAtt ApiGetEmails.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiGetEmailsArn'
+
+  ApiSendEmailArn:
+    Description: Send Email API Lambda ARN
+    Value: !GetAtt ApiSendEmail.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiSendEmailArn'
 

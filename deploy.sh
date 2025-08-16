@@ -103,9 +103,9 @@ check_prerequisites() {
     fi
     
     # Check SES configuration
-    if [[ -z "$FROM_EMAIL" ]]; then
-        print_warning "FROM_EMAIL not set, using default: noreply@autolabsolutions.com"
-        export FROM_EMAIL="noreply@autolabsolutions.com"
+    if [[ -z "$MAIL_FROM_ADDRESS" ]]; then
+        print_warning "MAIL_FROM_ADDRESS not set, using default: noreply@autolabsolutions.com"
+        export MAIL_FROM_ADDRESS="noreply@autolabsolutions.com"
     fi
     
     if [[ -z "$SES_REGION" ]]; then
@@ -113,12 +113,36 @@ check_prerequisites() {
         export SES_REGION="ap-southeast-2"
     fi
     
-    print_status "SES Configuration:"
-    print_status "  From Email: $FROM_EMAIL"
+    # Check Email Storage configuration
+    if [[ -z "$NO_REPLY_EMAIL" ]]; then
+        if [ "$ENVIRONMENT" = "production" ]; then
+            print_warning "NO_REPLY_EMAIL not set, using default: mail@autolabsolutions.com"
+            export NO_REPLY_EMAIL="mail@autolabsolutions.com"
+        else
+            print_warning "NO_REPLY_EMAIL not set, using default: mail@dev.autolabsolutions.com"
+            export NO_REPLY_EMAIL="mail@dev.autolabsolutions.com"
+        fi
+    fi
+    
+    if [[ -z "$EMAIL_STORAGE_BUCKET" ]]; then
+        print_warning "EMAIL_STORAGE_BUCKET not set, using default: auto-lab-email-storage"
+        export EMAIL_STORAGE_BUCKET="auto-lab-email-storage"
+    fi
+    
+    # Set EMAIL_METADATA_TABLE if not set
+    if [[ -z "$EMAIL_METADATA_TABLE" ]]; then
+        export EMAIL_METADATA_TABLE="EmailMetadata-${ENVIRONMENT}"
+    fi
+
+    print_status "Email Service Configuration:"
+    print_status "  From Email: $MAIL_FROM_ADDRESS"
     print_status "  SES Region: $SES_REGION"
+    print_status "  To Email: $NO_REPLY_EMAIL"
+    print_status "  Storage Bucket: $EMAIL_STORAGE_BUCKET"
+    print_status "  Metadata Table: $EMAIL_METADATA_TABLE"
     
     # Check SES domain verification status
-    local domain="${FROM_EMAIL##*@}"
+    local domain="${MAIL_FROM_ADDRESS##*@}"
     print_status "Checking SES domain verification for: $domain"
     
     # Check if domain is verified in SES
@@ -455,6 +479,42 @@ update_ses_lambda() {
     return 0
 }
 
+# Update Email Processor Lambda function code (managed by SESEmailStorageStack)
+update_email_processor_lambda() {
+    local lambda_name=$1
+    local full_function_name="${lambda_name}-${ENVIRONMENT}"
+    local zip_file="dist/lambda/$lambda_name.zip"
+
+    if [ ! -f "$zip_file" ]; then
+        print_error "ZIP file not found: $zip_file"
+        return 1
+    fi
+    
+    # Check if function exists
+    if ! aws lambda get-function --function-name "$full_function_name" --region $AWS_REGION &>/dev/null; then
+        print_error "Lambda function '$full_function_name' does not exist in AWS"
+        print_warning "Please deploy infrastructure first using ./deploy.sh $ENVIRONMENT"
+        return 1
+    fi
+    
+    print_status "Updating Email Processor Lambda function code: $full_function_name"
+    
+    # Update function code
+    aws lambda update-function-code \
+        --function-name "$full_function_name" \
+        --zip-file "fileb://$zip_file" \
+        --region $AWS_REGION > /dev/null
+    
+    # Wait for update to complete
+    print_status "Waiting for update to complete..."
+    aws lambda wait function-updated \
+        --function-name "$full_function_name" \
+        --region $AWS_REGION
+    
+    print_success "Updated $full_function_name"
+    return 0
+}
+
 update_all_lambdas() {
     print_status "Updating all Lambda functions..."
     
@@ -479,6 +539,10 @@ update_all_lambdas() {
             elif [[ "$lambda_name" =~ ^ses- ]]; then
                 print_status "Updating $lambda_name (managed by SESBounceComplaintStack)..."
                 update_ses_lambda "$lambda_name"
+            # Handle email processor lambda differently since it's managed by SESEmailStorageStack
+            elif [ "$lambda_name" = "email-processor" ]; then
+                print_status "Updating $lambda_name (managed by SESEmailStorageStack)..."
+                update_email_processor_lambda "$lambda_name"
             else
                 update_lambda_code "$lambda_name"
             fi
@@ -506,7 +570,7 @@ deploy_stack() {
         --stack-name $STACK_NAME \
         --parameter-overrides \
             Environment=$ENVIRONMENT \
-            S3BucketName=$S3_BUCKET_NAME \
+            S3BucketName=$REPORTS_BUCKET_NAME \
             CloudFormationBucket=$CLOUDFORMATION_BUCKET \
             BackupBucketName="$BACKUP_BUCKET_NAME" \
             StripeSecretKey=$STRIPE_SECRET_KEY \
@@ -521,8 +585,11 @@ deploy_stack() {
             FrontendAcmCertificateArn="$FRONTEND_ACM_CERTIFICATE_ARN" \
             EnableCustomDomain=$ENABLE_CUSTOM_DOMAIN \
             FrontendRootUrl="$FRONTEND_ROOT_URL" \
-            FromEmail="$FROM_EMAIL" \
+            FromEmail="$MAIL_FROM_ADDRESS" \
             SesRegion="$SES_REGION" \
+            ToEmail="$NO_REPLY_EMAIL" \
+            EmailStorageBucketName="$EMAIL_STORAGE_BUCKET" \
+            EmailMetadataTableName="$EMAIL_METADATA_TABLE" \
             EnableFirebaseNotifications="${ENABLE_FIREBASE_NOTIFICATIONS:-false}" \
             FirebaseProjectId="${FIREBASE_PROJECT_ID:-}" \
             FirebaseServiceAccountKey="${FIREBASE_SERVICE_ACCOUNT_KEY:-}" \
@@ -634,7 +701,7 @@ configure_ses_notifications() {
         print_status "  Delivery Topic: $delivery_topic_arn"
     fi
     
-    local domain="${FROM_EMAIL##*@}"
+    local domain="${MAIL_FROM_ADDRESS##*@}"
     
     print_status "Configuring notifications for domain: $domain"
     
@@ -703,18 +770,18 @@ configure_ses_notifications() {
     fi
     
     # Also configure for the specific email address if different from domain
-    if [ "$FROM_EMAIL" != "$domain" ]; then
-        print_status "Configuring notifications for email: $FROM_EMAIL"
+    if [ "$MAIL_FROM_ADDRESS" != "$domain" ]; then
+        print_status "Configuring notifications for email: $MAIL_FROM_ADDRESS"
         
         # Configure bounce notifications for email
         if aws ses put-identity-notification-attributes \
-            --identity "$FROM_EMAIL" \
+            --identity "$MAIL_FROM_ADDRESS" \
             --notification-type Bounce \
             --sns-topic "$bounce_topic_arn" \
             --region "$SES_REGION" 2>/dev/null; then
             
             aws ses put-identity-notification-attributes \
-                --identity "$FROM_EMAIL" \
+                --identity "$MAIL_FROM_ADDRESS" \
                 --notification-type Bounce \
                 --enabled \
                 --region "$SES_REGION" 2>/dev/null
@@ -722,13 +789,13 @@ configure_ses_notifications() {
         
         # Configure complaint notifications for email
         if aws ses put-identity-notification-attributes \
-            --identity "$FROM_EMAIL" \
+            --identity "$MAIL_FROM_ADDRESS" \
             --notification-type Complaint \
             --sns-topic "$complaint_topic_arn" \
             --region "$SES_REGION" 2>/dev/null; then
             
             aws ses put-identity-notification-attributes \
-                --identity "$FROM_EMAIL" \
+                --identity "$MAIL_FROM_ADDRESS" \
                 --notification-type Complaint \
                 --enabled \
                 --region "$SES_REGION" 2>/dev/null
@@ -737,20 +804,20 @@ configure_ses_notifications() {
         # Configure delivery notifications for email
         if [ -n "$delivery_topic_arn" ]; then
             if aws ses put-identity-notification-attributes \
-                --identity "$FROM_EMAIL" \
+                --identity "$MAIL_FROM_ADDRESS" \
                 --notification-type Delivery \
                 --sns-topic "$delivery_topic_arn" \
                 --region "$SES_REGION" 2>/dev/null; then
                 
                 aws ses put-identity-notification-attributes \
-                    --identity "$FROM_EMAIL" \
+                    --identity "$MAIL_FROM_ADDRESS" \
                     --notification-type Delivery \
                     --enabled \
                     --region "$SES_REGION" 2>/dev/null
             fi
         fi
         
-        print_success "Notifications configured for email: $FROM_EMAIL"
+        print_success "Notifications configured for email: $MAIL_FROM_ADDRESS"
     fi
     
     print_success "SES bounce and complaint notifications configured successfully"
@@ -762,6 +829,72 @@ configure_ses_notifications() {
     print_status "  2. Test the notification system by sending test emails"
     print_status "  3. Check CloudWatch logs for Lambda function execution"
     print_status "  4. Monitor DynamoDB tables for bounce/complaint records"
+    
+    return 0
+}
+
+# Configure SES Email Receiving
+configure_email_receiving() {
+    print_status "Configuring SES email receiving..."
+    
+    # Get the rule set name from the email storage stack output
+    local rule_set_name=""
+    rule_set_name=$(aws cloudformation describe-stacks \
+        --stack-name "$STACK_NAME" \
+        --query "Stacks[0].Outputs[?OutputKey=='SESReceiptRuleSet'].OutputValue" \
+        --output text \
+        --region "$AWS_REGION" 2>/dev/null)
+    
+    if [ -z "$rule_set_name" ] || [ "$rule_set_name" = "None" ]; then
+        print_warning "Could not retrieve SES receipt rule set from CloudFormation stack"
+        print_warning "Email receiving configuration will be skipped"
+        return 1
+    fi
+    
+    print_status "Setting active receipt rule set: $rule_set_name"
+    
+    # Set the rule set as active
+    if aws ses set-active-receipt-rule-set \
+        --rule-set-name "$rule_set_name" \
+        --region "$SES_REGION"; then
+        print_success "SES receipt rule set activated successfully!"
+    else
+        print_error "Failed to activate SES receipt rule set"
+        return 1
+    fi
+    
+    # Get the appropriate NO_REPLY_EMAIL (already set based on environment)
+    local email_to_verify="$NO_REPLY_EMAIL"
+    
+    # Verify email addresses for receiving
+    print_status "Verifying email address: $email_to_verify"
+    if aws ses verify-email-identity \
+        --email-address "$email_to_verify" \
+        --region "$SES_REGION"; then
+        print_success "Email verification initiated for: $email_to_verify"
+    else
+        print_warning "Email verification may have failed for: $email_to_verify"
+    fi
+    
+    # Also verify the domain
+    local domain="${email_to_verify##*@}"
+    print_status "Verifying domain: $domain"
+    if aws ses verify-domain-identity \
+        --domain "$domain" \
+        --region "$SES_REGION"; then
+        print_success "Domain verification initiated for: $domain"
+    else
+        print_warning "Domain verification may have failed for: $domain"
+    fi
+    
+    print_success "SES email receiving configured successfully"
+    print_status "Email receiving setup complete!"
+    print_status "Target email address: $email_to_verify"
+    print_status "Next steps:"
+    print_status "  1. Complete email/domain verification in SES console"
+    print_status "  2. Configure MX records for domain email receiving"
+    print_status "  3. Test email receiving functionality"
+    print_status "  4. Monitor S3 bucket and DynamoDB for incoming emails"
     
     return 0
 }
@@ -824,6 +957,9 @@ main() {
     # Configure SES bounce and complaint notifications
     print_status "Configuring SES bounce and complaint notifications..."
     configure_ses_notifications
+    
+    # Configure SES email receiving
+    configure_email_receiving
     
     # Update WebSocket endpoints and notification queues in Lambda functions
     print_status "Updating Lambda environment variables (WebSocket endpoints and notification queues)..."

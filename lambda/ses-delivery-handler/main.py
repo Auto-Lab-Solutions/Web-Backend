@@ -15,7 +15,7 @@ dynamodb = boto3.resource('dynamodb')
 # Environment variables
 ENVIRONMENT = os.environ.get('ENVIRONMENT', 'production')
 ANALYTICS_TABLE_NAME = os.environ.get('ANALYTICS_TABLE_NAME')
-FROM_EMAIL = os.environ.get('FROM_EMAIL', 'noreply@autolabsolutions.com')
+MAIL_FROM_ADDRESS = os.environ.get('MAIL_FROM_ADDRESS', 'noreply@autolabsolutions.com')
 
 # DynamoDB table
 analytics_table = dynamodb.Table(ANALYTICS_TABLE_NAME)

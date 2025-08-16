@@ -10,15 +10,16 @@ import response_utils as resp
 ses_client = boto3.client('ses')
 
 # Environment variables
-FROM_EMAIL = os.environ.get('FROM_EMAIL', 'noreply@autolabsolutions.com')
-FRONTEND_URL = os.environ.get('FRONTEND_ROOT_URL', 'https://autolabsolutions.com')
-ENVIRONMENT = os.environ.get('ENVIRONMENT', 'production')
+NO_REPLY_EMAIL = os.environ.get('MAIL_FROM_ADDRESS')
+MAIL_FROM_ADDRESS = os.environ.get('NO_REPLY_EMAIL')
+FRONTEND_URL = os.environ.get('FRONTEND_ROOT_URL')
+ENVIRONMENT = os.environ.get('ENVIRONMENT')
+
+# Suppression table name (will be passed via environment variable)
+SUPPRESSION_TABLE_NAME = os.environ.get('EMAIL_SUPPRESSION_TABLE_NAME')
 
 # Initialize DynamoDB client for suppression checking
 dynamodb = boto3.resource('dynamodb')
-
-# Suppression table name (will be passed via environment variable)
-SUPPRESSION_TABLE_NAME = os.environ.get('EMAIL_SUPPRESSION_TABLE_NAME', '')
 
 class EmailTemplate:
     """Email template constants and configurations"""
@@ -40,6 +41,8 @@ class EmailTemplate:
 
     TYPE_APPOINTMENT_REPORT = "appointment_report"
     TYPE_PAYMENT_CONFIRMED = "payment_confirmed"
+
+    TYPE_INBOX_EMAIL = "inbox_email"
 
 def send_email(to_email, subject, html_body, text_body=None, email_type=None):
     """
@@ -68,11 +71,6 @@ def send_email(to_email, subject, html_body, text_body=None, email_type=None):
             import re
             text_body = re.sub('<[^<]+?>', '', html_body)
         
-        # Check if email is suppressed
-        if is_email_suppressed(to_email):
-            print(f"Email {to_email} is suppressed, skipping send")
-            return False
-        
         # Prepare email message
         message = {
             'Subject': {'Data': subject, 'Charset': 'UTF-8'},
@@ -84,7 +82,7 @@ def send_email(to_email, subject, html_body, text_body=None, email_type=None):
         
         # Send email
         response = ses_client.send_email(
-            Source=FROM_EMAIL,
+            Source=NO_REPLY_EMAIL,
             Destination={'ToAddresses': [to_email]},
             Message=message
         )
@@ -422,7 +420,7 @@ def send_report_ready_email(customer_email, customer_name, appointment_data, rep
             <div style="background-color: #e8f5e8; padding: 20px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #27ae60;">
                 <h3 style="color: #27ae60; margin-top: 0;">Report Details:</h3>
                 <p><strong>Report Generated:</strong> {format_timestamp(int(datetime.now().timestamp()))}</p>
-                <p>
+                <p><strong>Download Link:</strong> <a href="{report_url}">Download your report</a></p>
             </div>
             
             <div style="text-align: center; margin: 30px 0;">
@@ -430,10 +428,6 @@ def send_report_ready_email(customer_email, customer_name, appointment_data, rep
             </div>
             
             <p>You can also view your appointment and report by visiting: <a href="{FRONTEND_URL}/appointment/{appointment_id}">View Appointment</a></p>
-            
-            <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
-                <p><strong>Note:</strong> This report contains important information about your vehicle's condition and the services performed. Please keep it for your records.</p>
-            </div>
             
             <p>If you have any questions about the report, please don't hesitate to contact us.</p>
             
@@ -920,3 +914,108 @@ def format_status_display(status):
     }
     
     return status_mappings.get(status.upper(), status.title())
+
+# # Email storage utilities for managing received emails
+
+# def get_emails_from_s3(s3_bucket, s3_key):
+#     """
+#     Retrieve and parse email from S3
+    
+#     Args:
+#         s3_bucket (str): S3 bucket name
+#         s3_key (str): S3 object key
+        
+#     Returns:
+#         dict: Parsed email data
+#     """
+#     try:
+#         import boto3
+#         import email
+        
+#         s3_client = boto3.client('s3')
+        
+#         # Download email from S3
+#         response = s3_client.get_object(Bucket=s3_bucket, Key=s3_key)
+#         email_content = response['Body'].read()
+        
+#         # Parse email
+#         parsed_email = email.message_from_bytes(email_content)
+        
+#         return {
+#             'subject': parsed_email.get('Subject', ''),
+#             'from': parsed_email.get('From', ''),
+#             'to': parsed_email.get('To', ''),
+#             'date': parsed_email.get('Date', ''),
+#             'parsed_email': parsed_email
+#         }
+        
+#     except Exception as e:
+#         print(f"Error retrieving email from S3: {str(e)}")
+#         return None
+
+
+# def send_email_via_inbox(to_email, subject, html_body, text_body=None, reply_to=None):
+#     """
+#     Send email via SES that will be stored in the inbox system
+    
+#     Args:
+#         to_email (str): Recipient email address
+#         subject (str): Email subject
+#         html_body (str): HTML email body
+#         text_body (str): Plain text email body (optional)
+#         reply_to (str): Reply-to address (optional)
+    
+#     Returns:
+#         dict: Send result
+#     """
+#     email_type = EmailTemplate.TYPE_INBOX_EMAIL
+#     try:
+#         # Check if email is suppressed before attempting to send
+#         if is_email_suppressed(to_email):
+#             print(f"Email not sent - recipient {to_email} is suppressed")
+#             log_email_activity(to_email, email_type, None, 'suppressed', 'Email address is suppressed')
+#             return False
+        
+#         # If no text body provided, strip HTML tags for basic text version
+#         if not text_body:
+#             import re
+#             text_body = re.sub('<[^<]+?>', '', html_body)
+        
+#         # Prepare email message
+#         message = {
+#             'Subject': {'Data': subject, 'Charset': 'UTF-8'},
+#             'Body': {
+#                 'Html': {'Data': html_body, 'Charset': 'UTF-8'},
+#                 'Text': {'Data': text_body, 'Charset': 'UTF-8'}
+#             }
+#         }
+        
+#         # Send email
+#         response = ses_client.send_email(
+#             Source=MAIL_FROM_ADDRESS,
+#             Destination={'ToAddresses': [to_email]},
+#             Message=message
+#         )
+        
+#         message_id = response['MessageId']
+#         print(f"Email sent successfully to {to_email}. MessageId: {message_id}")
+        
+#         # Log email activity (optional, for analytics)
+#         log_email_activity(to_email, email_type, message_id, 'sent')
+        
+#         return True
+        
+#     except ClientError as e:
+#         error_code = e.response['Error']['Code']
+#         error_message = e.response['Error']['Message']
+#         print(f"Failed to send email to {to_email}. Error: {error_code} - {error_message}")
+#         # Log email failure
+#         log_email_activity(to_email, email_type, None, 'failed', error_message)
+#         return False
+    
+#     except Exception as e:
+#         print(f"Unexpected error sending email to {to_email}: {str(e)}")    
+#         # Log email failure
+#         log_email_activity(to_email, email_type, None, 'failed', str(e))
+#         return False
+    

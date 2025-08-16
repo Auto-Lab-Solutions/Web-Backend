@@ -73,7 +73,7 @@ check_ses_service() {
 
 # Function to check domain verification status
 check_domain_verification() {
-    local domain="${FROM_EMAIL##*@}"
+    local domain="${MAIL_FROM_ADDRESS##*@}"
     print_status "Checking domain verification for: $domain"
     
     local verification_result
@@ -113,11 +113,11 @@ check_domain_verification() {
 
 # Function to check email address verification
 check_email_verification() {
-    print_status "Checking email address verification for: $FROM_EMAIL"
+    print_status "Checking email address verification for: $MAIL_FROM_ADDRESS"
     
     local verification_result
     verification_result=$(aws ses get-identity-verification-attributes \
-        --identities "$FROM_EMAIL" \
+        --identities "$MAIL_FROM_ADDRESS" \
         --region "$SES_REGION" \
         --output json 2>/dev/null) || {
         print_warning "Could not check email verification status"
@@ -126,23 +126,23 @@ check_email_verification() {
     
     local verification_status
     verification_status=$(echo "$verification_result" | \
-        python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('VerificationAttributes', {}).get('$FROM_EMAIL', {}).get('VerificationStatus', 'Unknown'))" 2>/dev/null || echo "Unknown")
+        python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('VerificationAttributes', {}).get('$MAIL_FROM_ADDRESS', {}).get('VerificationStatus', 'Unknown'))" 2>/dev/null || echo "Unknown")
     
     case "$verification_status" in
         "Success")
-            print_success "Email address '$FROM_EMAIL' is verified ✓"
+            print_success "Email address '$MAIL_FROM_ADDRESS' is verified ✓"
             return 0
             ;;
         "Pending")
-            print_warning "Email address '$FROM_EMAIL' verification is pending"
+            print_warning "Email address '$MAIL_FROM_ADDRESS' verification is pending"
             return 1
             ;;
         "Failed")
-            print_error "Email address '$FROM_EMAIL' verification failed"
+            print_error "Email address '$MAIL_FROM_ADDRESS' verification failed"
             return 1
             ;;
         *)
-            print_warning "Email address '$FROM_EMAIL' is not yet added to SES"
+            print_warning "Email address '$MAIL_FROM_ADDRESS' is not yet added to SES"
             return 1
             ;;
     esac
@@ -200,7 +200,7 @@ check_sending_quota() {
 
 # Function to show detailed setup instructions
 show_setup_instructions() {
-    local domain="${FROM_EMAIL##*@}"
+    local domain="${MAIL_FROM_ADDRESS##*@}"
     
     cat << EOF
 
@@ -209,7 +209,7 @@ AWS SES Setup Instructions
 ========================================
 
 Environment: $ENVIRONMENT
-From Email: $FROM_EMAIL
+From Email: $MAIL_FROM_ADDRESS
 Domain: $domain
 SES Region: $SES_REGION
 
@@ -274,9 +274,9 @@ test_ses_sending() {
     local test_email_file="/tmp/ses-test-email.json"
     cat > "$test_email_file" << EOF
 {
-    "Source": "$FROM_EMAIL",
+    "Source": "$MAIL_FROM_ADDRESS",
     "Destination": {
-        "ToAddresses": ["$FROM_EMAIL"]
+        "ToAddresses": ["$MAIL_FROM_ADDRESS"]
     },
     "Message": {
         "Subject": {
@@ -297,11 +297,11 @@ test_ses_sending() {
 }
 EOF
     
-    print_status "Sending test email from $FROM_EMAIL to $FROM_EMAIL"
+    print_status "Sending test email from $MAIL_FROM_ADDRESS to $MAIL_FROM_ADDRESS"
     
     if aws ses send-email --cli-input-json "file://$test_email_file" --region "$SES_REGION" &>/dev/null; then
         print_success "Test email sent successfully!"
-        print_status "Check the inbox for $FROM_EMAIL to confirm delivery"
+        print_status "Check the inbox for $MAIL_FROM_ADDRESS to confirm delivery"
     else
         print_error "Failed to send test email"
         print_error "This could be due to:"
@@ -319,7 +319,7 @@ EOF
 validate_ses() {
     print_status "Starting AWS SES validation for environment: $ENVIRONMENT"
     print_status "Configuration:"
-    print_status "  FROM_EMAIL: $FROM_EMAIL"
+    print_status "  MAIL_FROM_ADDRESS: $MAIL_FROM_ADDRESS"
     print_status "  SES_REGION: $SES_REGION"
     echo ""
     

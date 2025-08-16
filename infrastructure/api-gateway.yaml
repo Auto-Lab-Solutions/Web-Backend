@@ -1072,9 +1072,8 @@ Resources:
       RestApiId: !Ref RestApi
       ResourceId: !Ref InvoicesResource
       HttpMethod: GET
-      AuthorizationType: NONE
-      # AuthorizationType: CUSTOM
-      # AuthorizerId: !Ref StaffAuthorizerOptional
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref StaffAuthorizerOptional
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
@@ -1086,9 +1085,8 @@ Resources:
       RestApiId: !Ref RestApi
       ResourceId: !Ref InvoicesResource
       HttpMethod: POST
-      AuthorizationType: NONE
-      # AuthorizationType: CUSTOM
-      # AuthorizerId: !Ref StaffAuthorizer
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref StaffAuthorizer
       Integration:
         Type: AWS_PROXY
         IntegrationHttpMethod: POST
@@ -1120,6 +1118,91 @@ Resources:
             method.response.header.Access-Control-Allow-Methods: true
             method.response.header.Access-Control-Allow-Headers: true
             method.response.header.Access-Control-Allow-Origin: true
+
+  # Email API Resources
+  EmailsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !GetAtt RestApi.RootResourceId
+      PathPart: emails
+
+  # Get emails: GET /emails
+  EmailsGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref EmailsResource
+      HttpMethod: GET
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref StaffAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiGetEmailsArn}/invocations'
+
+  # Send email: POST /emails
+  EmailsPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref EmailsResource
+      HttpMethod: POST
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref StaffAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiSendEmailArn}/invocations'
+
+  # OPTIONS method for CORS support
+  EmailsOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref EmailsResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Methods: "'OPTIONS,GET,POST'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            ResponseTemplates:
+              application/json: ''
+        PassthroughBehavior: WHEN_NO_MATCH
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  # Get specific email by ID: GET /emails/{emailId}
+  EmailsIdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref RestApi
+      ParentId: !Ref EmailsResource
+      PathPart: '{emailId}'
+
+  EmailsIdGetMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref RestApi
+      ResourceId: !Ref EmailsIdResource
+      HttpMethod: GET
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref StaffAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ApiGetEmailsArn}/invocations'
 
   # Email Suppression Manager API Resources
   EmailSuppressionResource:
@@ -1751,6 +1834,44 @@ Resources:
           HttpMethod: "GET"
           ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, MessagingBurst]
           ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, MessagingRate]
+        # Email endpoints
+        - ResourcePath: "/emails"
+          HttpMethod: "GET"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminRate]
+        - ResourcePath: "/emails"
+          HttpMethod: "POST"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminRate]
+        - ResourcePath: "/emails/{emailId}"
+          HttpMethod: "GET"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminRate]
+        # Email suppression endpoints
+        - ResourcePath: "/email-suppression/check"
+          HttpMethod: "GET"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminRate]
+        - ResourcePath: "/email-suppression/list"
+          HttpMethod: "GET"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminRate]
+        - ResourcePath: "/email-suppression/add"
+          HttpMethod: "POST"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminRate]
+        - ResourcePath: "/email-suppression/remove"
+          HttpMethod: "DELETE"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminRate]
+        - ResourcePath: "/email-suppression/analytics"
+          HttpMethod: "GET"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminRate]
+        - ResourcePath: "/email-suppression/cleanup"
+          HttpMethod: "POST"
+          ThrottlingBurstLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminBurst]
+          ThrottlingRateLimit: !FindInMap [EnvironmentSettings, !Ref Environment, AdminRate]
       Variables:
         environment: !Ref Environment
 
@@ -1808,6 +1929,10 @@ Resources:
       - EmailSuppressionAddOptionsMethod
       - EmailSuppressionRemoveOptionsMethod
       - EmailSuppressionCleanupOptionsMethod
+      - EmailsGetMethod
+      - EmailsPostMethod
+      - EmailsOptionsMethod
+      - EmailsIdGetMethod
     Properties:
       RestApiId: !Ref RestApi
       Description: !Sub 'API Deployment for ${Environment} - Updated for Stage Separation'
