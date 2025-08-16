@@ -184,7 +184,7 @@ Resources:
       Timeout: 60
       Code:
         S3Bucket: !Ref CloudFormationBucket
-        S3Key: !Sub 'lambda/email-processor-${EnvironmentName}.zip'
+        S3Key: lambda/email-processor.zip
       Environment:
         Variables:
           EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
