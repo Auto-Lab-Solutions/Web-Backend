@@ -116,7 +116,7 @@ Resources:
             Principal:
               Service: ses.amazonaws.com
             Action: s3:PutObject
-            Resource: !Sub '${EmailStorageBucket}/emails/*'
+            Resource: !Sub '${EmailStorageBucket.Arn}/emails/*'
             Condition:
               StringEquals:
                 'aws:Referer': !Ref 'AWS::AccountId'
@@ -154,7 +154,7 @@ Resources:
                   - s3:GetObject
                   - s3:PutObject
                   - s3:DeleteObject
-                Resource: !Sub '${EmailStorageBucket}/*'
+                Resource: !Sub '${EmailStorageBucket.Arn}/*'
               - Effect: Allow
                 Action:
                   - s3:ListBucket

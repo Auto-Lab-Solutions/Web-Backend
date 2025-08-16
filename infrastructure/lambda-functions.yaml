@@ -285,11 +285,11 @@ Resources:
                   - s3:GetObject
                   - s3:PutObject
                   - s3:DeleteObject
-                Resource: !Sub '${EmailStorageBucket}/*'
+                Resource: !Sub 'arn:aws:s3:::${EmailStorageBucket}/*'
               - Effect: Allow
                 Action:
                   - s3:ListBucket
-                Resource: !Ref EmailStorageBucket
+                Resource: !Sub 'arn:aws:s3:::${EmailStorageBucket}'
 
   # Staff Authorizer Lambda
   StaffAuthorizer:
