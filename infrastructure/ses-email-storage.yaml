@@ -36,7 +36,50 @@ Parameters:
     Default: "EmailMetadata-production"
 
 Resources:
-  # S3 Bucket for storing received emails
+  # DynamoDB Table to store email metadata for quick queries (no dependencies)
+  EmailMetadataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref EmailMetadataTableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: message_id
+          AttributeType: S
+        - AttributeName: to_email
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: N
+        - AttributeName: from_email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: message_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: ToEmailIndex
+          KeySchema:
+            - AttributeName: to_email
+              KeyType: HASH
+            - AttributeName: timestamp
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: FromEmailIndex
+          KeySchema:
+            - AttributeName: from_email
+              KeyType: HASH
+            - AttributeName: timestamp
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Purpose
+          Value: EmailMetadata
+
+  # S3 Bucket for storing received emails (no dependencies on Lambda)
   EmailStorageBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -54,15 +97,6 @@ Resources:
             Status: Enabled
             ExpirationInDays: 365  # Keep emails for 1 year
             NoncurrentVersionExpirationInDays: 30
-      NotificationConfiguration:
-        LambdaConfigurations:
-          - Event: s3:ObjectCreated:*
-            Function: !GetAtt EmailProcessorFunction.Arn
-            Filter:
-              S3Key:
-                Rules:
-                  - Name: prefix
-                    Value: emails/
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName
@@ -86,26 +120,6 @@ Resources:
             Condition:
               StringEquals:
                 'aws:Referer': !Ref 'AWS::AccountId'
-
-  # Lambda function to process incoming emails
-  EmailProcessorFunction:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: !Sub 'email-processor-${EnvironmentName}'
-      Runtime: python3.9
-      Handler: main.lambda_handler
-      Role: !GetAtt EmailProcessorRole.Arn
-      Timeout: 60
-      Code:
-        S3Bucket: !Ref CloudFormationBucket
-        S3Key: !Sub 'lambda/email-processor-${EnvironmentName}.zip'
-      Environment:
-        Variables:
-          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
-          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
-      Tags:
-        - Key: Environment
-          Value: !Ref EnvironmentName
 
   # IAM Role for the email processor Lambda
   EmailProcessorRole:
@@ -150,57 +164,38 @@ Resources:
                   - dynamodb:Scan
                 Resource: !GetAtt EmailMetadataTable.Arn
 
+  # Lambda function to process incoming emails
+  EmailProcessorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'email-processor-${EnvironmentName}'
+      Runtime: python3.12
+      Handler: main.lambda_handler
+      Role: !GetAtt EmailProcessorRole.Arn
+      Timeout: 60
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: !Sub 'lambda/email-processor-${EnvironmentName}.zip'
+      Environment:
+        Variables:
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
   # Lambda permission for S3 to invoke the function
+  # Note: This permission is created here, but S3 notifications are configured by deploy.sh
   EmailProcessorS3Permission:
     Type: AWS::Lambda::Permission
     Properties:
       FunctionName: !Ref EmailProcessorFunction
       Action: lambda:InvokeFunction
       Principal: s3.amazonaws.com
-      SourceArn: !Sub '${EmailStorageBucket}'
+      SourceArn: !Sub 'arn:aws:s3:::${EmailStorageBucketName}-${AWS::AccountId}-${EnvironmentName}'
 
-  # DynamoDB Table to store email metadata for quick queries
-  EmailMetadataTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: !Ref EmailMetadataTableName
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: message_id
-          AttributeType: S
-        - AttributeName: to_email
-          AttributeType: S
-        - AttributeName: timestamp
-          AttributeType: N
-        - AttributeName: from_email
-          AttributeType: S
-      KeySchema:
-        - AttributeName: message_id
-          KeyType: HASH
-      GlobalSecondaryIndexes:
-        - IndexName: ToEmailIndex
-          KeySchema:
-            - AttributeName: to_email
-              KeyType: HASH
-            - AttributeName: timestamp
-              KeyType: RANGE
-          Projection:
-            ProjectionType: ALL
-        - IndexName: FromEmailIndex
-          KeySchema:
-            - AttributeName: from_email
-              KeyType: HASH
-            - AttributeName: timestamp
-              KeyType: RANGE
-          Projection:
-            ProjectionType: ALL
-      StreamSpecification:
-        StreamViewType: NEW_AND_OLD_IMAGES
-      Tags:
-        - Key: Environment
-          Value: !Ref EnvironmentName
-        - Key: Purpose
-          Value: EmailMetadata
+  # Note: S3 bucket notifications are configured automatically by deploy.sh after stack deployment
+  # This avoids circular dependency issues in CloudFormation while ensuring proper configuration
 
   # SES Receipt Rule Set
   SESReceiptRuleSet:

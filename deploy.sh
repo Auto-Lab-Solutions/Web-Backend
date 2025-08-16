@@ -888,15 +888,93 @@ configure_email_receiving() {
     fi
     
     print_success "SES email receiving configured successfully"
-    print_status "Email receiving setup complete!"
-    print_status "Target email address: $email_to_verify"
-    print_status "Next steps:"
-    print_status "  1. Complete email/domain verification in SES console"
-    print_status "  2. Configure MX records for domain email receiving"
-    print_status "  3. Test email receiving functionality"
-    print_status "  4. Monitor S3 bucket and DynamoDB for incoming emails"
+}
+
+# Configure S3 bucket notifications for email processing
+configure_s3_email_notifications() {
+    print_status "Configuring S3 bucket notifications for email processing..."
     
-    return 0
+    # Get AWS Account ID
+    local account_id
+    account_id=$(aws sts get-caller-identity --query Account --output text)
+    
+    if [ -z "$account_id" ]; then
+        print_error "Could not retrieve AWS Account ID"
+        return 1
+    fi
+    
+    # Construct resource names
+    local bucket_name="${EMAIL_STORAGE_BUCKET}-${account_id}-${ENVIRONMENT}"
+    local function_name="email-processor-${ENVIRONMENT}"
+    
+    print_status "Bucket: $bucket_name"
+    print_status "Function: $function_name"
+    
+    # Get Lambda function ARN
+    local lambda_arn
+    lambda_arn=$(aws lambda get-function \
+        --function-name "$function_name" \
+        --region "$AWS_REGION" \
+        --query Configuration.FunctionArn \
+        --output text 2>/dev/null)
+    
+    if [ -z "$lambda_arn" ] || [ "$lambda_arn" = "None" ]; then
+        print_error "Could not find Lambda function: $function_name"
+        print_error "Please ensure the CloudFormation stack has deployed successfully"
+        return 1
+    fi
+    
+    print_status "Lambda ARN: $lambda_arn"
+    
+    # Create notification configuration JSON
+    local notification_config
+    notification_config=$(cat <<EOF
+{
+  "LambdaConfigurations": [
+    {
+      "Id": "EmailProcessor",
+      "LambdaFunctionArn": "$lambda_arn",
+      "Events": ["s3:ObjectCreated:*"],
+      "Filter": {
+        "Key": {
+          "FilterRules": [
+            {
+              "Name": "prefix",
+              "Value": "emails/"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
+EOF
+)
+    
+    print_status "Applying S3 bucket notification configuration..."
+    
+    # Apply the notification configuration
+    if aws s3api put-bucket-notification-configuration \
+        --bucket "$bucket_name" \
+        --notification-configuration "$notification_config" \
+        --region "$AWS_REGION"; then
+        print_success "S3 bucket notification configuration applied successfully!"
+        print_success "Bucket $bucket_name will now trigger $function_name when emails are stored"
+    else
+        print_error "Failed to configure S3 bucket notifications"
+        return 1
+    fi
+    
+    # Verify the configuration
+    print_status "Verifying notification configuration..."
+    if aws s3api get-bucket-notification-configuration \
+        --bucket "$bucket_name" \
+        --region "$AWS_REGION" \
+        --output table; then
+        print_success "S3 email notification configuration verified successfully!"
+    else
+        print_warning "Could not verify S3 notification configuration"
+    fi
 }
 
 # Main deployment function
@@ -960,6 +1038,9 @@ main() {
     
     # Configure SES email receiving
     configure_email_receiving
+    
+    # Configure S3 bucket notifications for email processing
+    configure_s3_email_notifications
     
     # Update WebSocket endpoints and notification queues in Lambda functions
     print_status "Updating Lambda environment variables (WebSocket endpoints and notification queues)..."
