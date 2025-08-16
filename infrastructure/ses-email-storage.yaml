@@ -115,8 +115,10 @@ Resources:
             Effect: Allow
             Principal:
               Service: ses.amazonaws.com
-            Action: s3:PutObject
-            Resource: !Sub '${EmailStorageBucket.Arn}/emails/*'
+            Action: 
+              - s3:PutObject
+              - s3:PutObjectAcl
+            Resource: !Sub '${EmailStorageBucket.Arn}/*'
             Condition:
               StringEquals:
                 'aws:Referer': !Ref 'AWS::AccountId'
@@ -215,6 +217,8 @@ Resources:
   # SES Receipt Rule for incoming emails
   SESReceiptRule:
     Type: AWS::SES::ReceiptRule
+    DependsOn: 
+      - EmailStorageBucketPolicy
     Properties:
       RuleSetName: !Ref SESReceiptRuleSet
       Rule:
