@@ -1,11 +1,7 @@
 import os
-import sys
 import json
 import stripe
 import time
-
-# Add common_lib to path for imports
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'common_lib'))
 
 import db_utils as db
 import response_utils as resp

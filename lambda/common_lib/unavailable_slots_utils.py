@@ -5,12 +5,7 @@ This module provides managers for unavailable slots operations,
 including reading and updating slot availability.
 """
 
-import sys
-import os
 from datetime import datetime, timedelta
-
-# Add common_lib to path for imports
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'common_lib'))
 
 import db_utils as db
 import request_utils as req

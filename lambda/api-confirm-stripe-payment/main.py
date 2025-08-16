@@ -1,12 +1,10 @@
 import os
 import time
-import json
 import stripe
 import db_utils as db
 import response_utils as resp
 import request_utils as req
 import wsgw_utils as wsgw
-import email_utils as email
 from notification_manager import notification_manager, invoice_manager
 
 # Set Stripe secret key from environment

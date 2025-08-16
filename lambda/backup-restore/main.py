@@ -1,10 +1,8 @@
 import json
 import os
-import sys
 import datetime
 import csv
 import io
-import boto3
 from botocore.exceptions import ClientError
 
 import db_utils as db

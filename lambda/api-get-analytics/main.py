@@ -2,8 +2,8 @@
 from datetime import datetime
 import response_utils as resp
 import request_utils as req
-from ..common_lib.data_access_utils import get_analytics_manager
-from ..common_lib.exceptions import BusinessLogicError
+from data_access_utils import get_analytics_manager
+from exceptions import BusinessLogicError
 
 def lambda_handler(event, context):
     """

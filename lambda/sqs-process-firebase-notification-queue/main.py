@@ -1,14 +1,8 @@
 import json
 import os
-import sys
 import time
-import boto3
 import logging
 from firebase_admin import credentials, messaging, initialize_app
-from botocore.exceptions import ClientError
-
-# Add common_lib to path for imports
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'common_lib'))
 
 import db_utils as db
 import response_utils as resp

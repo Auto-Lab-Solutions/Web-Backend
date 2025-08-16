@@ -1,9 +1,3 @@
-import os
-import sys
-
-# Add common_lib to path for imports
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'common_lib'))
-
 import auth_utils as auth
 import business_logic_utils as biz
 

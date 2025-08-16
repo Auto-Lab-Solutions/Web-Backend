@@ -1,12 +1,5 @@
 import json
-import os
-import sys
 import logging
-
-# Add common_lib to the path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'common_lib'))
-
-from email_suppression_manager import EmailSuppressionManager
 
 # Set up logging
 logger = logging.getLogger()

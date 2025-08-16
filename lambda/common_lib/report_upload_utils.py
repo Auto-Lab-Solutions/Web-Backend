@@ -5,12 +5,7 @@ This module provides managers for report upload operations,
 including validation and S3 presigned URL generation.
 """
 
-import sys
-import os
 from datetime import datetime
-
-# Add common_lib to path for imports
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'common_lib'))
 
 import db_utils as db
 import s3_utils as s3

@@ -5,13 +5,8 @@ This module provides managers for WebSocket connection management,
 user initialization, staff initialization, and related operations.
 """
 
-import sys
-import os
 import uuid
 import time
-
-# Add common_lib to path for imports
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'common_lib'))
 
 import db_utils as db
 import wsgw_utils as wsgw

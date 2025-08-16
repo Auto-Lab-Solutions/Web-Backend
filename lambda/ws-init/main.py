@@ -1,5 +1,5 @@
-from ..common_lib.websocket_utils import get_user_init_manager
-from ..common_lib.exceptions import BusinessLogicError
+from websocket_utils import get_user_init_manager
+from exceptions import BusinessLogicError
 
 def lambda_handler(event, context):
     """

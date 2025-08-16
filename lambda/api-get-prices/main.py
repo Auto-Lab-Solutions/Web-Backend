@@ -1,10 +1,3 @@
-import os
-import sys
-from datetime import datetime
-
-# Add common_lib to path for imports
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'common_lib'))
-
 import response_utils as resp
 import business_logic_utils as biz
 

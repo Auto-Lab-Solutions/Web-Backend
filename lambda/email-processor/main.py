@@ -1,12 +1,7 @@
 import json
 import os
-import sys
-
-# Add common_lib to the path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'common_lib'))
 
 from email_manager import EmailManager
-from common_lib.data_retrieval_utils import DataRetrievalManager
 
 def lambda_handler(event, context):
     """
