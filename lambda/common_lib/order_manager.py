@@ -8,7 +8,7 @@ import time
 from decimal import Decimal
 
 import permission_utils as perm
-import data_retrieval_utils as db
+import db_utils as db
 from notification_manager import notification_manager
 from exceptions import BusinessLogicError
 

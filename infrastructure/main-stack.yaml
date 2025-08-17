@@ -351,6 +351,7 @@ Resources:
         InquiriesTable: !GetAtt DynamoDBStack.Outputs.InquiriesTable
         PaymentsTable: !GetAtt DynamoDBStack.Outputs.PaymentsTable
         InvoicesTable: !GetAtt DynamoDBStack.Outputs.InvoicesTable
+        EmailSuppressionTableName: !GetAtt SESBounceComplaintStack.Outputs.EmailSuppressionTableName
         ReportsBucketName: !GetAtt S3CloudFrontStack.Outputs.ReportsBucketName
         CloudFrontDomain: !If [ShouldEnableReportsCustomDomain, !Ref ReportsDomainName, !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName]
         FrontendRootUrl: !Ref FrontendRootUrl
