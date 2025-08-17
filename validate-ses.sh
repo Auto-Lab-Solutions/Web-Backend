@@ -43,7 +43,8 @@ show_usage() {
     echo ""
     echo "Options:"
     echo "  --setup        Show detailed setup instructions"
-    echo "  --verify       Attempt to verify domain and identity"
+    echo "  --verify       Attempt to verify domain and identity, configure receipt rules"
+    echo "  --dns          Show required DNS configuration"
     echo "  --test         Test sending capabilities"
     echo "  --help         Show this help message"
     echo ""
@@ -198,6 +199,114 @@ check_sending_quota() {
     fi
 }
 
+# Function to automatically verify domain and email
+auto_verify_identities() {
+    local domain="${MAIL_FROM_ADDRESS##*@}"
+    local email_to_verify="$NO_REPLY_EMAIL"
+    
+    print_status "Attempting to verify SES identities..."
+    
+    # Verify domain
+    print_status "Verifying domain: $domain"
+    if aws ses verify-domain-identity --domain "$domain" --region "$SES_REGION" &>/dev/null; then
+        print_success "Domain verification initiated for: $domain"
+    else
+        print_warning "Failed to initiate domain verification for: $domain"
+    fi
+    
+    # Verify email address
+    print_status "Verifying email address: $email_to_verify"
+    if aws ses verify-email-identity --email-address "$email_to_verify" --region "$SES_REGION" &>/dev/null; then
+        print_success "Email verification initiated for: $email_to_verify"
+    else
+        print_warning "Failed to initiate email verification for: $email_to_verify"
+    fi
+    
+    # Also verify the MAIL_FROM_ADDRESS if different
+    if [ "$MAIL_FROM_ADDRESS" != "$email_to_verify" ]; then
+        print_status "Verifying email address: $MAIL_FROM_ADDRESS"
+        if aws ses verify-email-identity --email-address "$MAIL_FROM_ADDRESS" --region "$SES_REGION" &>/dev/null; then
+            print_success "Email verification initiated for: $MAIL_FROM_ADDRESS"
+        else
+            print_warning "Failed to initiate email verification for: $MAIL_FROM_ADDRESS"
+        fi
+    fi
+}
+
+# Function to check and display DNS requirements
+check_dns_requirements() {
+    local domain="${MAIL_FROM_ADDRESS##*@}"
+    
+    print_status "Checking DNS configuration requirements for domain: $domain"
+    
+    # Get domain verification token
+    local verification_token=""
+    local verification_result
+    verification_result=$(aws ses get-identity-verification-attributes \
+        --identities "$domain" \
+        --region "$SES_REGION" \
+        --output json 2>/dev/null) || {
+        print_warning "Could not retrieve domain verification token"
+        return 1
+    }
+    
+    verification_token=$(echo "$verification_result" | \
+        python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('VerificationAttributes', {}).get('$domain', {}).get('VerificationToken', ''))" 2>/dev/null || echo "")
+    
+    if [ -n "$verification_token" ]; then
+        print_success "Domain verification token retrieved: $verification_token"
+        print_status "Required DNS Records for $domain:"
+        echo ""
+        echo "1. Domain Verification TXT Record:"
+        echo "   Name: _amazonses.$domain"
+        echo "   Value: $verification_token"
+        echo ""
+        echo "2. MX Record for Email Receiving:"
+        echo "   Name: $domain"
+        echo "   Value: 10 inbound-smtp.$SES_REGION.amazonses.com"
+        echo ""
+        echo "3. Optional MAIL FROM Domain (Recommended):"
+        echo "   MX Record:"
+        echo "   Name: mail.$domain"
+        echo "   Value: 10 feedback-smtp.$SES_REGION.amazonses.com"
+        echo ""
+        echo "   TXT Record:"
+        echo "   Name: mail.$domain"
+        echo "   Value: v=spf1 include:amazonses.com ~all"
+        echo ""
+    else
+        print_warning "Could not retrieve verification token. Domain may need to be added to SES first."
+    fi
+}
+
+# Function to configure SES receipt rules
+configure_receipt_rules() {
+    local domain="${MAIL_FROM_ADDRESS##*@}"
+    local email_to_receive="$NO_REPLY_EMAIL"
+    
+    print_status "Configuring SES receipt rules for email receiving..."
+    
+    # Create receipt rule set if it doesn't exist
+    local rule_set_name="auto-lab-email-rules-${ENVIRONMENT}"
+    
+    print_status "Creating receipt rule set: $rule_set_name"
+    if aws ses create-receipt-rule-set --rule-set-name "$rule_set_name" --region "$SES_REGION" &>/dev/null; then
+        print_success "Receipt rule set created: $rule_set_name"
+    else
+        print_status "Receipt rule set may already exist: $rule_set_name"
+    fi
+    
+    # Set as active rule set
+    print_status "Setting active receipt rule set: $rule_set_name"
+    if aws ses set-active-receipt-rule-set --rule-set-name "$rule_set_name" --region "$SES_REGION" &>/dev/null; then
+        print_success "Receipt rule set activated: $rule_set_name"
+    else
+        print_warning "Failed to activate receipt rule set: $rule_set_name"
+    fi
+    
+    print_status "Receipt rule configuration completed. Full setup requires CloudFormation deployment."
+}
+
 # Function to show detailed setup instructions
 show_setup_instructions() {
     local domain="${MAIL_FROM_ADDRESS##*@}"
@@ -205,53 +314,101 @@ show_setup_instructions() {
     cat << EOF
 
 ========================================
-AWS SES Setup Instructions
+AWS SES Email Receiving Setup Guide
 ========================================
 
 Environment: $ENVIRONMENT
 From Email: $MAIL_FROM_ADDRESS
+To Email: $NO_REPLY_EMAIL
 Domain: $domain
 SES Region: $SES_REGION
 
-Step 1: Verify Domain in AWS SES
----------------------------------
+Current Status:
+- Domain: dev.autolabsolutions.com (Verification pending)
+- Email: mail@dev.autolabsolutions.com (Verification pending)
+
+REQUIRED ACTIONS:
+================
+
+Step 1: Complete DNS Configuration
+----------------------------------
+
+Current Status:
+- Domain: dev.autolabsolutions.com (Verification pending)
+- Email: mail@dev.autolabsolutions.com (Verification pending)
+
+REQUIRED ACTIONS:
+================
+
+Step 1: Complete DNS Configuration
+----------------------------------
+You need to add these DNS records to dev.autolabsolutions.com:
+
+1. Domain Verification (Get token from SES Console):
+   Type: TXT
+   Name: _amazonses.dev.autolabsolutions.com
+   Value: [Get verification token from AWS SES Console]
+
+2. Email Receiving (MX Record):
+   Type: MX
+   Name: dev.autolabsolutions.com
+   Value: 10 inbound-smtp.ap-southeast-2.amazonses.com
+   Priority: 10
+
+3. MAIL FROM Domain (Recommended):
+   MX Record:
+   Type: MX
+   Name: mail.dev.autolabsolutions.com
+   Value: 10 feedback-smtp.ap-southeast-2.amazonses.com
+   Priority: 10
+   
+   TXT Record:
+   Type: TXT
+   Name: mail.dev.autolabsolutions.com
+   Value: v=spf1 include:amazonses.com ~all
+
+Step 2: Verify Identities in SES Console
+----------------------------------------
 1. Go to AWS SES Console: https://console.aws.amazon.com/ses/
-2. Select region: $SES_REGION
+2. Select region: ap-southeast-2
 3. Navigate to "Verified identities"
-4. Click "Create identity"
-5. Select "Domain" and enter: $domain
-6. Choose verification method (DNS recommended)
-7. Add the TXT record to your domain's DNS
+4. Check status of:
+   - dev.autolabsolutions.com (Domain)
+   - mail@dev.autolabsolutions.com (Email)
+5. If not verified, click on each and follow verification steps
 
-Step 2: Configure MAIL FROM Domain (Recommended)
------------------------------------------------
-1. In SES Console, select your verified domain
-2. Go to "Mail from domain" tab
-3. Click "Edit"
-4. Set mail from domain to: mail.$domain
-5. Add these DNS records:
-   - MX record: mail.$domain pointing to feedback-smtp.$SES_REGION.amazonses.com
-   - TXT record: mail.$domain with value "v=spf1 include:amazonses.com ~all"
+Step 3: Configure Receipt Rules
+-------------------------------
+Run the following command after DNS is configured:
+   ./validate-ses.sh development --verify
 
-Step 3: Request Production Access (For Production)
--------------------------------------------------
-1. Go to SES Console > Account dashboard
-2. Click "Request production access"
-3. Fill out the form with your use case
-4. Wait for approval (usually 24-48 hours)
+Step 4: Deploy Email Infrastructure
+-----------------------------------
+Run the main deployment to configure S3 and Lambda functions:
+   ./deploy.sh development
 
-Step 4: Test Email Sending
---------------------------
-Run: $0 $ENVIRONMENT --test
+Step 5: Test Email Receiving
+----------------------------
+After completing steps 1-4:
+   ./validate-ses.sh development --test
 
-DNS Records Summary for $domain:
-===============================
-1. Domain Verification TXT Record:
-   Name: _amazonses.$domain
-   Value: [Get from SES Console]
+TROUBLESHOOTING:
+===============
+- DNS propagation can take up to 24-48 hours
+- Verify DNS records using: dig TXT _amazonses.dev.autolabsolutions.com
+- Check SES sandbox mode if emails aren't being received
+- Ensure AWS account has proper SES permissions
 
-2. MAIL FROM MX Record:
-   Name: mail.$domain
+For immediate testing, you can:
+1. Send a test email to mail@dev.autolabsolutions.com
+2. Check CloudWatch logs for the email-processor Lambda function
+3. Verify S3 bucket has the stored email
+
+Support Links:
+=============
+- SES Console: https://console.aws.amazon.com/ses/
+- SES Documentation: https://docs.aws.amazon.com/ses/
+- DNS Verification: https://docs.aws.amazon.com/ses/latest/dg/verify-domain-procedure.html
    Value: 10 feedback-smtp.$SES_REGION.amazonses.com
 
 3. MAIL FROM TXT Record:
@@ -372,7 +529,13 @@ main() {
                 ;;
             --verify)
                 verify_mode=true
+                auto_verify_identities
+                configure_receipt_rules
                 shift
+                ;;
+            --dns)
+                check_dns_requirements
+                exit 0
                 ;;
             --test)
                 test_mode=true
