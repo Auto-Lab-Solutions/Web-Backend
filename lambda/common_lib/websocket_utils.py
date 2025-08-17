@@ -10,9 +10,7 @@ import time
 
 import db_utils as db
 import wsgw_utils as wsgw
-import auth_utils as auth
 from exceptions import BusinessLogicError
-
 
 class WebSocketManager:
     """Base manager for WebSocket operations"""
@@ -205,7 +203,7 @@ class UserInitManager(WebSocketManager):
 
 class StaffInitManager(WebSocketManager):
     """Manager for staff WebSocket initialization"""
-    
+
     def __init__(self):
         super().__init__()
         self.permitted_roles = ['CUSTOMER_SUPPORT', 'CLERK']
@@ -220,6 +218,8 @@ class StaffInitManager(WebSocketManager):
 
         wsgw_client = self.get_wsgw_client(domain, stage)
         self.validate_connection_exists(connection_id)
+
+        import auth_utils as auth
 
         # Validate token
         user_email = auth.get_user_email(token)
