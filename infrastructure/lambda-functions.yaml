@@ -387,6 +387,7 @@ Resources:
       Environment:
         Variables:
           STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
           ENVIRONMENT: !Ref Environment
       Tags:
@@ -500,6 +501,7 @@ Resources:
       Environment:
         Variables:
           STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
           ORDERS_TABLE: !Ref OrdersTable
           ENVIRONMENT: !Ref Environment
       Tags:
