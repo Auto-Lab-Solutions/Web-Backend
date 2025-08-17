@@ -135,9 +135,9 @@ check_prerequisites() {
     fi
 
     print_status "Email Service Configuration:"
-    print_status "  From Email: $MAIL_FROM_ADDRESS"
+    print_status "  From Email (sending): $NO_REPLY_EMAIL"
+    print_status "  To Email (receiving): $MAIL_FROM_ADDRESS"
     print_status "  SES Region: $SES_REGION"
-    print_status "  To Email: $NO_REPLY_EMAIL"
     print_status "  Storage Bucket: $EMAIL_STORAGE_BUCKET"
     print_status "  Metadata Table: $EMAIL_METADATA_TABLE"
     
@@ -614,9 +614,9 @@ deploy_stack() {
             FrontendAcmCertificateArn="$FRONTEND_ACM_CERTIFICATE_ARN" \
             EnableCustomDomain=$ENABLE_CUSTOM_DOMAIN \
             FrontendRootUrl="$FRONTEND_ROOT_URL" \
-            FromEmail="$MAIL_FROM_ADDRESS" \
+            FromEmail="$NO_REPLY_EMAIL" \
             SesRegion="$SES_REGION" \
-            ToEmail="$NO_REPLY_EMAIL" \
+            ToEmail="$MAIL_FROM_ADDRESS" \
             EmailStorageBucketName="$EMAIL_STORAGE_BUCKET" \
             EmailMetadataTableName="$EMAIL_METADATA_TABLE" \
             EnableFirebaseNotifications="${ENABLE_FIREBASE_NOTIFICATIONS:-false}" \
@@ -798,9 +798,9 @@ configure_ses_notifications() {
         fi
     fi
     
-    # Also configure for the specific email address if different from domain
+    # Also configure for the specific email addresses if different from domain
     if [ "$MAIL_FROM_ADDRESS" != "$domain" ]; then
-        print_status "Configuring notifications for email: $MAIL_FROM_ADDRESS"
+        print_status "Configuring notifications for receiving email: $MAIL_FROM_ADDRESS"
         
         # Configure bounce notifications for email
         if aws ses put-identity-notification-attributes \
@@ -846,7 +846,57 @@ configure_ses_notifications() {
             fi
         fi
         
-        print_success "Notifications configured for email: $MAIL_FROM_ADDRESS"
+        print_success "Notifications configured for receiving email: $MAIL_FROM_ADDRESS"
+    fi
+    
+    if [ "$NO_REPLY_EMAIL" != "$domain" ]; then
+        print_status "Configuring notifications for sending email: $NO_REPLY_EMAIL"
+        
+        # Configure bounce notifications for email
+        if aws ses put-identity-notification-attributes \
+            --identity "$NO_REPLY_EMAIL" \
+            --notification-type Bounce \
+            --sns-topic "$bounce_topic_arn" \
+            --region "$SES_REGION" 2>/dev/null; then
+            
+            aws ses put-identity-notification-attributes \
+                --identity "$NO_REPLY_EMAIL" \
+                --notification-type Bounce \
+                --enabled \
+                --region "$SES_REGION" 2>/dev/null
+        fi
+        
+        # Configure complaint notifications for email
+        if aws ses put-identity-notification-attributes \
+            --identity "$NO_REPLY_EMAIL" \
+            --notification-type Complaint \
+            --sns-topic "$complaint_topic_arn" \
+            --region "$SES_REGION" 2>/dev/null; then
+            
+            aws ses put-identity-notification-attributes \
+                --identity "$NO_REPLY_EMAIL" \
+                --notification-type Complaint \
+                --enabled \
+                --region "$SES_REGION" 2>/dev/null
+        fi
+        
+        # Configure delivery notifications for email
+        if [ -n "$delivery_topic_arn" ]; then
+            if aws ses put-identity-notification-attributes \
+                --identity "$NO_REPLY_EMAIL" \
+                --notification-type Delivery \
+                --sns-topic "$delivery_topic_arn" \
+                --region "$SES_REGION" 2>/dev/null; then
+                
+                aws ses put-identity-notification-attributes \
+                    --identity "$NO_REPLY_EMAIL" \
+                    --notification-type Delivery \
+                    --enabled \
+                    --region "$SES_REGION" 2>/dev/null
+            fi
+        fi
+        
+        print_success "Notifications configured for sending email: $NO_REPLY_EMAIL"
     fi
     
     print_success "SES bounce and complaint notifications configured successfully"
@@ -931,15 +981,276 @@ validate_ses_s3_configuration() {
     fi
 }
 
+# Configure SES DNS Records for Domain Verification
+configure_ses_dns_records() {
+    print_status "Configuring SES DNS records for domain verification..."
+    
+    local domain="${MAIL_FROM_ADDRESS##*@}"
+    local email_to_receive="$MAIL_FROM_ADDRESS"
+    
+    print_status "Setting up SES identities for domain: $domain"
+    print_status "  Email receiving address: $email_to_receive"
+    print_status "  Email sending address: $NO_REPLY_EMAIL"
+    
+    # Add domain to SES
+    print_status "Adding domain to SES: $domain"
+    if aws ses verify-domain-identity --domain "$domain" --region "$SES_REGION" &>/dev/null; then
+        print_success "Domain added to SES: $domain"
+    else
+        print_warning "Domain may already be in SES: $domain"
+    fi
+    
+    # Add email addresses to SES
+    print_status "Adding email addresses to SES..."
+    if aws ses verify-email-identity --email-address "$email_to_receive" --region "$SES_REGION" &>/dev/null; then
+        print_success "Receiving email added to SES: $email_to_receive"
+    else
+        print_warning "Receiving email may already be in SES: $email_to_receive"
+    fi
+    
+    if aws ses verify-email-identity --email-address "$NO_REPLY_EMAIL" --region "$SES_REGION" &>/dev/null; then
+        print_success "Sending email added to SES: $NO_REPLY_EMAIL"
+    else
+        print_warning "Sending email may already be in SES: $NO_REPLY_EMAIL"
+    fi
+    
+    # Get domain verification token
+    print_status "Getting domain verification token for domain: $domain"
+    local domain_token=""
+    local retry_count=0
+    while [ -z "$domain_token" ] && [ $retry_count -lt 3 ]; do
+        domain_token=$(aws ses get-identity-verification-attributes \
+            --identities "$domain" \
+            --region "$SES_REGION" \
+            --output json 2>/dev/null | \
+            python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    token = data.get('VerificationAttributes', {}).get('$domain', {}).get('VerificationToken', '')
+    print(token)
+except:
+    print('')
+" 2>/dev/null || echo "")
+        
+        if [ -z "$domain_token" ]; then
+            retry_count=$((retry_count + 1))
+            print_status "Waiting for SES to generate verification token... (attempt $retry_count/3)"
+            sleep 5
+        fi
+    done
+    
+    if [ -z "$domain_token" ]; then
+        print_error "Could not get domain verification token after 3 attempts"
+        print_error "You may need to manually verify the domain in SES Console"
+        return 1
+    fi
+    
+    print_success "Domain verification token obtained: $domain_token"
+    
+    # Find Route53 hosted zone
+    print_status "Finding Route53 hosted zone..."
+    local hosted_zone_id=""
+    hosted_zone_id=$(aws route53 list-hosted-zones --query "HostedZones[?contains(Name, 'autolabsolutions.com')].Id" --output text 2>/dev/null | head -1 | sed 's|/hostedzone/||')
+    
+    if [ -z "$hosted_zone_id" ]; then
+        print_error "Could not find Route53 hosted zone for autolabsolutions.com"
+        print_error "Please ensure you have a Route53 hosted zone for your domain"
+        print_error "Manual DNS configuration required:"
+        print_error "  1. TXT Record: _amazonses.$domain = $domain_token"
+        print_error "  2. MX Record: $domain = 10 inbound-smtp.$SES_REGION.amazonses.com"
+        print_error "  3. MX Record: mail.$domain = 10 feedback-smtp.$SES_REGION.amazonses.com"
+        print_error "  4. TXT Record: mail.$domain = v=spf1 include:amazonses.com ~all"
+        return 1
+    fi
+    
+    print_success "Found Route53 hosted zone: $hosted_zone_id"
+    
+    # Create DNS records using Route53
+    print_status "Creating DNS records in Route53..."
+    
+    # Create temporary JSON file for Route53 change batch
+    local change_batch_file="/tmp/ses-route53-changes-$$.json"
+    
+    cat > "$change_batch_file" << EOF
+{
+    "Comment": "SES verification and email receiving records for $domain",
+    "Changes": [
+        {
+            "Action": "UPSERT",
+            "ResourceRecordSet": {
+                "Name": "_amazonses.$domain",
+                "Type": "TXT",
+                "TTL": 300,
+                "ResourceRecords": [
+                    {
+                        "Value": "\"$domain_token\""
+                    }
+                ]
+            }
+        },
+        {
+            "Action": "UPSERT",
+            "ResourceRecordSet": {
+                "Name": "$domain",
+                "Type": "MX",
+                "TTL": 300,
+                "ResourceRecords": [
+                    {
+                        "Value": "10 inbound-smtp.$SES_REGION.amazonses.com"
+                    }
+                ]
+            }
+        },
+        {
+            "Action": "UPSERT",
+            "ResourceRecordSet": {
+                "Name": "mail.$domain",
+                "Type": "MX",
+                "TTL": 300,
+                "ResourceRecords": [
+                    {
+                        "Value": "10 feedback-smtp.$SES_REGION.amazonses.com"
+                    }
+                ]
+            }
+        },
+        {
+            "Action": "UPSERT",
+            "ResourceRecordSet": {
+                "Name": "mail.$domain",
+                "Type": "TXT",
+                "TTL": 300,
+                "ResourceRecords": [
+                    {
+                        "Value": "\"v=spf1 include:amazonses.com ~all\""
+                    }
+                ]
+            }
+        }
+    ]
+}
+EOF
+    
+    # Apply the DNS changes
+    local change_id=""
+    change_id=$(aws route53 change-resource-record-sets \
+        --hosted-zone-id "$hosted_zone_id" \
+        --change-batch "file://$change_batch_file" \
+        --query 'ChangeInfo.Id' \
+        --output text 2>/dev/null)
+    
+    # Clean up temporary file
+    rm -f "$change_batch_file"
+    
+    if [ -n "$change_id" ]; then
+        print_success "✅ DNS records created successfully!"
+        print_success "Route53 Change ID: $change_id"
+        
+        print_status "Created DNS Records:"
+        print_status "  1. TXT Record: _amazonses.$domain = $domain_token"
+        print_status "  2. MX Record: $domain = 10 inbound-smtp.$SES_REGION.amazonses.com"
+        print_status "  3. MX Record: mail.$domain = 10 feedback-smtp.$SES_REGION.amazonses.com"
+        print_status "  4. TXT Record: mail.$domain = v=spf1 include:amazonses.com ~all"
+        
+        print_status "Waiting for DNS propagation (30 seconds)..."
+        sleep 30
+        
+        # Check if changes are propagated
+        if aws route53 get-change --id "$change_id" --query 'ChangeInfo.Status' --output text 2>/dev/null | grep -q "INSYNC"; then
+            print_success "✅ DNS changes are live!"
+        else
+            print_warning "⏳ DNS changes are still propagating (may take a few more minutes)"
+        fi
+        
+    else
+        print_error "❌ Failed to create DNS records in Route53"
+        return 1
+    fi
+    
+    return 0
+}
+
+# Check SES verification status
+check_ses_verification_status() {
+    local domain="${MAIL_FROM_ADDRESS##*@}"
+    local email_to_receive="$MAIL_FROM_ADDRESS"
+    
+    print_status "Checking SES verification status..."
+    
+    # Check domain verification
+    local domain_status=""
+    domain_status=$(aws ses get-identity-verification-attributes \
+        --identities "$domain" \
+        --region "$SES_REGION" \
+        --output json 2>/dev/null | \
+        python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    status = data.get('VerificationAttributes', {}).get('$domain', {}).get('VerificationStatus', 'Unknown')
+    print(status)
+except:
+    print('Unknown')
+" 2>/dev/null || echo "Unknown")
+    
+    # Check email verification
+    local email_status=""
+    email_status=$(aws ses get-identity-verification-attributes \
+        --identities "$email_to_receive" \
+        --region "$SES_REGION" \
+        --output json 2>/dev/null | \
+        python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    status = data.get('VerificationAttributes', {}).get('$email_to_receive', {}).get('VerificationStatus', 'Unknown')
+    print(status)
+except:
+    print('Unknown')
+" 2>/dev/null || echo "Unknown")
+    
+    print_status "SES Verification Status:"
+    print_status "  Domain ($domain): $domain_status"
+    print_status "  Email ($email_to_receive): $email_status"
+    
+    if [ "$domain_status" = "Success" ] && [ "$email_status" = "Success" ]; then
+        print_success "✅ Both identities are verified and ready for email receiving!"
+        return 0
+    elif [ "$domain_status" = "Pending" ] || [ "$email_status" = "Pending" ]; then
+        print_warning "⏳ Verification is in progress. This is normal and may take up to 30 minutes."
+        print_warning "Email receiving will work once verification completes."
+        return 0
+    else
+        print_warning "⚠ Verification status unknown. Email receiving may not work until verified."
+        print_warning "Check AWS SES Console for detailed verification status."
+        return 1
+    fi
+}
+
 # Configure SES Email Receiving
 configure_email_receiving() {
     print_status "Configuring SES email receiving..."
     
+    # First, configure DNS records for SES verification
+    print_status "Step 1: Configure SES DNS records for domain verification"
+    if configure_ses_dns_records; then
+        print_success "SES DNS records configured successfully"
+    else
+        print_warning "SES DNS configuration failed, but continuing with deployment"
+        print_warning "You may need to manually configure DNS records for email receiving"
+    fi
+    
+    # Check verification status
+    print_status "Step 2: Check SES verification status"
+    check_ses_verification_status
+    
     # First, validate S3 bucket configuration for SES
-    print_status "Validating S3 bucket configuration for SES..."
+    print_status "Step 3: Validate S3 bucket configuration for SES"
     validate_ses_s3_configuration
     
     # Get the rule set name from the email storage stack output
+    print_status "Step 4: Configure SES receipt rules"
     local rule_set_name=""
     rule_set_name=$(aws cloudformation describe-stacks \
         --stack-name "$STACK_NAME" \
@@ -965,31 +1276,25 @@ configure_email_receiving() {
         return 1
     fi
     
-    # Get the appropriate NO_REPLY_EMAIL (already set based on environment)
-    local email_to_verify="$NO_REPLY_EMAIL"
+    print_success "✅ SES email receiving configured successfully!"
     
-    # Verify email addresses for receiving
-    print_status "Verifying email address: $email_to_verify"
-    if aws ses verify-email-identity \
-        --email-address "$email_to_verify" \
-        --region "$SES_REGION"; then
-        print_success "Email verification initiated for: $email_to_verify"
+    # Get AWS Account ID for display purposes
+    local account_id
+    account_id=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "unknown")
+    
+    print_status "Email receiving is now configured for: $MAIL_FROM_ADDRESS"
+    print_status "S3 storage bucket: ${EMAIL_STORAGE_BUCKET}-${account_id}-${ENVIRONMENT}"
+    print_status "DynamoDB metadata table: ${EMAIL_METADATA_TABLE}"
+    
+    # Final verification check
+    print_status "Step 5: Final verification status check"
+    if check_ses_verification_status; then
+        print_success "🎉 Email receiving setup is complete and verified!"
     else
-        print_warning "Email verification may have failed for: $email_to_verify"
+        print_warning "⚠ Email receiving setup is complete but verification is still pending"
+        print_warning "Email receiving will work once SES identities are verified"
+        print_warning "Check AWS SES Console for verification status"
     fi
-    
-    # Also verify the domain
-    local domain="${email_to_verify##*@}"
-    print_status "Verifying domain: $domain"
-    if aws ses verify-domain-identity \
-        --domain "$domain" \
-        --region "$SES_REGION"; then
-        print_success "Domain verification initiated for: $domain"
-    else
-        print_warning "Domain verification may have failed for: $domain"
-    fi
-    
-    print_success "SES email receiving configured successfully"
 }
 
 # Configure S3 bucket notifications for email processing
@@ -1155,6 +1460,66 @@ main() {
     ./initialize-dynamodb-data.sh "$ENVIRONMENT"
 
     print_success "Deployment completed successfully!"
+    
+    # Print SES configuration summary
+    print_status "=========================================="
+    print_status "SES Email Receiving Configuration Summary"
+    print_status "=========================================="
+    
+    local domain="${MAIL_FROM_ADDRESS##*@}"
+    local email_to_receive="$MAIL_FROM_ADDRESS"
+    
+    print_status "Environment: $ENVIRONMENT"
+    print_status "Domain: $domain"
+    print_status "Email receiving address: $email_to_receive"
+    print_status "SES Region: $SES_REGION"
+    
+    # Quick verification status check
+    local domain_status="Unknown"
+    local email_status="Unknown"
+    
+    domain_status=$(aws ses get-identity-verification-attributes \
+        --identities "$domain" \
+        --region "$SES_REGION" \
+        --output json 2>/dev/null | \
+        python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    status = data.get('VerificationAttributes', {}).get('$domain', {}).get('VerificationStatus', 'Unknown')
+    print(status)
+except:
+    print('Unknown')
+" 2>/dev/null || echo "Unknown")
+    
+    email_status=$(aws ses get-identity-verification-attributes \
+        --identities "$email_to_receive" \
+        --region "$SES_REGION" \
+        --output json 2>/dev/null | \
+        python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    status = data.get('VerificationAttributes', {}).get('$email_to_receive', {}).get('VerificationStatus', 'Unknown')
+    print(status)
+except:
+    print('Unknown')
+" 2>/dev/null || echo "Unknown")
+    
+    if [ "$domain_status" = "Success" ] && [ "$email_status" = "Success" ]; then
+        print_success "✅ SES identities are verified - Email receiving is ready!"
+    elif [ "$domain_status" = "Pending" ] || [ "$email_status" = "Pending" ]; then
+        print_warning "⏳ SES verification is pending - Email receiving will work once verified"
+        print_warning "DNS propagation can take up to 30 minutes"
+    else
+        print_warning "⚠ SES verification status unknown - Check AWS SES Console"
+    fi
+    
+    print_status "To test email receiving:"
+    print_status "  1. Wait for SES verification to complete"
+    print_status "  2. Send test email to: $email_to_receive"
+    print_status "  3. Check S3 bucket and DynamoDB for stored email"
+    print_status "=========================================="
 
     # Print important endpoints
     print_status "Important endpoints:"
