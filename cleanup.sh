@@ -175,6 +175,7 @@ delete_stack() {
                         print_status "aws cloudformation describe-stack-events --stack-name $STACK_NAME --region $AWS_REGION --query 'StackEvents[?ResourceStatus==\\\`DELETE_FAILED\\\`].[LogicalResourceId,ResourceStatusReason]' --output table"
                         exit 1
                     fi
+                fi
             fi
         fi
     else
