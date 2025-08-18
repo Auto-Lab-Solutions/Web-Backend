@@ -1136,7 +1136,7 @@ Resources:
         Variables:
           ENVIRONMENT: !Ref Environment
           MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
-          NO_REPLY_EMAIL: !Ref FromEmail
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
           EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
           EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
           EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
