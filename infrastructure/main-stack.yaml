@@ -698,16 +698,10 @@ Outputs:
 
   # SES Identity Outputs
   SESDomainIdentity:
-    Description: SES Domain Identity
+    Description: SES Domain Identity (includes MAIL FROM configuration)
     Value: !GetAtt SESIdentitiesStack.Outputs.SESDomainIdentity
     Export:
       Name: !Sub '${AWS::StackName}-SESDomainIdentity'
-
-  SESMailFromDomainIdentity:
-    Description: SES MAIL FROM Domain Identity
-    Value: !GetAtt SESIdentitiesStack.Outputs.SESMailFromDomainIdentity
-    Export:
-      Name: !Sub '${AWS::StackName}-SESMailFromDomainIdentity'
 
   SESConfigurationSet:
     Description: SES Configuration Set

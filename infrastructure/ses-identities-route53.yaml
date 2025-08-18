@@ -31,29 +31,22 @@ Conditions:
 Resources:
   # SES Domain Identity (covers ALL email addresses under this domain)
   # This automatically verifies mail@domain.com, noreply@domain.com, etc.
+  # MAIL-FROM domain is configured directly on this identity
   SESDomainIdentity:
     Type: AWS::SES::EmailIdentity
     Properties:
       EmailIdentity: !Ref DomainName
       DkimSigningAttributes:
         NextSigningKeyLength: RSA_2048_BIT
+      MailFromAttributes:
+        MailFromDomain: !Sub 'mail.${DomainName}'
+        BehaviorOnMxFailure: USE_DEFAULT_VALUE
 
   # SES Configuration Set for tracking
   SESConfigurationSet:
     Type: AWS::SES::ConfigurationSet
     Properties:
       Name: !Sub 'auto-lab-config-set-${EnvironmentName}'
-
-  # SES MAIL FROM Domain Identity (improves deliverability)
-  # This is a separate domain identity for better email reputation
-  SESMailFromDomainIdentity:
-    Type: AWS::SES::EmailIdentity
-    DependsOn: SESDomainIdentity
-    Properties:
-      EmailIdentity: !Sub 'mail.${DomainName}'
-      MailFromAttributes:
-        MailFromDomain: !Sub 'mail.${DomainName}'
-        BehaviorOnMxFailure: USE_DEFAULT_VALUE
 
   # Route53 DNS Records (only if hosted zone is provided)
   # DKIM Records for domain verification (AWS automatically provides these tokens)
@@ -128,16 +121,10 @@ Resources:
 
 Outputs:
   SESDomainIdentity:
-    Description: SES Domain Identity
+    Description: SES Domain Identity (includes MAIL FROM configuration)
     Value: !Ref SESDomainIdentity
     Export:
       Name: !Sub '${AWS::StackName}-SESDomainIdentity'
-
-  SESMailFromDomainIdentity:
-    Description: SES MAIL FROM Domain Identity
-    Value: !Ref SESMailFromDomainIdentity
-    Export:
-      Name: !Sub '${AWS::StackName}-SESMailFromDomainIdentity'
 
   SESConfigurationSet:
     Description: SES Configuration Set
