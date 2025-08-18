@@ -96,15 +96,162 @@ delete_stack() {
                 if aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME" --region $AWS_REGION; then
                     print_success "Stack deleted successfully on retry: $STACK_NAME"
                 else
-                    print_error "Stack deletion failed even after cleanup. Manual intervention may be required."
-                    print_status "Check the CloudFormation console for specific error details."
-                    exit 1
-                fi
+                    print_error "Stack deletion failed even after cleanup. Performing comprehensive diagnostics..."
+                    
+                    # Comprehensive failure analysis
+                    print_status "=== FAILURE ANALYSIS ==="
+                    
+                    # 1. Show all DELETE_FAILED resources with details
+                    print_status "Resources that failed to delete:"
+                    aws cloudformation describe-stack-events \
+                        --stack-name "$STACK_NAME" \
+                        --query 'StackEvents[?ResourceStatus==`DELETE_FAILED`].[Timestamp,LogicalResourceId,ResourceType,ResourceStatusReason]' \
+                        --output table
+                    
+                    # 2. Show current stack resources
+                    print_status "Current stack resources:"
+                    aws cloudformation describe-stack-resources \
+                        --stack-name "$STACK_NAME" \
+                        --query 'StackResources[*].[LogicalResourceId,ResourceType,ResourceStatus]' \
+                        --output table
+                    
+                    # 3. Try to identify specific issues
+                    print_status "Checking for common issues..."
+                    
+                    # Check for Lambda functions with ENIs
+                    print_status "Checking Lambda functions..."
+                    aws lambda list-functions --query "Functions[?contains(FunctionName, 'auto-lab-') || contains(FunctionName, '${ENVIRONMENT}')].FunctionName" --output text | tr '\t' '\n' | while read -r func; do
+                        if [ -n "$func" ]; then
+                            print_status "Found Lambda function: $func"
+                        fi
+                    done
+                    
+                    # Check for active SES rule sets
+                    local active_ses=$(aws ses describe-active-receipt-rule-set --query 'RuleSet.Name' --output text 2>/dev/null || echo "None")
+                    if [ "$active_ses" != "None" ] && [ "$active_ses" != "null" ]; then
+                        print_warning "Active SES rule set found: $active_ses"
+                        print_status "Deactivating SES rule set..."
+                        aws ses set-active-receipt-rule-set 2>/dev/null || true
+                    fi
+                    
+                    # Check for remaining S3 buckets
+                    print_status "Checking for remaining S3 objects..."
+                    aws s3 ls | grep -E "(auto-lab|${ENVIRONMENT})" | while read -r line; do
+                        local bucket=$(echo "$line" | awk '{print $3}')
+                        if [ -n "$bucket" ]; then
+                            local obj_count=$(aws s3 ls "s3://$bucket" --recursive | wc -l)
+                            if [ "$obj_count" -gt 0 ]; then
+                                print_warning "Bucket $bucket still has $obj_count objects"
+                                # Force empty the bucket
+                                empty_s3_bucket "$bucket"
+                            fi
+                        fi
+                    done
+                    
+                    # Try additional cleanup steps
+                    cleanup_additional_resources
+                    
+                    # Final retry with more specific error handling
+                    print_status "Final retry of stack deletion..."
+                    aws cloudformation delete-stack --stack-name "$STACK_NAME" --region $AWS_REGION
+                    
+                    # Wait longer for final deletion
+                    print_status "Waiting for final deletion (this may take several minutes)..."
+                    if timeout 1800 aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME" --region $AWS_REGION; then
+                        print_success "Stack deleted successfully after comprehensive cleanup: $STACK_NAME"
+                    else
+                        print_error "Stack deletion failed completely. Manual intervention required."
+                        print_status "=== MANUAL CLEANUP REQUIRED ==="
+                        print_status "Please check the CloudFormation console for specific error details."
+                        print_status ""
+                        print_status "Common manual steps required:"
+                        print_status "1. Check for Lambda functions with VPC ENIs that need time to detach"
+                        print_status "2. Check for security groups with active dependencies"
+                        print_status "3. Check for IAM roles that are still in use by other resources"
+                        print_status "4. Empty any remaining S3 buckets manually in the AWS console"
+                        print_status "5. Delete the stack manually through the AWS console"
+                        print_status ""
+                        print_status "Debug commands to run:"
+                        print_status "aws cloudformation describe-stack-events --stack-name $STACK_NAME --region $AWS_REGION --query 'StackEvents[?ResourceStatus==\\\`DELETE_FAILED\\\`].[LogicalResourceId,ResourceStatusReason]' --output table"
+                        exit 1
+                    fi
             fi
         fi
     else
         print_warning "Stack does not exist: $STACK_NAME"
     fi
+}
+
+# Function to cleanup additional resources that might prevent stack deletion
+cleanup_additional_resources() {
+    print_status "Performing comprehensive resource cleanup..."
+    
+    # 1. Clean up Lambda ENIs (wait for them to be removed)
+    print_status "Waiting for Lambda ENIs to be cleaned up..."
+    sleep 30  # Give Lambda ENIs time to be removed
+    
+    # 2. Force deactivate any SES rule sets
+    print_status "Ensuring SES rule sets are deactivated..."
+    aws ses set-active-receipt-rule-set 2>/dev/null || true
+    
+    # 3. Try to delete any custom Lambda functions that might be stuck
+    print_status "Checking for custom Lambda functions..."
+    local lambda_functions
+    lambda_functions=$(aws lambda list-functions --query "Functions[?contains(FunctionName, 'ses-notification-configurator') || contains(FunctionName, 'ses-ruleset-activator') || contains(FunctionName, 's3-notification-configurator')].FunctionName" --output text 2>/dev/null || echo "")
+    
+    if [ -n "$lambda_functions" ]; then
+        echo "$lambda_functions" | tr '\t' '\n' | while read -r func_name; do
+            if [ -n "$func_name" ]; then
+                print_status "Attempting to delete Lambda function: $func_name"
+                aws lambda delete-function --function-name "$func_name" 2>/dev/null || true
+            fi
+        done
+    fi
+    
+    # 4. Clean up any remaining SES configurations more aggressively
+    print_status "Cleaning up SES configurations..."
+    
+    # Try to delete any remaining receipt rule sets
+    local rule_sets
+    rule_sets=$(aws ses list-receipt-rule-sets --query "RuleSets[?contains(Name, 'auto-lab-email-rules')].Name" --output text 2>/dev/null || echo "")
+    
+    if [ -n "$rule_sets" ]; then
+        echo "$rule_sets" | tr '\t' '\n' | while read -r rule_set; do
+            if [ -n "$rule_set" ]; then
+                print_status "Attempting to delete SES rule set: $rule_set"
+                # First deactivate if active
+                aws ses set-active-receipt-rule-set 2>/dev/null || true
+                # Then try to delete
+                aws ses delete-receipt-rule-set --rule-set-name "$rule_set" 2>/dev/null || true
+            fi
+        done
+    fi
+    
+    # 5. Force empty any remaining buckets
+    print_status "Final S3 bucket cleanup..."
+    aws s3 ls | grep -E "(auto-lab|${ENVIRONMENT})" | while read -r line; do
+        local bucket_name=$(echo "$line" | awk '{print $3}')
+        if [ -n "$bucket_name" ]; then
+            print_status "Force emptying bucket: $bucket_name"
+            # Delete all versions and delete markers
+            aws s3api delete-objects --bucket "$bucket_name" \
+                --delete "$(aws s3api list-object-versions --bucket "$bucket_name" \
+                --query '{Objects: Versions[].{Key: Key, VersionId: VersionId}}' \
+                --output json)" 2>/dev/null || true
+            
+            aws s3api delete-objects --bucket "$bucket_name" \
+                --delete "$(aws s3api list-object-versions --bucket "$bucket_name" \
+                --query '{Objects: DeleteMarkers[].{Key: Key, VersionId: VersionId}}' \
+                --output json)" 2>/dev/null || true
+            
+            # Remove any remaining objects
+            aws s3 rm "s3://$bucket_name" --recursive 2>/dev/null || true
+        fi
+    done
+    
+    # 6. Wait longer for AWS to process all the changes
+    print_status "Waiting for AWS to process all resource changes..."
+    sleep 90
 }
 
 # Function to empty all S3 buckets that might exist
@@ -115,30 +262,42 @@ empty_all_buckets() {
     local account_id
     account_id=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "unknown")
     
-    # List of possible bucket names
-    local buckets=(
+    # Get all buckets and filter for ones that might be related to our project
+    print_status "Scanning all S3 buckets for project-related buckets..."
+    local all_buckets
+    all_buckets=$(aws s3 ls | awk '{print $3}' || true)
+    
+    if [ -n "$all_buckets" ]; then
+        echo "$all_buckets" | while IFS= read -r bucket_name; do
+            if [ -n "$bucket_name" ]; then
+                # Check if bucket matches our naming patterns
+                if [[ "$bucket_name" == *"auto-lab"* ]] || \
+                   [[ "$bucket_name" == *"$ENVIRONMENT"* ]] || \
+                   [[ "$bucket_name" == *"cloudformation"* ]] || \
+                   [[ "$bucket_name" == *"reports"* ]] || \
+                   [[ "$bucket_name" == *"email-storage"* ]]; then
+                    print_status "Found project bucket: $bucket_name"
+                    empty_s3_bucket "$bucket_name"
+                fi
+            fi
+        done
+    fi
+    
+    # Also try specific bucket patterns that might exist
+    local possible_buckets=(
         "$REPORTS_BUCKET_NAME"
         "$CLOUDFORMATION_BUCKET"
         "${EMAIL_STORAGE_BUCKET}-${account_id}-${ENVIRONMENT}"
         "auto-lab-email-storage-${account_id}-${ENVIRONMENT}"
         "auto-lab-reports-${ENVIRONMENT}"
         "auto-lab-cloudformation-templates"
+        "auto-lab-cloudformation-templates-${ENVIRONMENT}"
+        "auto-lab-reports"
     )
     
-    for bucket in "${buckets[@]}"; do
+    for bucket in "${possible_buckets[@]}"; do
         if [ -n "$bucket" ] && [ "$bucket" != "unknown" ]; then
             empty_s3_bucket "$bucket"
-        fi
-    done
-    
-    # Also check for any buckets with our naming pattern
-    print_status "Checking for additional buckets with auto-lab pattern..."
-    aws s3 ls | grep "auto-lab" | while read -r line; do
-        local bucket_name
-        bucket_name=$(echo "$line" | awk '{print $3}')
-        if [[ "$bucket_name" == *"$ENVIRONMENT"* ]] || [[ "$bucket_name" == *"auto-lab"* ]]; then
-            print_status "Found additional bucket: $bucket_name"
-            empty_s3_bucket "$bucket_name"
         fi
     done
 }
