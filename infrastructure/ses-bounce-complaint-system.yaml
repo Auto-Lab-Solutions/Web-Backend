@@ -25,6 +25,11 @@ Parameters:
     Description: S3 bucket containing CloudFormation templates and Lambda packages
     Default: "auto-lab-cloudformation-templates"
 
+  MailReceivingAddress:
+    Type: String
+    Description: Email address for receiving emails (environment-specific)
+    Default: "mail@autolabsolutions.com"
+
 Resources:
   # DynamoDB Table for Email Suppression List
   EmailSuppressionTable:
