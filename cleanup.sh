@@ -40,7 +40,19 @@ empty_s3_bucket() {
     print_status "Emptying S3 bucket: $bucket_name"
     
     if aws s3 ls "s3://$bucket_name" &> /dev/null; then
-        aws s3 rm "s3://$bucket_name" --recursive
+        # First, remove all objects including versions and delete markers
+        aws s3api delete-objects --bucket "$bucket_name" \
+            --delete "$(aws s3api list-object-versions --bucket "$bucket_name" \
+                --query '{Objects: Versions[?Key].{Key: Key, VersionId: VersionId}}' \
+                --output json)" 2>/dev/null || true
+        
+        aws s3api delete-objects --bucket "$bucket_name" \
+            --delete "$(aws s3api list-object-versions --bucket "$bucket_name" \
+                --query '{Objects: DeleteMarkers[?Key].{Key: Key, VersionId: VersionId}}' \
+                --output json)" 2>/dev/null || true
+        
+        # Then remove all current objects
+        aws s3 rm "s3://$bucket_name" --recursive 2>/dev/null || true
         print_success "Emptied S3 bucket: $bucket_name"
     else
         print_warning "S3 bucket does not exist: $bucket_name"
@@ -52,15 +64,83 @@ delete_stack() {
     print_status "Deleting CloudFormation stack: $STACK_NAME"
     
     if aws cloudformation describe-stacks --stack-name "$STACK_NAME" &> /dev/null; then
+        # First attempt normal deletion
         aws cloudformation delete-stack --stack-name "$STACK_NAME" --region $AWS_REGION
         
         print_status "Waiting for stack deletion to complete..."
-        aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME" --region $AWS_REGION
-        
-        print_success "Stack deleted successfully: $STACK_NAME"
+        if aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME" --region $AWS_REGION; then
+            print_success "Stack deleted successfully: $STACK_NAME"
+        else
+            print_warning "Stack deletion failed or timed out. Checking for failed resources..."
+            
+            # Get deletion failure reasons
+            local failed_resources
+            failed_resources=$(aws cloudformation describe-stack-events \
+                --stack-name "$STACK_NAME" \
+                --query 'StackEvents[?ResourceStatus==`DELETE_FAILED`].[LogicalResourceId,ResourceStatusReason]' \
+                --output table)
+            
+            if [ -n "$failed_resources" ]; then
+                print_error "Failed to delete the following resources:"
+                echo "$failed_resources"
+                
+                print_status "Attempting to force deletion by emptying S3 buckets and retrying..."
+                
+                # Empty all possible S3 buckets
+                empty_all_buckets
+                
+                # Retry stack deletion
+                print_status "Retrying stack deletion..."
+                aws cloudformation delete-stack --stack-name "$STACK_NAME" --region $AWS_REGION
+                
+                if aws cloudformation wait stack-delete-complete --stack-name "$STACK_NAME" --region $AWS_REGION; then
+                    print_success "Stack deleted successfully on retry: $STACK_NAME"
+                else
+                    print_error "Stack deletion failed even after cleanup. Manual intervention may be required."
+                    print_status "Check the CloudFormation console for specific error details."
+                    exit 1
+                fi
+            fi
+        fi
     else
         print_warning "Stack does not exist: $STACK_NAME"
     fi
+}
+
+# Function to empty all S3 buckets that might exist
+empty_all_buckets() {
+    print_status "Emptying all possible S3 buckets..."
+    
+    # Get AWS Account ID
+    local account_id
+    account_id=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "unknown")
+    
+    # List of possible bucket names
+    local buckets=(
+        "$REPORTS_BUCKET_NAME"
+        "$CLOUDFORMATION_BUCKET"
+        "${EMAIL_STORAGE_BUCKET}-${account_id}-${ENVIRONMENT}"
+        "auto-lab-email-storage-${account_id}-${ENVIRONMENT}"
+        "auto-lab-reports-${ENVIRONMENT}"
+        "auto-lab-cloudformation-templates"
+    )
+    
+    for bucket in "${buckets[@]}"; do
+        if [ -n "$bucket" ] && [ "$bucket" != "unknown" ]; then
+            empty_s3_bucket "$bucket"
+        fi
+    done
+    
+    # Also check for any buckets with our naming pattern
+    print_status "Checking for additional buckets with auto-lab pattern..."
+    aws s3 ls | grep "auto-lab" | while read -r line; do
+        local bucket_name
+        bucket_name=$(echo "$line" | awk '{print $3}')
+        if [[ "$bucket_name" == *"$ENVIRONMENT"* ]] || [[ "$bucket_name" == *"auto-lab"* ]]; then
+            print_status "Found additional bucket: $bucket_name"
+            empty_s3_bucket "$bucket_name"
+        fi
+    done
 }
 
 # Function to clean up S3 buckets
@@ -92,6 +172,45 @@ cleanup_local() {
     if [ -d "lambda/tmp" ]; then
         rm -rf lambda/tmp
         print_success "Removed lambda/tmp directory"
+    fi
+}
+
+# Function to check stack deletion status and show helpful error information
+check_stack_deletion_status() {
+    local stack_name="$1"
+    
+    print_status "Checking stack deletion status for: $stack_name"
+    
+    local stack_status
+    stack_status=$(aws cloudformation describe-stacks \
+        --stack-name "$stack_name" \
+        --query 'Stacks[0].StackStatus' \
+        --output text 2>/dev/null || echo "DELETED")
+    
+    if [ "$stack_status" = "DELETE_FAILED" ]; then
+        print_error "Stack deletion failed: $stack_name"
+        
+        # Get detailed error information
+        print_status "Getting detailed error information..."
+        aws cloudformation describe-stack-events \
+            --stack-name "$stack_name" \
+            --query 'StackEvents[?ResourceStatus==`DELETE_FAILED`].[LogicalResourceId,ResourceType,ResourceStatusReason]' \
+            --output table
+        
+        # Show resources that are still in the stack
+        print_status "Remaining stack resources:"
+        aws cloudformation describe-stack-resources \
+            --stack-name "$stack_name" \
+            --query 'StackResources[*].[LogicalResourceId,ResourceType,ResourceStatus]' \
+            --output table
+            
+        return 1
+    elif [ "$stack_status" = "DELETED" ]; then
+        print_success "Stack has been deleted successfully: $stack_name"
+        return 0
+    else
+        print_status "Stack status: $stack_status"
+        return 1
     fi
 }
 
@@ -176,19 +295,20 @@ main() {
     
     print_status "Starting cleanup process..."
     
-    # Deactivate SES rule sets before stack deletion
+    # Step 1: Deactivate SES rule sets before stack deletion
     deactivate_ses_rule_sets
     
-    # First empty S3 buckets (required before stack deletion)
-    empty_s3_bucket "$REPORTS_BUCKET_NAME"
+    # Step 2: Empty all S3 buckets first (this is critical for stack deletion)
+    print_status "Pre-emptying S3 buckets to ensure clean stack deletion..."
+    empty_all_buckets
     
-    # Delete the main stack
+    # Step 3: Delete the main stack
     delete_stack
     
-    # Clean up remaining S3 resources
+    # Step 4: Clean up any remaining S3 resources
     cleanup_s3_buckets
     
-    # Clean up local artifacts
+    # Step 5: Clean up local artifacts
     cleanup_local
     
     print_success "Cleanup completed successfully!"

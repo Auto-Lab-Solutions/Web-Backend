@@ -107,15 +107,3 @@ jobs:
         retention-days: 30
       if: always()
 
-  cleanup-failed:
-    name: Cleanup Confirmation Failed
-    runs-on: ubuntu-latest
-    if: github.event.inputs.confirm != 'DELETE'
-    
-    steps:
-    - name: Invalid confirmation
-      run: |
-        echo "::error::Cleanup cancelled. You must type 'DELETE' exactly to confirm cleanup."
-        echo "You typed: '${{ github.event.inputs.confirm }}'"
-        echo "Required: 'DELETE'"
-        exit 1
