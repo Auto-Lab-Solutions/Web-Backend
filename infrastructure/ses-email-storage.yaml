@@ -79,7 +79,7 @@ Resources:
         - Key: Purpose
           Value: EmailMetadata
 
-  # S3 Bucket for storing received emails (no dependencies on Lambda)
+  # S3 Bucket for storing received emails (without notification configuration to avoid circular dependency)
   EmailStorageBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -91,15 +91,6 @@ Resources:
         BlockPublicPolicy: false
         IgnorePublicAcls: true
         RestrictPublicBuckets: false
-      NotificationConfiguration:
-        LambdaConfigurations:
-          - Event: s3:ObjectCreated:*
-            Function: !GetAtt EmailProcessorFunction.Arn
-            Filter:
-              S3Key:
-                Rules:
-                  - Name: prefix
-                    Value: emails/
       LifecycleConfiguration:
         Rules:
           - Id: DeleteOldEmails
@@ -313,15 +304,16 @@ Resources:
       RuleSetName: !Ref SESReceiptRuleSet
       Region: !Ref SesRegion
 
-  # Lambda function to activate the SES receipt rule set (since CloudFormation doesn't support this directly)
-  SESRuleSetActivatorFunction:
+  # Custom resource function to configure S3 bucket notifications
+  # This avoids circular dependency by configuring notifications after bucket and Lambda are created
+  S3NotificationConfigurator:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub 'ses-ruleset-activator-${EnvironmentName}'
+      FunctionName: !Sub 's3-notification-configurator-${EnvironmentName}'
       Runtime: python3.9
       Handler: index.lambda_handler
       Timeout: 60
-      Role: !GetAtt SESRuleSetActivatorRole.Arn
+      Role: !GetAtt S3NotificationConfiguratorRole.Arn
       Code:
         ZipFile: |
           import boto3
@@ -330,30 +322,60 @@ Resources:
           
           def lambda_handler(event, context):
               try:
-                  ses_client = boto3.client('ses')
+                  s3_client = boto3.client('s3')
                   
                   if event['RequestType'] == 'Create' or event['RequestType'] == 'Update':
-                      rule_set_name = event['ResourceProperties']['RuleSetName']
-                      region = event['ResourceProperties']['Region']
+                      bucket_name = event['ResourceProperties']['BucketName']
+                      lambda_arn = event['ResourceProperties']['LambdaArn']
                       
-                      # Set the rule set as active
-                      ses_client.set_active_receipt_rule_set(RuleSetName=rule_set_name)
+                      # Configure S3 bucket notification
+                      notification_config = {
+                          'LambdaConfigurations': [
+                              {
+                                  'Id': 'EmailProcessorTrigger',
+                                  'LambdaFunctionArn': lambda_arn,
+                                  'Events': ['s3:ObjectCreated:*'],
+                                  'Filter': {
+                                      'Key': {
+                                          'FilterRules': [
+                                              {
+                                                  'Name': 'prefix',
+                                                  'Value': 'emails/'
+                                              }
+                                          ]
+                                      }
+                                  }
+                              }
+                          ]
+                      }
+                      
+                      s3_client.put_bucket_notification_configuration(
+                          Bucket=bucket_name,
+                          NotificationConfiguration=notification_config
+                      )
                       
                       cfnresponse.send(event, context, cfnresponse.SUCCESS, 
-                                     {'Message': f'Successfully activated rule set: {rule_set_name}'})
+                                     {'Message': f'Successfully configured S3 notifications for: {bucket_name}'})
                   
                   elif event['RequestType'] == 'Delete':
-                      # Don't deactivate on delete to avoid breaking other environments
+                      bucket_name = event['ResourceProperties']['BucketName']
+                      
+                      # Remove S3 bucket notifications
+                      s3_client.put_bucket_notification_configuration(
+                          Bucket=bucket_name,
+                          NotificationConfiguration={}
+                      )
+                      
                       cfnresponse.send(event, context, cfnresponse.SUCCESS, 
-                                     {'Message': 'Rule set activation not removed on delete'})
+                                     {'Message': 'Successfully removed S3 notifications'})
                   
               except Exception as e:
                   print(f'Error: {str(e)}')
                   cfnresponse.send(event, context, cfnresponse.FAILED, 
-                                 {'Message': f'Failed to manage rule set: {str(e)}'})
+                                 {'Message': f'Failed to configure S3 notifications: {str(e)}'})
 
-  # IAM Role for the SES rule set activator function
-  SESRuleSetActivatorRole:
+  # IAM Role for the S3 notification configurator
+  S3NotificationConfiguratorRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -366,40 +388,27 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: SESRuleSetAccess
+        - PolicyName: S3NotificationAccess
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
                 Action:
-                  - ses:SetActiveReceiptRuleSet
-                  - ses:DescribeActiveReceiptRuleSet
-                  - ses:ListReceiptRuleSets
-                Resource: '*'
+                  - s3:PutBucketNotification
+                  - s3:GetBucketNotification
+                Resource: !GetAtt EmailStorageBucket.Arn
 
-  # Custom resource to activate the SES receipt rule set
-  SESRuleSetActivation:
-    Type: AWS::CloudFormation::CustomResource
-    DependsOn: SESReceiptRule
-    Properties:
-      ServiceToken: !GetAtt SESRuleSetActivatorFunction.Arn
-      RuleSetName: !Ref SESReceiptRuleSet
-      Region: !Ref SesRegion
-
-  # S3 Bucket Notification Configuration (triggers Lambda when emails arrive)
+  # Custom resource to configure S3 bucket notifications
   EmailProcessorBucketNotification:
-    Type: AWS::S3::Bucket
+    Type: AWS::CloudFormation::CustomResource
+    DependsOn: 
+      - EmailProcessorFunction
+      - EmailProcessorS3Permission
+      - EmailStorageBucket
     Properties:
-      BucketName: !Sub '${EmailStorageBucketName}-${AWS::AccountId}-${EnvironmentName}'
-      NotificationConfiguration:
-        LambdaConfigurations:
-          - Event: s3:ObjectCreated:*
-            Function: !GetAtt EmailProcessorFunction.Arn
-            Filter:
-              S3Key:
-                Rules:
-                  - Name: prefix
-                    Value: emails/
+      ServiceToken: !GetAtt S3NotificationConfigurator.Arn
+      BucketName: !Ref EmailStorageBucket
+      LambdaArn: !GetAtt EmailProcessorFunction.Arn
 
 Outputs:
   EmailStorageBucket:
