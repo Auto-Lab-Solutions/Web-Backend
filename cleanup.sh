@@ -228,25 +228,50 @@ cleanup_additional_resources() {
         done
     fi
     
-    # 5. Force empty any remaining buckets
-    print_status "Final S3 bucket cleanup..."
-    aws s3 ls | grep -E "(auto-lab|${ENVIRONMENT})" | while read -r line; do
+    # 5. Force empty environment-specific buckets only
+    print_status "Final environment-specific S3 bucket cleanup..."
+    
+    # Define critical buckets that should NEVER be touched
+    local critical_buckets=(
+        "auto-lab-cloudformation-templates"  # Production CloudFormation bucket
+        "auto-lab-backups"                   # Production backup bucket
+    )
+    
+    aws s3 ls | while read -r line; do
         local bucket_name=$(echo "$line" | awk '{print $3}')
         if [ -n "$bucket_name" ]; then
-            print_status "Force emptying bucket: $bucket_name"
-            # Delete all versions and delete markers
-            aws s3api delete-objects --bucket "$bucket_name" \
-                --delete "$(aws s3api list-object-versions --bucket "$bucket_name" \
-                --query '{Objects: Versions[].{Key: Key, VersionId: VersionId}}' \
-                --output json)" 2>/dev/null || true
+            # Skip critical buckets
+            local is_critical=false
+            for critical_bucket in "${critical_buckets[@]}"; do
+                if [[ "$bucket_name" == "$critical_bucket" ]]; then
+                    print_status "Skipping critical bucket: $bucket_name (shared infrastructure)"
+                    is_critical=true
+                    break
+                fi
+            done
             
-            aws s3api delete-objects --bucket "$bucket_name" \
-                --delete "$(aws s3api list-object-versions --bucket "$bucket_name" \
-                --query '{Objects: DeleteMarkers[].{Key: Key, VersionId: VersionId}}' \
-                --output json)" 2>/dev/null || true
-            
-            # Remove any remaining objects
-            aws s3 rm "s3://$bucket_name" --recursive 2>/dev/null || true
+            # Only process environment-specific buckets
+            if [ "$is_critical" = false ]; then
+                # Check if bucket is environment-specific (contains environment name)
+                if [[ "$bucket_name" == *"-${ENVIRONMENT}" ]] || \
+                   [[ "$bucket_name" == *"-${ENVIRONMENT}-"* ]] || \
+                   [[ "$bucket_name" == *"${ENVIRONMENT}-"* ]]; then
+                    print_status "Force emptying environment-specific bucket: $bucket_name"
+                    # Delete all versions and delete markers
+                    aws s3api delete-objects --bucket "$bucket_name" \
+                        --delete "$(aws s3api list-object-versions --bucket "$bucket_name" \
+                        --query '{Objects: Versions[].{Key: Key, VersionId: VersionId}}' \
+                        --output json)" 2>/dev/null || true
+                    
+                    aws s3api delete-objects --bucket "$bucket_name" \
+                        --delete "$(aws s3api list-object-versions --bucket "$bucket_name" \
+                        --query '{Objects: DeleteMarkers[].{Key: Key, VersionId: VersionId}}' \
+                        --output json)" 2>/dev/null || true
+                    
+                    # Remove any remaining objects
+                    aws s3 rm "s3://$bucket_name" --recursive 2>/dev/null || true
+                fi
+            fi
         fi
     done
     
@@ -255,68 +280,114 @@ cleanup_additional_resources() {
     sleep 90
 }
 
-# Function to empty all S3 buckets that might exist
+# Function to empty environment-specific S3 buckets only
+# SAFETY: Only empties buckets with environment suffix to prevent deletion of shared infrastructure
 empty_all_buckets() {
-    print_status "Emptying all possible S3 buckets..."
+    print_status "Emptying environment-specific S3 buckets for '$ENVIRONMENT'..."
     
     # Get AWS Account ID
     local account_id
     account_id=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "unknown")
     
-    # Get all buckets and filter for ones that might be related to our project
-    print_status "Scanning all S3 buckets for project-related buckets..."
+    # Define critical buckets that should NEVER be deleted (shared infrastructure)
+    local critical_buckets=(
+        "auto-lab-cloudformation-templates"  # Production CloudFormation bucket
+        "auto-lab-backups"                   # Production backup bucket
+    )
+    
+    # Get all buckets and filter for ones that are environment-specific
+    print_status "Scanning S3 buckets for environment-specific buckets ($ENVIRONMENT)..."
     local all_buckets
     all_buckets=$(aws s3 ls | awk '{print $3}' || true)
     
     if [ -n "$all_buckets" ]; then
         echo "$all_buckets" | while IFS= read -r bucket_name; do
             if [ -n "$bucket_name" ]; then
-                # Check if bucket matches our naming patterns
-                if [[ "$bucket_name" == *"auto-lab"* ]] || \
-                   [[ "$bucket_name" == *"$ENVIRONMENT"* ]] || \
-                   [[ "$bucket_name" == *"cloudformation"* ]] || \
-                   [[ "$bucket_name" == *"reports"* ]] || \
-                   [[ "$bucket_name" == *"email-storage"* ]]; then
-                    print_status "Found project bucket: $bucket_name"
-                    empty_s3_bucket "$bucket_name"
+                # Skip critical buckets that should never be deleted
+                local is_critical=false
+                for critical_bucket in "${critical_buckets[@]}"; do
+                    if [[ "$bucket_name" == "$critical_bucket" ]]; then
+                        print_status "Skipping critical bucket: $bucket_name (shared infrastructure)"
+                        is_critical=true
+                        break
+                    fi
+                done
+                
+                # Only process environment-specific buckets
+                if [ "$is_critical" = false ]; then
+                    # Check if bucket is environment-specific (contains environment name)
+                    if [[ "$bucket_name" == *"-${ENVIRONMENT}" ]] || \
+                       [[ "$bucket_name" == *"-${ENVIRONMENT}-"* ]] || \
+                       [[ "$bucket_name" == *"${ENVIRONMENT}-"* ]]; then
+                        print_status "Found environment-specific bucket: $bucket_name"
+                        empty_s3_bucket "$bucket_name"
+                    fi
                 fi
             fi
         done
     fi
     
-    # Also try specific bucket patterns that might exist
-    local possible_buckets=(
-        "$REPORTS_BUCKET_NAME"
-        "$CLOUDFORMATION_BUCKET"
+    # Also try specific environment-specific bucket patterns that might exist
+    local env_specific_buckets=(
+        "$REPORTS_BUCKET_NAME"  # This should be environment-specific
         "${EMAIL_STORAGE_BUCKET}-${account_id}-${ENVIRONMENT}"
         "auto-lab-email-storage-${account_id}-${ENVIRONMENT}"
         "auto-lab-reports-${ENVIRONMENT}"
-        "auto-lab-cloudformation-templates"
-        "auto-lab-cloudformation-templates-${ENVIRONMENT}"
-        "auto-lab-reports"
     )
     
-    for bucket in "${possible_buckets[@]}"; do
+    # Only include CloudFormation bucket if it's environment-specific
+    if [[ "$CLOUDFORMATION_BUCKET" == *"-${ENVIRONMENT}" ]]; then
+        env_specific_buckets+=("$CLOUDFORMATION_BUCKET")
+    else
+        print_status "Skipping CloudFormation bucket: $CLOUDFORMATION_BUCKET (appears to be shared)"
+    fi
+    
+    for bucket in "${env_specific_buckets[@]}"; do
         if [ -n "$bucket" ] && [ "$bucket" != "unknown" ]; then
-            empty_s3_bucket "$bucket"
+            # Double-check it's environment-specific before emptying
+            if [[ "$bucket" == *"$ENVIRONMENT"* ]] || [[ "$bucket" == "$REPORTS_BUCKET_NAME" ]]; then
+                empty_s3_bucket "$bucket"
+            fi
         fi
     done
 }
 
-# Function to clean up S3 buckets
+# Function to clean up environment-specific S3 buckets
+# SAFETY: Only deletes buckets with environment suffix to prevent deletion of shared infrastructure
 cleanup_s3_buckets() {
-    print_status "Cleaning up S3 buckets..."
+    print_status "Cleaning up environment-specific S3 buckets for '$ENVIRONMENT'..."
     
-    # Empty and delete reports bucket
-    empty_s3_bucket "$REPORTS_BUCKET_NAME"
+    # Only delete environment-specific buckets, never shared infrastructure
+    if [[ "$CLOUDFORMATION_BUCKET" == *"-${ENVIRONMENT}" ]]; then
+        print_status "Cleaning up environment-specific CloudFormation bucket: $CLOUDFORMATION_BUCKET"
+        empty_s3_bucket "$CLOUDFORMATION_BUCKET"
+        
+        # Delete the environment-specific CloudFormation bucket
+        if aws s3 ls "s3://$CLOUDFORMATION_BUCKET" &> /dev/null; then
+            aws s3 rb "s3://$CLOUDFORMATION_BUCKET"
+            print_success "Deleted environment-specific S3 bucket: $CLOUDFORMATION_BUCKET"
+        fi
+    else
+        print_status "Skipping CloudFormation bucket deletion: $CLOUDFORMATION_BUCKET (appears to be shared infrastructure)"
+    fi
     
-    # Empty CloudFormation templates bucket
-    empty_s3_bucket "$CLOUDFORMATION_BUCKET"
+    # Clean up environment-specific reports bucket
+    if [ -n "$REPORTS_BUCKET_NAME" ] && [[ "$REPORTS_BUCKET_NAME" == *"$ENVIRONMENT"* ]]; then
+        print_status "Cleaning up environment-specific reports bucket: $REPORTS_BUCKET_NAME"
+        empty_s3_bucket "$REPORTS_BUCKET_NAME"
+        
+        # Delete the reports bucket if it exists
+        if aws s3 ls "s3://$REPORTS_BUCKET_NAME" &> /dev/null; then
+            aws s3 rb "s3://$REPORTS_BUCKET_NAME"
+            print_success "Deleted environment-specific S3 bucket: $REPORTS_BUCKET_NAME"
+        fi
+    fi
     
-    # Delete CloudFormation bucket
-    if aws s3 ls "s3://$CLOUDFORMATION_BUCKET" &> /dev/null; then
-        aws s3 rb "s3://$CLOUDFORMATION_BUCKET"
-        print_success "Deleted S3 bucket: $CLOUDFORMATION_BUCKET"
+    # Note: We don't automatically delete backup buckets as they may contain important data
+    # If you need to delete backup buckets, do so manually after confirming data is not needed
+    if [ -n "$BACKUP_BUCKET_NAME" ]; then
+        print_status "Note: Backup bucket '$BACKUP_BUCKET_NAME' preserved (contains important data)"
+        print_status "If you need to delete it, run: aws s3 rb s3://$BACKUP_BUCKET_NAME --force"
     fi
 }
 
