@@ -444,6 +444,7 @@ Resources:
         MailSendingAddress: !Ref MailSendingAddress
         SesRegion: !Ref SesRegion
         CloudFormationBucket: !Ref CloudFormationBucket
+        MailReceivingAddress: !Ref MailReceivingAddress
 
   # SES Email Storage System
   SESEmailStorageStack:
