@@ -1063,20 +1063,74 @@ configure_email_receiving() {
 # Configure S3 bucket notifications for email processing
 configure_s3_email_notifications() {
     print_status "Configuring S3 bucket notifications for email processing..."
-    print_success "✅ S3 bucket notifications are now automatically configured by CloudFormation"
-    print_success "✅ Lambda function permissions are properly set"
-    print_success "✅ Email processor will be triggered automatically when emails arrive"
     
-    # Get AWS Account ID for display purposes
+    # Get AWS Account ID
     local account_id
     account_id=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "unknown")
+    
+    if [ "$account_id" = "unknown" ]; then
+        print_error "Failed to get AWS Account ID"
+        return 1
+    fi
     
     local bucket_name="${EMAIL_STORAGE_BUCKET}-${account_id}-${ENVIRONMENT}"
     local function_name="email-processor-${ENVIRONMENT}"
     
     print_status "Bucket: $bucket_name"
     print_status "Function: $function_name"
-    print_success "S3 bucket notification configuration completed successfully!"
+    
+    # Get the Lambda function ARN
+    local lambda_arn
+    lambda_arn=$(aws lambda get-function --function-name "$function_name" --query 'Configuration.FunctionArn' --output text 2>/dev/null)
+    
+    if [ $? -ne 0 ] || [ -z "$lambda_arn" ]; then
+        print_error "Failed to get Lambda function ARN for $function_name"
+        return 1
+    fi
+    
+    print_status "Lambda ARN: $lambda_arn"
+    
+    # Configure S3 bucket notification
+    local notification_config=$(cat <<EOF
+{
+    "LambdaConfigurations": [
+        {
+            "Id": "EmailProcessorTrigger",
+            "LambdaFunctionArn": "$lambda_arn",
+            "Events": [
+                "s3:ObjectCreated:*"
+            ],
+            "Filter": {
+                "Key": {
+                    "FilterRules": [
+                        {
+                            "Name": "prefix",
+                            "Value": "emails/"
+                        }
+                    ]
+                }
+            }
+        }
+    ]
+}
+EOF
+    )
+    
+    # Apply the notification configuration
+    print_status "Applying S3 bucket notification configuration..."
+    aws s3api put-bucket-notification-configuration \
+        --bucket "$bucket_name" \
+        --notification-configuration "$notification_config"
+    
+    if [ $? -eq 0 ]; then
+        print_success "✅ S3 bucket notifications configured successfully"
+        print_success "✅ Lambda function permissions are properly set"
+        print_success "✅ Email processor will be triggered automatically when emails arrive"
+        print_success "S3 bucket notification configuration completed successfully!"
+    else
+        print_error "Failed to configure S3 bucket notifications"
+        return 1
+    fi
 }
 
 # Main deployment function
@@ -1183,6 +1237,10 @@ main() {
     
     # Configure S3 bucket notifications for email processing
     configure_s3_email_notifications
+    if [ $? -ne 0 ]; then
+        print_error "Failed to configure S3 bucket notifications"
+        exit 1
+    fi
     
     # Always update Lambda environment variables (even when SKIP_LAMBDAS=true)
     # This ensures Lambda functions have the correct configuration for the updated infrastructure

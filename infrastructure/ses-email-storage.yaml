@@ -203,7 +203,7 @@ Resources:
       FunctionName: !Ref EmailProcessorFunction
       Action: lambda:InvokeFunction
       Principal: s3.amazonaws.com
-      SourceArn: !Sub 'arn:aws:s3:::${EmailStorageBucketName}-${AWS::AccountId}-${EnvironmentName}'
+      SourceArn: !GetAtt EmailStorageBucket.Arn
 
   # Note: S3 bucket notifications are configured automatically by deploy.sh after stack deployment
   # This avoids circular dependency issues in CloudFormation while ensuring proper configuration
@@ -304,111 +304,8 @@ Resources:
       RuleSetName: !Ref SESReceiptRuleSet
       Region: !Ref SesRegion
 
-  # Custom resource function to configure S3 bucket notifications
-  # This avoids circular dependency by configuring notifications after bucket and Lambda are created
-  S3NotificationConfigurator:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: !Sub 's3-notification-configurator-${EnvironmentName}'
-      Runtime: python3.9
-      Handler: index.lambda_handler
-      Timeout: 60
-      Role: !GetAtt S3NotificationConfiguratorRole.Arn
-      Code:
-        ZipFile: |
-          import boto3
-          import cfnresponse
-          import json
-          
-          def lambda_handler(event, context):
-              try:
-                  s3_client = boto3.client('s3')
-                  
-                  if event['RequestType'] == 'Create' or event['RequestType'] == 'Update':
-                      bucket_name = event['ResourceProperties']['BucketName']
-                      lambda_arn = event['ResourceProperties']['LambdaArn']
-                      
-                      # Configure S3 bucket notification
-                      notification_config = {
-                          'LambdaConfigurations': [
-                              {
-                                  'Id': 'EmailProcessorTrigger',
-                                  'LambdaFunctionArn': lambda_arn,
-                                  'Events': ['s3:ObjectCreated:*'],
-                                  'Filter': {
-                                      'Key': {
-                                          'FilterRules': [
-                                              {
-                                                  'Name': 'prefix',
-                                                  'Value': 'emails/'
-                                              }
-                                          ]
-                                      }
-                                  }
-                              }
-                          ]
-                      }
-                      
-                      s3_client.put_bucket_notification_configuration(
-                          Bucket=bucket_name,
-                          NotificationConfiguration=notification_config
-                      )
-                      
-                      cfnresponse.send(event, context, cfnresponse.SUCCESS, 
-                                     {'Message': f'Successfully configured S3 notifications for: {bucket_name}'})
-                  
-                  elif event['RequestType'] == 'Delete':
-                      bucket_name = event['ResourceProperties']['BucketName']
-                      
-                      # Remove S3 bucket notifications
-                      s3_client.put_bucket_notification_configuration(
-                          Bucket=bucket_name,
-                          NotificationConfiguration={}
-                      )
-                      
-                      cfnresponse.send(event, context, cfnresponse.SUCCESS, 
-                                     {'Message': 'Successfully removed S3 notifications'})
-                  
-              except Exception as e:
-                  print(f'Error: {str(e)}')
-                  cfnresponse.send(event, context, cfnresponse.FAILED, 
-                                 {'Message': f'Failed to configure S3 notifications: {str(e)}'})
-
-  # IAM Role for the S3 notification configurator
-  S3NotificationConfiguratorRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: S3NotificationAccess
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - s3:PutBucketNotification
-                  - s3:GetBucketNotification
-                Resource: !GetAtt EmailStorageBucket.Arn
-
-  # Custom resource to configure S3 bucket notifications
-  EmailProcessorBucketNotification:
-    Type: AWS::CloudFormation::CustomResource
-    DependsOn: 
-      - EmailProcessorFunction
-      - EmailProcessorS3Permission
-      - EmailStorageBucket
-    Properties:
-      ServiceToken: !GetAtt S3NotificationConfigurator.Arn
-      BucketName: !Ref EmailStorageBucket
-      LambdaArn: !GetAtt EmailProcessorFunction.Arn
+  # Note: S3 bucket notifications are configured automatically by deploy.sh after stack deployment
+  # This avoids circular dependency issues in CloudFormation while ensuring proper configuration
 
 Outputs:
   EmailStorageBucket:
