@@ -44,7 +44,7 @@ Resources:
   SESConfigurationSet:
     Type: AWS::SES::ConfigurationSet
     Properties:
-      ConfigurationSetName: !Sub 'auto-lab-config-set-${EnvironmentName}'
+      Name: !Sub 'auto-lab-config-set-${EnvironmentName}'
 
   # SES MAIL FROM Domain Identity (improves deliverability)
   # This is a separate domain identity for better email reputation
