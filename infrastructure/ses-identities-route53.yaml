@@ -55,7 +55,7 @@ Resources:
       EmailIdentity: !Sub 'mail.${DomainName}'
       MailFromAttributes:
         MailFromDomain: !Sub 'mail.${DomainName}'
-        BehaviorOnMxFailure: UseDefaultValue
+        BehaviorOnMxFailure: USE_DEFAULT_VALUE
       ConfigurationSetAttributes:
         ConfigurationSetName: !Ref SESConfigurationSet
 
