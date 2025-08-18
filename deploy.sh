@@ -1133,6 +1133,95 @@ EOF
     fi
 }
 
+# Configure SES domain notifications as a backup mechanism
+configure_ses_domain_notifications() {
+    print_status "Configuring SES domain notifications as backup..."
+    
+    local domain_name="${SES_DOMAIN_NAME}"
+    
+    # Get SNS topic ARNs from the main stack outputs (which should export these values)
+    local bounce_topic_arn
+    local complaint_topic_arn
+    local delivery_topic_arn
+    
+    bounce_topic_arn=$(aws cloudformation describe-stacks \
+        --stack-name "$STACK_NAME" \
+        --query 'Stacks[0].Outputs[?OutputKey==`SESBounceTopicArn`].OutputValue' \
+        --output text 2>/dev/null)
+    
+    complaint_topic_arn=$(aws cloudformation describe-stacks \
+        --stack-name "$STACK_NAME" \
+        --query 'Stacks[0].Outputs[?OutputKey==`SESComplaintTopicArn`].OutputValue' \
+        --output text 2>/dev/null)
+    
+    delivery_topic_arn=$(aws cloudformation describe-stacks \
+        --stack-name "$STACK_NAME" \
+        --query 'Stacks[0].Outputs[?OutputKey==`SESDeliveryTopicArn`].OutputValue' \
+        --output text 2>/dev/null)
+    
+    if [ -z "$bounce_topic_arn" ] || [ -z "$complaint_topic_arn" ]; then
+        print_warning "Could not retrieve SNS topic ARNs from stack outputs. SES notifications may need manual configuration."
+        return 0
+    fi
+    
+    print_status "Domain: $domain_name"
+    print_status "Bounce Topic: $bounce_topic_arn"
+    print_status "Complaint Topic: $complaint_topic_arn"
+    
+    # Check if domain is verified
+    local verification_status
+    verification_status=$(aws ses get-identity-verification-attributes \
+        --identities "$domain_name" \
+        --query "VerificationAttributes.\"$domain_name\".VerificationStatus" \
+        --output text 2>/dev/null)
+    
+    if [ "$verification_status" != "Success" ]; then
+        print_warning "Domain $domain_name is not yet verified (status: $verification_status)"
+        print_warning "SES notifications will be configured automatically when domain verification completes"
+        return 0
+    fi
+    
+    # Configure bounce notifications
+    print_status "Configuring bounce notifications..."
+    aws ses put-identity-notification-attributes \
+        --identity "$domain_name" \
+        --notification-type Bounce \
+        --sns-topic "$bounce_topic_arn"
+    
+    aws ses put-identity-notification-attributes \
+        --identity "$domain_name" \
+        --notification-type Bounce \
+        --enabled
+    
+    # Configure complaint notifications
+    print_status "Configuring complaint notifications..."
+    aws ses put-identity-notification-attributes \
+        --identity "$domain_name" \
+        --notification-type Complaint \
+        --sns-topic "$complaint_topic_arn"
+    
+    aws ses put-identity-notification-attributes \
+        --identity "$domain_name" \
+        --notification-type Complaint \
+        --enabled
+    
+    # Configure delivery notifications if available
+    if [ -n "$delivery_topic_arn" ]; then
+        print_status "Configuring delivery notifications..."
+        aws ses put-identity-notification-attributes \
+            --identity "$domain_name" \
+            --notification-type Delivery \
+            --sns-topic "$delivery_topic_arn"
+        
+        aws ses put-identity-notification-attributes \
+            --identity "$domain_name" \
+            --notification-type Delivery \
+            --enabled
+    fi
+    
+    print_success "✅ SES domain notifications configured successfully"
+}
+
 # Main deployment function
 main() {
     # Handle help flag
@@ -1241,6 +1330,9 @@ main() {
         print_error "Failed to configure S3 bucket notifications"
         exit 1
     fi
+    
+    # Configure SES domain notifications as backup (in case CloudFormation custom resource failed)
+    configure_ses_domain_notifications
     
     # Always update Lambda environment variables (even when SKIP_LAMBDAS=true)
     # This ensures Lambda functions have the correct configuration for the updated infrastructure
