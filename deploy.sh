@@ -46,6 +46,9 @@ show_usage() {
     echo "  $0 dev          # Deploy to development"
     echo "  $0 production   # Deploy to production"
     echo ""
+    echo "Development Environment:"
+    echo "  Configure 'dev.env.sh' for development-specific settings like SKIP_LAMBDAS"
+    echo ""
     echo "Pipeline/Automated Execution:"
     echo "  export AUTO_CONFIRM=true    # Skip all confirmation prompts"
     echo "  export CI=true              # Detected in most CI/CD systems"
@@ -1089,10 +1092,31 @@ main() {
         exit 1
     fi
     
+    # Initialize variables
+    local SKIP_LAMBDAS=false
+    
+    # Source development-specific configuration if deploying to development
+    if [[ "$ENVIRONMENT" == "development" ]]; then
+        if [[ -f "config/dev.env.sh" ]]; then
+            print_status "Loading development-specific configuration from config/dev.env.sh..."
+            source config/dev.env.sh
+            if [[ "${SKIP_LAMBDAS:-false}" == "true" ]]; then
+                print_status "Development configuration: SKIP_LAMBDAS=true"
+            fi
+        else
+            print_warning "config/dev.env.sh not found. Using default development configuration."
+        fi
+    fi
+    
     print_status "Starting Auto Lab Solutions Backend Deployment..."
     print_status "Target Environment: $ENVIRONMENT"
     print_status "AWS Region: $AWS_REGION"
     print_status "Stack Name: $STACK_NAME"
+    
+    if [[ "${SKIP_LAMBDAS:-false}" == "true" ]]; then
+        print_warning "Lambda function updates will be SKIPPED (configured in dev.env.sh)"
+    fi
+    
     echo ""
     
     # Show environment configuration
@@ -1100,7 +1124,13 @@ main() {
     echo ""
     
     # Confirm deployment
-    print_warning "This will deploy/update the backend infrastructure for '$ENVIRONMENT' environment."
+    if [[ "${SKIP_LAMBDAS:-false}" == "true" ]]; then
+        print_warning "This will deploy/update the backend infrastructure for '$ENVIRONMENT' environment WITHOUT updating Lambda function code."
+        print_warning "CloudFormation stack, API Gateway, configuration, and Lambda environment variables will be updated."
+        print_warning "Only Lambda function code packaging and deployment will be skipped."
+    else
+        print_warning "This will deploy/update the backend infrastructure for '$ENVIRONMENT' environment."
+    fi
     
     # Skip confirmation prompt in CI/CD environments or if AUTO_CONFIRM is set
     if [ -n "$GITHUB_ACTIONS" ] || [ -n "$CI" ] || [ "$AUTO_CONFIRM" = "true" ]; then
@@ -1122,13 +1152,26 @@ main() {
     # Upload CloudFormation templates
     print_status "Uploading CloudFormation templates..."
     ./upload-templates.sh --env "$ENVIRONMENT"
-    package_lambdas
+    
+    # Conditionally package and upload Lambda functions
+    if [[ "${SKIP_LAMBDAS:-false}" == "true" ]]; then
+        print_warning "Skipping Lambda function packaging and uploading as requested"
+    else
+        package_lambdas
+    fi
+    
     deploy_stack
 
     # Note: Backup system is deployed as part of the main stack (nested stack)
     # No separate backup system deployment needed
 
-    update_all_lambdas
+    # Conditionally update Lambda functions
+    if [[ "${SKIP_LAMBDAS:-false}" == "true" ]]; then
+        print_warning "Skipping Lambda function code updates as requested"
+    else
+        update_all_lambdas
+    fi
+    
     configure_api_gateway
     
     # Configure SES bounce and complaint notifications
@@ -1141,7 +1184,8 @@ main() {
     # Configure S3 bucket notifications for email processing
     configure_s3_email_notifications
     
-    # Update WebSocket endpoints and notification queues in Lambda functions
+    # Always update Lambda environment variables (even when SKIP_LAMBDAS=true)
+    # This ensures Lambda functions have the correct configuration for the updated infrastructure
     print_status "Updating Lambda environment variables (WebSocket endpoints and notification queues)..."
     ./update-lambda-variables.sh --env "$ENVIRONMENT"
     
@@ -1151,7 +1195,18 @@ main() {
     print_status "Initializing DynamoDB tables with default data..."
     ./initialize-dynamodb-data.sh "$ENVIRONMENT"
 
-    print_success "Deployment completed successfully!"
+    if [[ "${SKIP_LAMBDAS:-false}" == "true" ]]; then
+        print_success "Deployment completed successfully! (Lambda function code was skipped, but environment variables were updated)"
+        print_warning ""
+        print_warning "IMPORTANT: Lambda function code was not updated in this deployment."
+        print_warning "However, Lambda environment variables were updated with the latest configuration."
+        print_warning "To update Lambda function code later, set SKIP_LAMBDAS=false in dev.env.sh and run:"
+        print_warning "  ./deploy.sh $ENVIRONMENT"
+        print_warning "Or to update Lambda function code only:"
+        print_warning "  ./update-lambdas.sh $ENVIRONMENT"
+    else
+        print_success "Deployment completed successfully!"
+    fi
     
     # Print SES configuration summary
     print_status "=========================================="
@@ -1222,61 +1277,122 @@ except:
 
     # Print async processing status
     echo ""
-    print_success "Async Processing Components Deployed:"
-    echo "  ✓ SQS Invoice Queue for asynchronous invoice generation"
-    echo "  ✓ Invoice Processor Lambda (sqs-process-invoice-queue)"
-    echo "  ✓ SQS Email Notification Queue for asynchronous email processing"
-    echo "  ✓ Email Notification Processor Lambda (sqs-process-email-notification-queue)"
-    echo "  ✓ SQS WebSocket Notification Queue for asynchronous WebSocket processing"
-    echo "  ✓ WebSocket Notification Processor Lambda (sqs-process-websocket-notification-queue)"
-    
-    # Show Firebase status
-    if [[ "${ENABLE_FIREBASE_NOTIFICATIONS:-false}" == "true" ]]; then
-        echo "  ✓ Firebase Notification Processor Lambda (sqs-process-firebase-notification-queue)"
-        echo "  ✓ Firebase Cloud Messaging configured for push notifications"
+    if [[ "${SKIP_LAMBDAS:-false}" == "true" ]]; then
+        print_warning "Async Processing Components (Lambda functions skipped):"
+        echo "  ⚠ SQS Invoice Queue for asynchronous invoice generation (created)"
+        echo "  ⚠ Invoice Processor Lambda (sqs-process-invoice-queue) (not updated)"
+        echo "  ⚠ SQS Email Notification Queue for asynchronous email processing (created)"
+        echo "  ⚠ Email Notification Processor Lambda (sqs-process-email-notification-queue) (not updated)"
+        echo "  ⚠ SQS WebSocket Notification Queue for asynchronous WebSocket processing (created)"
+        echo "  ⚠ WebSocket Notification Processor Lambda (sqs-process-websocket-notification-queue) (not updated)"
+        
+        # Show Firebase status
+        if [[ "${ENABLE_FIREBASE_NOTIFICATIONS:-false}" == "true" ]]; then
+            echo "  ⚠ Firebase Notification Processor Lambda (sqs-process-firebase-notification-queue) (not updated)"
+            echo "  ⚠ Firebase Cloud Messaging configured for push notifications (not updated)"
+        else
+            echo "  ✗ Firebase Notifications are disabled"
+        fi
+        
+        echo "  ⚠ Payment confirmation Lambdas (code not updated, but environment variables updated)"
+        echo "  ⚠ All business logic Lambdas (code not updated, but environment variables updated)"
+        echo "  ⚠ Shared notification_utils library (not deployed)"
+        echo ""
+        print_warning "Lambda function code was skipped! SQS queues are available and Lambda environment variables are updated."
+        print_warning "Set SKIP_LAMBDAS=false in dev.env.sh and run deployment again to update Lambda function code."
     else
-        echo "  ✗ Firebase Notifications are disabled"
+        print_success "Async Processing Components Deployed:"
+        echo "  ✓ SQS Invoice Queue for asynchronous invoice generation"
+        echo "  ✓ Invoice Processor Lambda (sqs-process-invoice-queue)"
+        echo "  ✓ SQS Email Notification Queue for asynchronous email processing"
+        echo "  ✓ Email Notification Processor Lambda (sqs-process-email-notification-queue)"
+        echo "  ✓ SQS WebSocket Notification Queue for asynchronous WebSocket processing"
+        echo "  ✓ WebSocket Notification Processor Lambda (sqs-process-websocket-notification-queue)"
+        
+        # Show Firebase status
+        if [[ "${ENABLE_FIREBASE_NOTIFICATIONS:-false}" == "true" ]]; then
+            echo "  ✓ Firebase Notification Processor Lambda (sqs-process-firebase-notification-queue)"
+            echo "  ✓ Firebase Cloud Messaging configured for push notifications"
+        else
+            echo "  ✗ Firebase Notifications are disabled"
+        fi
+        
+        echo "  ✓ Payment confirmation Lambdas updated with async support"
+        echo "  ✓ All business logic Lambdas updated to use notification queues"
+        echo "  ✓ Shared notification_utils library deployed to all functions"
+        echo ""
+        print_status "All notification processing is now asynchronous via SQS queues!"
     fi
     
-    echo "  ✓ Payment confirmation Lambdas updated with async support"
-    echo "  ✓ All business logic Lambdas updated to use notification queues"
-    echo "  ✓ Shared notification_utils library deployed to all functions"
     echo ""
-    print_status "All notification processing is now asynchronous via SQS queues!"
+    if [[ "${SKIP_LAMBDAS:-false}" == "true" ]]; then
+        print_warning "Backup System (Lambda functions skipped):"
+        echo "  ⚠ Automated backup Lambda function for scheduled backups (not updated)"
+        echo "  ⚠ Manual backup Lambda function for on-demand backups (not updated)"
+        echo "  ⚠ API backup/restore Lambda function for programmatic access (not updated)"
+        echo "  ✓ Scheduled backups configured (daily at 2:00 AM UTC for production)"
+        echo "  ✓ Backup retention policies configured"
+        echo "  ✓ S3 backup storage with versioning enabled"
+        echo ""
+        print_warning "Backup Management Commands (Lambda code not updated, but should work with updated environment variables):"
+        echo "  ./manage-backups.sh trigger-backup $ENVIRONMENT    # Trigger manual backup"
+        echo "  ./manage-backups.sh list-backups $ENVIRONMENT      # List available backups"
+        echo "  ./manage-backups.sh restore-info $ENVIRONMENT      # Show restore instructions"
+        echo ""
+        print_warning "Lambda function code was skipped! Set SKIP_LAMBDAS=false in dev.env.sh and run deployment again to update backup function code."
+    else
+        print_success "Backup System Deployed:"
+        echo "  ✓ Automated backup Lambda function for scheduled backups"
+        echo "  ✓ Manual backup Lambda function for on-demand backups"
+        echo "  ✓ API backup/restore Lambda function for programmatic access"
+        echo "  ✓ Scheduled backups configured (daily at 2:00 AM UTC for production)"
+        echo "  ✓ Backup retention policies configured"
+        echo "  ✓ S3 backup storage with versioning enabled"
+        echo ""
+        print_status "Backup Management Commands:"
+        echo "  ./manage-backups.sh trigger-backup $ENVIRONMENT    # Trigger manual backup"
+        echo "  ./manage-backups.sh list-backups $ENVIRONMENT      # List available backups"
+        echo "  ./manage-backups.sh restore-info $ENVIRONMENT      # Show restore instructions"
+        echo ""
+        print_status "For full backup system documentation, see: BACKUP_SYSTEM_GUIDE.md"
+    fi
     
     echo ""
-    print_success "Backup System Deployed:"
-    echo "  ✓ Automated backup Lambda function for scheduled backups"
-    echo "  ✓ Manual backup Lambda function for on-demand backups"
-    echo "  ✓ API backup/restore Lambda function for programmatic access"
-    echo "  ✓ Scheduled backups configured (daily at 2:00 AM UTC for production)"
-    echo "  ✓ Backup retention policies configured"
-    echo "  ✓ S3 backup storage with versioning enabled"
-    echo ""
-    print_status "Backup Management Commands:"
-    echo "  ./manage-backups.sh trigger-backup $ENVIRONMENT    # Trigger manual backup"
-    echo "  ./manage-backups.sh list-backups $ENVIRONMENT      # List available backups"
-    echo "  ./manage-backups.sh restore-info $ENVIRONMENT      # Show restore instructions"
-    echo ""
-    print_status "For full backup system documentation, see: BACKUP_SYSTEM_GUIDE.md"
-    
-    echo ""
-    print_success "SES Bounce/Complaint System Deployed:"
-    echo "  ✓ SES bounce handler Lambda function for processing bounced emails"
-    echo "  ✓ SES complaint handler Lambda function for processing complaints"
-    echo "  ✓ SES delivery handler Lambda function for tracking deliveries"
-    echo "  ✓ Email suppression manager Lambda function for managing suppression lists"
-    echo "  ✓ SNS topics configured for SES notifications"
-    echo "  ✓ DynamoDB tables for email suppression and analytics"
-    echo "  ✓ SES notifications configured for bounce and complaint handling"
-    echo ""
-    print_status "SES Management:"
-    echo "  - Monitor DynamoDB EmailSuppression table for bounced/complained emails"
-    echo "  - Monitor DynamoDB EmailAnalytics table for delivery tracking"
-    echo "  - Check CloudWatch logs for Lambda function execution"
-    echo "  - Verify SES domain configuration in AWS SES console"
-    echo ""
-    print_status "For full SES system documentation, see: SES_BOUNCE_COMPLAINT_SYSTEM.md"
+    if [[ "${SKIP_LAMBDAS:-false}" == "true" ]]; then
+        print_warning "SES Bounce/Complaint System (Lambda functions skipped):"
+        echo "  ⚠ SES bounce handler Lambda function for processing bounced emails (not updated)"
+        echo "  ⚠ SES complaint handler Lambda function for processing complaints (not updated)"
+        echo "  ⚠ SES delivery handler Lambda function for tracking deliveries (not updated)"
+        echo "  ⚠ Email suppression manager Lambda function for managing suppression lists (not updated)"
+        echo "  ✓ SNS topics configured for SES notifications"
+        echo "  ✓ DynamoDB tables for email suppression and analytics"
+        echo "  ✓ SES notifications configured for bounce and complaint handling"
+        echo ""
+        print_warning "SES Management (Lambda code not updated, but environment variables updated):"
+        echo "  - Monitor DynamoDB EmailSuppression table for bounced/complained emails"
+        echo "  - Monitor DynamoDB EmailAnalytics table for delivery tracking"
+        echo "  - Check CloudWatch logs for Lambda function execution"
+        echo "  - Verify SES domain configuration in AWS SES console"
+        echo ""
+        print_warning "Lambda function code was skipped! Set SKIP_LAMBDAS=false in dev.env.sh and run deployment again to update SES function code."
+    else
+        print_success "SES Bounce/Complaint System Deployed:"
+        echo "  ✓ SES bounce handler Lambda function for processing bounced emails"
+        echo "  ✓ SES complaint handler Lambda function for processing complaints"
+        echo "  ✓ SES delivery handler Lambda function for tracking deliveries"
+        echo "  ✓ Email suppression manager Lambda function for managing suppression lists"
+        echo "  ✓ SNS topics configured for SES notifications"
+        echo "  ✓ DynamoDB tables for email suppression and analytics"
+        echo "  ✓ SES notifications configured for bounce and complaint handling"
+        echo ""
+        print_status "SES Management:"
+        echo "  - Monitor DynamoDB EmailSuppression table for bounced/complained emails"
+        echo "  - Monitor DynamoDB EmailAnalytics table for delivery tracking"
+        echo "  - Check CloudWatch logs for Lambda function execution"
+        echo "  - Verify SES domain configuration in AWS SES console"
+        echo ""
+        print_status "For full SES system documentation, see: SES_BOUNCE_COMPLAINT_SYSTEM.md"
+    fi
 }
 
 # Check if script is being run directly
