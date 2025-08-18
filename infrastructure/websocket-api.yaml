@@ -27,6 +27,31 @@ Parameters:
     Type: String
     Description: WebSocket Staff Init Lambda ARN
 
+  # Custom Domain Parameters
+  EnableApiCustomDomains:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+    Description: Whether to enable custom domains for API Gateway endpoints
+
+  WebSocketDomainName:
+    Type: String
+    Description: The domain name for the WebSocket API (e.g., ws.autolabsolutions.com)
+    Default: ''
+
+  ApiHostedZoneId:
+    Type: String
+    Description: The ID of the Route53 hosted zone for API domains
+    Default: ''
+
+  ApiAcmCertificateArn:
+    Type: String
+    Description: ARN of the ACM certificate for API domains (must be in the same region)
+    Default: ''
+
+Conditions:
+  ShouldEnableCustomDomain: !Equals [!Ref EnableApiCustomDomains, 'true']
+
 Resources:
   # WebSocket API
   WebSocketApi:
@@ -56,22 +81,63 @@ Resources:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref WebSocketApi
-      IntegrationType: AWS_PROXY
+      IntegrationType: AWS
       IntegrationUri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WsInitArn}/invocations'
+      IntegrationMethod: POST
+      PassthroughBehavior: WHEN_NO_MATCH
+      PayloadFormatVersion: '1.0'
+      TimeoutInMillis: 29000
+      RequestTemplates:
+        Template1: |
+          {
+            "connectionId": "$context.connectionId",
+            "domain": "$context.domainName",
+            "stage": "$context.stage",
+            "body": $input.body
+          }
+      TemplateSelectionExpression: Template1
 
   PingIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref WebSocketApi
-      IntegrationType: AWS_PROXY
+      IntegrationType: AWS
       IntegrationUri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WsPingArn}/invocations'
+      IntegrationMethod: POST
+      PassthroughBehavior: WHEN_NO_MATCH
+      PayloadFormatVersion: '1.0'
+      TimeoutInMillis: 29000
+      ContentHandlingStrategy: CONVERT_TO_TEXT
+      RequestTemplates:
+        Template1: |
+          {
+            "connectionId": "$context.connectionId",
+            "domain": "$context.domainName",
+            "stage": "$context.stage",
+            "body": $input.body
+          }
+      TemplateSelectionExpression: Template1
 
   StaffInitIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref WebSocketApi
-      IntegrationType: AWS_PROXY
+      IntegrationType: AWS
       IntegrationUri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WsStaffInitArn}/invocations'
+      IntegrationMethod: POST
+      PassthroughBehavior: WHEN_NO_MATCH
+      PayloadFormatVersion: '1.0'
+      TimeoutInMillis: 29000
+      RequestTemplates:
+        Template1: |
+          {
+            "connectionId": "$context.connectionId",
+            "domain": "$context.domainName",
+            "stage": "$context.stage",
+            "body": $input.body
+          }
+      TemplateSelectionExpression: Template1
+
 
   # Routes
   ConnectRoute:
@@ -113,6 +179,7 @@ Resources:
       RouteKey: staff-init
       AuthorizationType: NONE
       Target: !Sub 'integrations/${StaffInitIntegration}'
+
 
   # Lambda Permissions
   ConnectPermission:
@@ -163,6 +230,39 @@ Resources:
       StageName: !Ref Environment
       AutoDeploy: true
 
+  # Custom Domain Configuration for WebSocket API
+  WebSocketCustomDomain:
+    Type: AWS::ApiGatewayV2::DomainName
+    Condition: ShouldEnableCustomDomain
+    Properties:
+      DomainName: !Ref WebSocketDomainName
+      DomainNameConfigurations:
+        - CertificateArn: !Ref ApiAcmCertificateArn
+          EndpointType: REGIONAL
+          SecurityPolicy: TLS_1_2
+
+  # API Mapping for WebSocket API
+  WebSocketApiMapping:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Condition: ShouldEnableCustomDomain
+    Properties:
+      ApiId: !Ref WebSocketApi
+      DomainName: !Ref WebSocketCustomDomain
+      Stage: !Ref Environment
+
+  # Route53 Record for WebSocket API
+  WebSocketRoute53Record:
+    Type: AWS::Route53::RecordSet
+    Condition: ShouldEnableCustomDomain
+    Properties:
+      HostedZoneId: !Ref ApiHostedZoneId
+      Name: !Ref WebSocketDomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt WebSocketCustomDomain.RegionalDomainName
+        HostedZoneId: !GetAtt WebSocketCustomDomain.RegionalHostedZoneId
+        EvaluateTargetHealth: false
+
 Outputs:
   WebSocketApiId:
     Description: WebSocket API ID
@@ -172,6 +272,21 @@ Outputs:
 
   WebSocketApiEndpoint:
     Description: WebSocket API Endpoint
-    Value: !Sub 'wss://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
+    Value: !If
+      - ShouldEnableCustomDomain
+      - !Sub 'wss://${WebSocketDomainName}'
+      - !Sub 'wss://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
     Export:
       Name: !Sub '${AWS::StackName}-WebSocketApiEndpoint'
+
+  WebSocketApiDefaultEndpoint:
+    Description: WebSocket API Default AWS Endpoint
+    Value: !Sub 'wss://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
+    Export:
+      Name: !Sub '${AWS::StackName}-WebSocketApiDefaultEndpoint'
+
+  WebSocketCustomDomain:
+    Description: WebSocket API Custom Domain (if enabled)
+    Value: !If [ShouldEnableCustomDomain, !Ref WebSocketDomainName, 'Not configured']
+    Export:
+      Name: !Sub '${AWS::StackName}-WebSocketCustomDomain'

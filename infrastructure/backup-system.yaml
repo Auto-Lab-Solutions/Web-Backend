@@ -1,0 +1,305 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Backup System for Auto Lab Solutions - DynamoDB, Reports, and Invoices'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: production
+    Description: Environment name
+
+  CloudFormationBucket:
+    Type: String
+    Description: S3 bucket containing CloudFormation templates and Lambda packages
+
+  ReportsBucketName:
+    Type: String
+    Description: S3 bucket name for reports that need to be backed up
+
+  BackupBucketName:
+    Type: String
+    Description: S3 bucket name for storing backups (must exist outside stack - not managed by CloudFormation)
+
+  BackupSchedule:
+    Type: String
+    Default: "cron(0 2 ? * SUN *)"
+    Description: Schedule for automated backups (default is weekly on Sunday at 2 AM UTC)
+
+Mappings:
+  EnvironmentSettings:
+    development:
+      BackupFrequency: "cron(0 4 ? * SUN *)"  # Weekly on Sunday at 4 AM UTC for dev
+      RetentionDays: 7  # Keep backups for 7 days in dev
+    production:
+      BackupFrequency: "cron(0 2 ? * SUN *)"  # Weekly on Sunday at 2 AM UTC for prod
+      RetentionDays: 30  # Keep backups for 30 days in prod
+
+Resources:
+  # Note: BackupBucket is NOT created here - it must exist outside the stack
+  # This ensures the bucket persists when the stack is deleted and recreated
+
+  # Backup Lambda Function
+  BackupLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'auto-lab-backup-${Environment}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt BackupLambdaRole.Arn
+      Timeout: 900  # 15 minutes (increased for cleanup operations)
+      MemorySize: 1024  # Increased memory for processing
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          BACKUP_BUCKET: !Ref BackupBucketName
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          RETENTION_DAYS: !FindInMap [EnvironmentSettings, !Ref Environment, RetentionDays]
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: 'lambda/backup-restore.zip'
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Manual Backup Lambda Function for API triggers
+  ManualBackupLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'auto-lab-manual-backup-${Environment}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt BackupApiLambdaRole.Arn
+      Timeout: 300  # 5 minutes
+      MemorySize: 512
+      Environment:
+        Variables:
+          BACKUP_FUNCTION_NAME: !Ref BackupLambdaFunction
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: 'lambda/api-backup-restore.zip'
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  # IAM Role for Backup Lambda Functions
+  BackupLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'auto-lab-backup-lambda-role-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: BackupPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # DynamoDB permissions for backup and restore
+              - Effect: Allow
+                Action:
+                  - dynamodb:Scan
+                  - dynamodb:Query
+                  - dynamodb:DescribeTable
+                  - dynamodb:PutItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:BatchWriteItem
+                Resource: 
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/*-${Environment}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/EmailSuppression-${Environment}'
+              # S3 permissions for backup bucket
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::${BackupBucketName}'
+                  - !Sub 'arn:aws:s3:::${BackupBucketName}/*'
+              # S3 permissions for CloudFormation bucket (Lambda deployment)
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  - !Sub 'arn:aws:s3:::${CloudFormationBucket}'
+                  - !Sub 'arn:aws:s3:::${CloudFormationBucket}/*'
+              # S3 permissions for reports bucket
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::${ReportsBucketName}'
+                  - !Sub 'arn:aws:s3:::${ReportsBucketName}/*'
+
+  # IAM Role for Backup API Lambda Function
+  BackupApiLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'auto-lab-backup-api-lambda-role-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: BackupApiPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Lambda permissions for invoking backup function
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt BackupLambdaFunction.Arn
+
+  # EventBridge Rule for Scheduled Backups
+  BackupScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub 'auto-lab-backup-schedule-${Environment}'
+      Description: !Sub 'Scheduled backup rule for Auto Lab Solutions ${Environment}'
+      ScheduleExpression: !FindInMap [EnvironmentSettings, !Ref Environment, BackupFrequency]
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt BackupLambdaFunction.Arn
+          Id: "BackupTarget"
+          Input: !Sub |
+            {
+              "scheduled_trigger": true,
+              "environment": "${Environment}",
+              "schedule": "${BackupSchedule}"
+            }
+
+  # Permission for EventBridge to invoke Lambda
+  BackupLambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref BackupLambdaFunction
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt BackupScheduleRule.Arn
+
+  # CloudWatch Log Groups
+  BackupLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/auto-lab-backup-${Environment}'
+      RetentionInDays: 14
+
+  ManualBackupLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/auto-lab-manual-backup-${Environment}'
+      RetentionInDays: 14
+
+  # SNS Topic for Backup Notifications
+  BackupNotificationsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub 'auto-lab-backup-notifications-${Environment}'
+      DisplayName: !Sub 'Auto Lab Backup Notifications (${Environment})'
+
+  # CloudWatch Alarm for Backup Failures
+  BackupFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'auto-lab-backup-failures-${Environment}'
+      AlarmDescription: 'Alarm for backup function failures'
+      MetricName: Errors
+      Namespace: AWS/Lambda
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref BackupLambdaFunction
+      AlarmActions:
+        - !Ref BackupNotificationsTopic
+
+Outputs:
+  BackupLambdaFunctionArn:
+    Description: ARN of the main backup/restore Lambda function
+    Value: !GetAtt BackupLambdaFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-BackupLambdaFunction-Arn'
+
+  ManualBackupLambdaFunctionArn:
+    Description: ARN of the manual backup trigger Lambda function
+    Value: !GetAtt ManualBackupLambdaFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ManualBackupLambdaFunction-Arn'
+
+  BackupLambdaFunctionName:
+    Description: Name of the backup Lambda function
+    Value: !Ref BackupLambdaFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-BackupLambdaFunction'
+
+  ManualBackupLambdaFunctionName:
+    Description: Name of the manual backup Lambda function
+    Value: !Ref ManualBackupLambdaFunction
+    Export:
+      Name: !Sub '${AWS::StackName}-ManualBackupLambdaFunction'
+
+  BackupScheduleRuleArn:
+    Description: ARN of the EventBridge rule for scheduled backups
+    Value: !GetAtt BackupScheduleRule.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-BackupScheduleRule-Arn'
+
+  BackupNotificationsTopicArn:
+    Description: ARN of the SNS topic for backup notifications
+    Value: !Ref BackupNotificationsTopic
+    Export:
+      Name: !Sub '${AWS::StackName}-BackupNotificationsTopic-Arn'
+
+  BackupBucket:
+    Description: S3 bucket used for storing backups (external bucket name)
+    Value: !Ref BackupBucketName
+    Export:
+      Name: !Sub '${AWS::StackName}-BackupBucket'
+
+  BackupBucketName:
+    Description: Name of the S3 bucket used for storing backups
+    Value: !Ref BackupBucketName
+    Export:
+      Name: !Sub '${AWS::StackName}-BackupBucketName'
+
+  BackupLocation:
+    Description: S3 location where backups are stored
+    Value: !Sub 's3://${BackupBucketName}/backups/${Environment}/'
+    Export:
+      Name: !Sub '${AWS::StackName}-BackupLocation'
+
+  BackupInstructions:
+    Description: Instructions for manual backup and restoration
+    Value: !Sub |
+      Manual Backup:
+      aws lambda invoke --function-name ${ManualBackupLambdaFunction} --payload '{"reason":"Manual backup requested"}' response.json
+      
+      View Backups:
+      aws s3 ls s3://${BackupBucketName}/backups/${Environment}/ --recursive
+      
+      Backup Location: s3://${BackupBucketName}/backups/${Environment}/
+    Export:
+      Name: !Sub '${AWS::StackName}-BackupInstructions'
+
+  # Export for API Gateway integration
+  ApiBackupRestoreArn:
+    Description: ARN of the API Backup/Restore Lambda function for API Gateway integration
+    Value: !GetAtt ManualBackupLambdaFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiBackupRestoreArn'

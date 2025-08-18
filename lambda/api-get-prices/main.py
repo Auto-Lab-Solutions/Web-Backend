@@ -1,25 +1,20 @@
-from datetime import datetime
-import db_utils as db
 import response_utils as resp
-import request_utils as req
+import business_logic_utils as biz
 
+@biz.handle_business_logic_error
 def lambda_handler(event, context):
     try:
-        staff_user_email = req.get_staff_user_email(event)
-        if not staff_user_email:
-            return resp.error_response("Unauthorized: Staff authentication required", 401)
+        # Get price manager and validate staff authentication
+        price_manager = biz.get_price_manager()
+        staff_context = price_manager.validate_staff_authentication(event)
         
-        staff_user_record = db.get_staff_record(staff_user_email)
-        if not staff_user_record:
-            return resp.error_response("Unauthorized: Staff user not found", 404)
-
-        # Get price data from the database
-        item_prices = db.get_all_item_prices()
-        service_prices = db.get_all_service_prices()
+        # Get all prices
+        price_data = price_manager.get_all_prices()
+        
         return resp.success_response({
-            "itemPrices": resp.convert_decimal(item_prices),
-            "servicePrices": resp.convert_decimal(service_prices),
-            "timestamp": datetime.utcnow().isoformat()
+            "itemPrices": resp.convert_decimal(price_data['item_prices']),
+            "servicePrices": resp.convert_decimal(price_data['service_prices']),
+            "timestamp": price_data['timestamp']
         })
 
     except Exception as e:

@@ -1,7 +1,9 @@
 # Auto Lab Solutions - Backend
 
 [![Deploy to Development](https://github.com/YOUR_USERNAME/Auto-Lab-Solutions/actions/workflows/deploy-dev.yml/badge.svg)](https://github.com/YOUR_USERNAME/Auto-Lab-Solutions/actions/workflows/deploy-dev.yml)
-[![Deploy to Production](https://github.com/YOUR_USERNAME/Auto-Lab-Solutions/actions/workflows/deploy-prod.yml/badge.svg)](https://github.com/YOUR_USERNAME/Auto-Lab-Solutions/actions/workflows/deploy-prod.yml)
+[![Deploy to Produ- 📊 Infrastructure impact and monitoring
+
+## 📊 Post-Deployment Configuration//github.com/YOUR_USERNAME/Auto-Lab-Solutions/actions/workflows/deploy-prod.yml/badge.svg)](https://github.com/YOUR_USERNAME/Auto-Lab-Solutions/actions/workflows/deploy-prod.yml)
 
 This repository contains the complete backend infrastructure for the Auto Lab Solutions platform, deployed on AWS using serverless technologies.
 
@@ -16,10 +18,20 @@ The backend consists of the following components:
   - ItemPrices, ServicePrices
 
 ### ⚡ **Compute Layer**
-- **Lambda Functions**: 25+ serverless functions handling:
+- **Lambda Functions**: 30+ serverless functions handling:
   - REST API endpoints (`api-*`)
   - WebSocket handlers (`ws-*`)
   - Custom authorizers (`staff-authorizer*`)
+  - Async processors (`sqs-process-*`)
+
+### 📬 **Asynchronous Notification System**
+- **SQS Queues**: Decoupled notification processing
+  - Email notification queue with DLQ
+  - WebSocket notification queue with DLQ
+- **Notification Processors**: Dedicated Lambda functions
+  - Email notification processor
+  - WebSocket notification processor
+- **Notification Utils**: Shared library for queueing notifications
 
 ### 🌐 **API Layer**
 - **REST API Gateway**: RESTful endpoints for CRUD operations
@@ -64,7 +76,7 @@ The deployment system supports multiple environments (development and production
 
 Each environment has its own:
 - **Stack names** (e.g., `auto-lab-backend-dev` vs `auto-lab-backend`)
-- **S3 buckets** (e.g., `auto-lab-reports-dev` vs `auto-lab-reports`)
+- **S3 buckets** (e.g., `auto-lab-reports-<account-id>-dev` vs `auto-lab-reports-<account-id>-production`)
 - **DynamoDB tables** (e.g., `Users-development` vs `Users-production`)
 - **Lambda functions** (e.g., `api-get-users-development` vs `api-get-users-production`)
 - **Resource settings** (memory, timeouts, log levels)
@@ -114,8 +126,8 @@ All scripts support the `--env` parameter for multi-environment deployment:
 # Upload CloudFormation templates only
 ./upload-templates.sh --env development
 
-# Configure Lambda environment variables
-./configure-lambda-env.sh --env production
+# Update Lambda functions only (fast updates)
+./update-websocket-endpoints.sh --env production
 
 # Update only Lambda functions (faster for code changes)
 ./update-lambdas.sh --env dev --all
@@ -128,6 +140,9 @@ All scripts support the `--env` parameter for multi-environment deployment:
 
 # Validate deployment
 ./validate-deployment.sh --env development
+
+# Validate notification system specifically
+./validate-notification-system.sh --env development
 
 # Clean up all resources
 ./cleanup.sh --env development
@@ -195,7 +210,68 @@ Use the development tools script for debugging and monitoring:
 ./dev-tools.sh --env production env api-get-prices
 ```
 
-## 📊 Post-Deployment Configuration
+## � **Firebase Cloud Messaging (Optional)**
+
+Firebase notifications are **completely optional** and configured centrally per environment.
+
+### **Default Behavior**
+- ✅ **Development**: Firebase DISABLED (simpler setup, faster deployment)
+- ✅ **Production**: Firebase ENABLED (full feature set)
+- ✅ **All other notifications work normally** (Email, WebSocket)
+
+### **Configuration Overview**
+
+Firebase is controlled in `config/environments.sh` with environment-specific defaults:
+- **Enable/Disable state**: Set per environment in configuration file
+- **Firebase credentials**: Passed from CI/CD or environment variables
+
+### **Quick Setup**
+
+```bash
+# For CI/CD: Set GitHub repository secrets/variables
+# FIREBASE_PROJECT_ID_DEV, FIREBASE_PROJECT_ID_PROD (variables)
+# FIREBASE_SERVICE_ACCOUNT_KEY_DEV, FIREBASE_SERVICE_ACCOUNT_KEY_PROD (secrets)
+
+# For local deployment: Set environment variables
+export FIREBASE_PROJECT_ID="your-firebase-project-id"
+export FIREBASE_SERVICE_ACCOUNT_KEY="base64-service-account-json"
+./deploy.sh production
+```
+
+### **Override Environment Defaults**
+
+```bash
+# To disable Firebase in production (cost optimization)
+# Edit config/environments.sh: export ENABLE_FIREBASE_NOTIFICATIONS="false"
+
+# To enable Firebase in development (testing)
+# Edit config/environments.sh: export ENABLE_FIREBASE_NOTIFICATIONS="true"
+```
+
+### **Complete Firebase Setup Guide**
+
+For detailed Firebase configuration, testing, and troubleshooting, see:
+**📋 [Firebase Complete Guide](FIREBASE_COMPLETE_GUIDE.md)**
+
+The guide covers:
+- 🏗️ Centralized configuration architecture
+- 🔐 Service account setup and security
+- 🔄 CI/CD pipeline integration  
+- 💰 Cost optimization strategies
+- 🛠️ Troubleshooting common issues
+- 📊 Infrastructure impact and monitoring
+
+### **Test Firebase Configuration**
+
+```bash
+# Test Firebase config without deploying
+./test-firebase-config.sh
+
+# Deploy with Firebase enabled
+./deploy.sh production
+```
+
+## �📊 Post-Deployment Configuration
 
 ### 1. Auth0 Setup
 
@@ -205,7 +281,119 @@ After deployment, update your Auth0 Action with the new API Gateway endpoint:
 2. Update `auth0-actions/post-login-roles-assignment.js`
 3. Replace the `apiGwEndpoint` variable with your new endpoint
 
-### 2. Database Initialization
+### 2. WebSocket Endpoints
+
+**Important**: WebSocket endpoints are automatically configured during deployment. However, if you need to update them manually or troubleshoot WebSocket connectivity:
+
+```bash
+# Update WebSocket endpoints for all relevant Lambda functions
+./update-websocket-endpoints.sh production
+
+# Verify WebSocket endpoint configuration
+./update-websocket-endpoints.sh --verify production
+
+# Test what would be updated (dry run)
+./update-websocket-endpoints.sh --dry-run production
+```
+
+> **Note**: The deployment process automatically handles WebSocket endpoint configuration after all CloudFormation stacks are deployed. See [WEBSOCKET_ENDPOINT_UPDATE_GUIDE.md](./WEBSOCKET_ENDPOINT_UPDATE_GUIDE.md) for detailed information.
+
+### 3. Email Configuration (AWS SES)
+
+The platform includes comprehensive email notification capabilities for customer communications. Set up AWS SES integration:
+
+```bash
+# Configure SES environment variables
+export FROM_EMAIL="noreply@autolabsolutions.com"
+export SES_REGION="ap-southeast-2"
+
+# Validate SES configuration
+./validate-ses.sh production
+
+# Show detailed setup instructions
+./validate-ses.sh production --setup
+
+# Test email sending
+./validate-ses.sh production --test
+```
+
+📖 **Detailed SES Setup**: See [SES_SETUP_GUIDE.md](./SES_SETUP_GUIDE.md) for complete domain verification, DNS configuration, and troubleshooting.
+
+**Email Features**:
+- 📧 Appointment confirmations and updates
+- 🛒 Order confirmations and status updates  
+- 💳 Payment confirmation receipts
+- 📄 Invoice generation and delivery
+- 📋 Report upload notifications
+
+### 4. Custom Domain Configuration (Optional)
+
+The backend supports custom domains for API Gateway endpoints, enabling you to use your own domain names instead of the default AWS-generated URLs.
+
+#### Prerequisites
+- **Route53 Hosted Zone**: Create a hosted zone for your domain
+- **ACM Certificate**: Create an SSL certificate in the same region as your API
+- **Domain Ownership**: Verify domain ownership through Route53 or external DNS
+
+#### Configuration Steps
+
+1. **Set up your custom domain parameters** in `config/environments.sh`:
+
+```bash
+# Development environment
+case $ENVIRONMENT in
+    "development"|"dev")
+        export API_DOMAIN_NAME="api-dev.yourdomain.com"
+        export HOSTED_ZONE_ID="Z1234567890ABC"
+        export API_CERTIFICATE_ARN="arn:aws:acm:us-east-1:123456789012:certificate/12345678-1234-1234-1234-123456789012"
+        ;;
+    "production"|"prod")  
+        export API_DOMAIN_NAME="api.yourdomain.com"
+        export HOSTED_ZONE_ID="Z1234567890ABC"
+        export API_CERTIFICATE_ARN="arn:aws:acm:us-east-1:123456789012:certificate/87654321-4321-4321-4321-210987654321"
+        ;;
+esac
+```
+
+2. **Deploy with custom domain support**:
+
+```bash
+# Deploy with custom domain configuration
+./deploy.sh development
+```
+
+3. **Validate custom domain configuration**:
+
+```bash
+# Validate that custom domains are properly configured
+./validate-deployment.sh --env development
+```
+
+#### What Gets Created
+
+When custom domains are configured, the deployment creates:
+
+- **API Gateway Custom Domain Names**: Both REST and WebSocket APIs get custom domain names
+- **Route53 DNS Records**: A-records pointing to the API Gateway endpoints
+- **Base Path Mappings**: Routes traffic from custom domains to the appropriate API stages
+
+#### Benefits
+
+- 🌐 **Professional URLs**: Use your branded domain for APIs
+- 🔒 **SSL/TLS Encryption**: Automatic HTTPS with your ACM certificate
+- 🚀 **DNS Management**: Integrated Route53 DNS management
+- 📊 **Consistent Branding**: Align backend URLs with your frontend domain
+
+#### Endpoints After Custom Domain Setup
+
+With custom domains configured, your APIs will be available at:
+
+- **REST API**: `https://api.yourdomain.com` (instead of `https://xyz123.execute-api.region.amazonaws.com/prod`)
+- **WebSocket API**: `wss://api.yourdomain.com` (instead of `wss://xyz123.execute-api.region.amazonaws.com/prod`)
+
+> **Note**: If custom domains are not configured, the system will fall back to using the default AWS API Gateway endpoints.
+
+### 5. Database Initialization
 
 Initialize your DynamoDB tables with required data:
 
@@ -220,7 +408,7 @@ aws dynamodb put-item \
     }'
 ```
 
-### 3. CloudFront Distribution
+### 6. CloudFront Distribution
 
 Your CloudFront distribution will be available at the domain provided in the deployment output. It may take 15-20 minutes to fully deploy globally.
 
@@ -249,7 +437,7 @@ Your CloudFront distribution will be available at the domain provided in the dep
 - `api-get-orders`: Order management
 - `api-create-order`: Order creation
 - `api-update-order`: Order updates
-- `api-confirm-payment`: Payment processing
+- `api-confirm-cash-payment`: Payment processing
 - `api-get-inquiries`: Inquiry management
 - `api-create-inquiry`: Inquiry creation
 - `api-get-analytics`: Business analytics
@@ -271,6 +459,36 @@ Your CloudFront distribution will be available at the domain provided in the dep
 #### Authorization Functions
 - `staff-authorizer`: Required staff authentication
 - `staff-authorizer-optional`: Optional staff authentication
+
+#### Asynchronous Notification System
+- `sqs-process-email-notification-queue`: Email notification processor
+- `sqs-process-websocket-notification-queue`: WebSocket notification processor
+
+### SQS Queues
+- **Email Notification Queue**: Decoupled email processing
+- **WebSocket Notification Queue**: Decoupled WebSocket processing
+- **Dead Letter Queues**: Failed notification handling
+- **Invoice Generation Queue**: Async invoice processing
+
+### Notification Features
+- 📧 **Asynchronous Email Processing**: All emails sent via SQS for fast response times
+- 🌐 **Real-time WebSocket Notifications**: Live updates to connected clients
+- 🔄 **Retry Logic**: Automatic retry with exponential backoff
+- 🚨 **Dead Letter Queues**: Failed notifications are captured for analysis
+- 📊 **Monitoring**: CloudWatch metrics for queue depth and processing times
+
+### Notification Types
+- **Email Notifications**:
+  - Appointment confirmations and updates
+  - Order status changes
+  - Payment confirmations
+  - Report ready notifications
+  - Invoice delivery
+- **WebSocket Notifications**:
+  - Real-time order updates
+  - Live chat messages
+  - Staff assignment changes
+  - System status updates
 
 ## 🔧 Configuration
 
@@ -428,10 +646,11 @@ This project is proprietary to Auto Lab Solutions.
 |--------|---------|-------|
 | `deploy.sh` | Full infrastructure deployment | `./deploy.sh` |
 | `update-lambdas.sh` | Update Lambda functions only | `./update-lambdas.sh --all` |
+| `update-websocket-endpoints.sh` | Update WebSocket endpoints | `./update-websocket-endpoints.sh` |
 | `dev-tools.sh` | Development and debugging tools | `./dev-tools.sh status` |
 | `validate-deployment.sh` | Validate deployment success | `./validate-deployment.sh` |
+| `validate-notification-system.sh` | Validate notification system | `./validate-notification-system.sh` |
 | `upload-templates.sh` | Upload CloudFormation templates | `./upload-templates.sh` |
-| `configure-lambda-env.sh` | Configure Lambda env variables | `./configure-lambda-env.sh` |
 | `cleanup.sh` | Remove all resources | `./cleanup.sh` |
 
 ## 🚀 **Development Workflow**
@@ -608,3 +827,4 @@ git push origin prod
 # 🧹 Complete resource removal
 # 📊 Verification report
 ```
+

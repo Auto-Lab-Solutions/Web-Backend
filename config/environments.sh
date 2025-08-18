@@ -3,6 +3,16 @@
 # Environment Configuration for Auto Lab Solutions Backend
 # This script defines environment-specific configurations
 
+# Ensure AWS_ACCOUNT_ID is set
+if [ -z "$AWS_ACCOUNT_ID" ]; then
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text 2>/dev/null)
+    export AWS_ACCOUNT_ID
+    if [ -z "$AWS_ACCOUNT_ID" ]; then
+        echo "[ERROR] AWS_ACCOUNT_ID is not set and could not be determined automatically."
+        exit 1
+    fi
+fi
+
 # Function to validate environment name
 validate_environment() {
     local env=$1
@@ -22,6 +32,9 @@ validate_environment() {
 # Function to get environment configuration
 get_env_config() {
     local env=$1
+    local CERTIFICATE_ARN_USEAST1="arn:aws:acm:us-east-1:899704476492:certificate/808b1a88-c14d-46f2-a9d2-e34ac47c0838"
+    local CERTIFICATE_ARN_APSOUTHEAST2="arn:aws:acm:ap-southeast-2:899704476492:certificate/51d6ed1a-d6c8-4165-bf4d-b219034ad4b4"
+    local HOSTED_ZONE_ID="Z060497817EUO8PSJGQHQ"
     
     case $env in
         development)
@@ -29,24 +42,90 @@ get_env_config() {
             export ENVIRONMENT="development"
             export AWS_REGION="ap-southeast-2"
             export STACK_NAME="auto-lab-backend-dev"
-            export S3_BUCKET_NAME="auto-lab-reports-dev"
             export CLOUDFORMATION_BUCKET="auto-lab-cloudformation-templates-dev"
-            export AUTH0_DOMAIN="auto-lab-dev.auth0.com"
+            export BACKUP_BUCKET_NAME="auto-lab-backups-dev"
             export LOG_LEVEL="DEBUG"
             export LAMBDA_TIMEOUT="30"
             export LAMBDA_MEMORY="256"
+            
+            # Frontend Configuration
+            export FRONTEND_DOMAIN_NAME="dev.autolabsolutions.com"
+            export FRONTEND_HOSTED_ZONE_ID="$HOSTED_ZONE_ID"
+            export FRONTEND_ACM_CERTIFICATE_ARN="$CERTIFICATE_ARN_USEAST1"
+            export ENABLE_CUSTOM_DOMAIN="true"
+            export ENABLE_FRONTEND_WEBSITE="true"
+
+            # API Gateway Custom Domain Configuration
+            export ENABLE_API_CUSTOM_DOMAINS="true"
+            export API_DOMAIN_NAME="api-dev.autolabsolutions.com"
+            export WEBSOCKET_DOMAIN_NAME="ws-dev.autolabsolutions.com"
+            export API_HOSTED_ZONE_ID="$HOSTED_ZONE_ID"
+            export API_ACM_CERTIFICATE_ARN="$CERTIFICATE_ARN_APSOUTHEAST2"
+
+            # Reports CloudFront Custom Domain Configuration
+            export ENABLE_REPORTS_CUSTOM_DOMAIN="true"
+            export REPORTS_DOMAIN_NAME="reports-dev.autolabsolutions.com"
+            export REPORTS_HOSTED_ZONE_ID="$HOSTED_ZONE_ID"
+            export REPORTS_ACM_CERTIFICATE_ARN="$CERTIFICATE_ARN_USEAST1"
+
+            # SES Configuration
+            export SES_DOMAIN_NAME="dev.autolabsolutions.com"
+            export SES_HOSTED_ZONE_ID="$HOSTED_ZONE_ID"
+            export MAIL_FROM_ADDRESS="noreply@dev.autolabsolutions.com"
+            export NO_REPLY_EMAIL="mail@dev.autolabsolutions.com"
+            export SES_REGION="${AWS_REGION}"
+
+            # Firebase Configuration (Optional)
+            # Set Firebase enabled/disabled state for development environment
+            export ENABLE_FIREBASE_NOTIFICATIONS="false"  # Default disabled for development
+            # Firebase credentials passed from CI/CD pipeline or environment variables
+            export FIREBASE_PROJECT_ID="${FIREBASE_PROJECT_ID:-}"
+            export FIREBASE_SERVICE_ACCOUNT_KEY="${FIREBASE_SERVICE_ACCOUNT_KEY:-}"
             ;;
         production)
             # Production Environment Configuration
             export ENVIRONMENT="production"
             export AWS_REGION="ap-southeast-2"
             export STACK_NAME="auto-lab-backend"
-            export S3_BUCKET_NAME="auto-lab-reports"
             export CLOUDFORMATION_BUCKET="auto-lab-cloudformation-templates"
-            export AUTH0_DOMAIN="auto-lab.auth0.com"
+            export BACKUP_BUCKET_NAME="auto-lab-backups"
             export LOG_LEVEL="INFO"
-            export LAMBDA_TIMEOUT="60"
-            export LAMBDA_MEMORY="512"
+            export LAMBDA_TIMEOUT="30"
+            export LAMBDA_MEMORY="256"
+            
+            # Frontend Configuration
+            export FRONTEND_DOMAIN_NAME="autolabsolutions.com"
+            export FRONTEND_HOSTED_ZONE_ID="$HOSTED_ZONE_ID"
+            export FRONTEND_ACM_CERTIFICATE_ARN="$CERTIFICATE_ARN_USEAST1"
+            export ENABLE_CUSTOM_DOMAIN="true"
+            export ENABLE_FRONTEND_WEBSITE="true"
+
+            # API Gateway Custom Domain Configuration
+            export ENABLE_API_CUSTOM_DOMAINS="true"
+            export API_DOMAIN_NAME="api.autolabsolutions.com"
+            export WEBSOCKET_DOMAIN_NAME="ws.autolabsolutions.com"
+            export API_HOSTED_ZONE_ID="$HOSTED_ZONE_ID"
+            export API_ACM_CERTIFICATE_ARN="$CERTIFICATE_ARN_APSOUTHEAST2"
+
+            # Reports CloudFront Custom Domain Configuration
+            export ENABLE_REPORTS_CUSTOM_DOMAIN="true"
+            export REPORTS_DOMAIN_NAME="reports.autolabsolutions.com"
+            export REPORTS_HOSTED_ZONE_ID="$HOSTED_ZONE_ID"
+            export REPORTS_ACM_CERTIFICATE_ARN="$CERTIFICATE_ARN_USEAST1"
+
+            # SES Configuration
+            export SES_DOMAIN_NAME="autolabsolutions.com"
+            export SES_HOSTED_ZONE_ID="$HOSTED_ZONE_ID"
+            export MAIL_FROM_ADDRESS="noreply@autolabsolutions.com"
+            export NO_REPLY_EMAIL="mail@autolabsolutions.com"
+            export SES_REGION="${AWS_REGION}"
+            
+            # Firebase Configuration (Optional)
+            # Set Firebase enabled/disabled state for production environment
+            export ENABLE_FIREBASE_NOTIFICATIONS="true"   # Default enabled for production
+            # Firebase credentials passed from CI/CD pipeline or environment variables
+            export FIREBASE_PROJECT_ID="${FIREBASE_PROJECT_ID:-}"
+            export FIREBASE_SERVICE_ACCOUNT_KEY="${FIREBASE_SERVICE_ACCOUNT_KEY:-}"
             ;;
         *)
             echo "Error: Invalid environment '$env'"
@@ -70,6 +149,30 @@ get_env_config() {
     export ORDERS_TABLE="Orders-${ENVIRONMENT}"
     export ITEM_PRICES_TABLE="ItemPrices-${ENVIRONMENT}"
     export INQUIRIES_TABLE="Inquiries-${ENVIRONMENT}"
+    export PAYMENTS_TABLE="Payments-${ENVIRONMENT}"
+    export INVOICES_TABLE="Invoices-${ENVIRONMENT}"
+    export EMAIL_SUPPRESSION_TABLE="EmailSuppression-${ENVIRONMENT}"
+    export EMAIL_METADATA_TABLE="EmailMetadata-${ENVIRONMENT}"
+    
+    # Additional configuration values
+    export REPORTS_BUCKET_NAME="auto-lab-reports"
+    export EMAIL_STORAGE_BUCKET="auto-lab-email-storage"
+
+    # Auth0 configuration (if needed)
+    export AUTH0_DOMAIN="${AUTH0_DOMAIN}"
+    export AUTH0_AUDIENCE="${AUTH0_AUDIENCE}"
+
+    # Frontend GitHub Repository Configuration
+    FRONTEND_REPO_OWNER="Auto-Lab-Solutions"
+    FRONTEND_REPO_NAME="Web-Frontend"
+    FRONTEND_GITHUB_TOKEN="${FRONTEND_GITHUB_TOKEN}"
+
+    # Load secrets from environment variables (GitHub environments will provide correct values)
+    export STRIPE_WEBHOOK_ENDPOINT_ID="${STRIPE_WEBHOOK_ENDPOINT_ID}"
+    export STRIPE_PUBLISHABLE_KEY="${STRIPE_PUBLISHABLE_KEY}"
+    export STRIPE_SECRET_KEY="${STRIPE_SECRET_KEY}"
+    export STRIPE_WEBHOOK_SECRET="${STRIPE_WEBHOOK_SECRET}"
+    export SHARED_KEY="${SHARED_KEY}"
     
     return 0
 }
@@ -85,26 +188,9 @@ show_env_config() {
     echo "=========================================="
     echo "Environment Configuration: $ENVIRONMENT"
     echo "=========================================="
-    echo "AWS Region:              $AWS_REGION"
-    echo "Stack Name:              $STACK_NAME"
-    echo "S3 Bucket:               $S3_BUCKET_NAME"
-    echo "CloudFormation Bucket:   $CLOUDFORMATION_BUCKET"
-    echo "Auth0 Domain:            $AUTH0_DOMAIN"
-    echo "Log Level:               $LOG_LEVEL"
-    echo "Lambda Timeout:          ${LAMBDA_TIMEOUT}s"
-    echo "Lambda Memory:           ${LAMBDA_MEMORY}MB"
-    echo ""
-    echo "DynamoDB Tables:"
-    echo "  Staff:                 $STAFF_TABLE"
-    echo "  Users:                 $USERS_TABLE"
-    echo "  Connections:           $CONNECTIONS_TABLE"
-    echo "  Messages:              $MESSAGES_TABLE"
-    echo "  UnavailableSlots:      $UNAVAILABLE_SLOTS_TABLE"
-    echo "  Appointments:          $APPOINTMENTS_TABLE"
-    echo "  ServicePrices:         $SERVICE_PRICES_TABLE"
-    echo "  Orders:                $ORDERS_TABLE"
-    echo "  ItemPrices:            $ITEM_PRICES_TABLE"
-    echo "  Inquiries:             $INQUIRIES_TABLE"
+    # Print all exported environment variables relevant to this script
+    echo "All Environment Variables (sorted):"
+    env | grep -E '^(AWS_|STACK_NAME|REPORTS_BUCKET_NAME|CLOUDFORMATION_BUCKET|BACKUP_BUCKET_NAME|LOG_LEVEL|LAMBDA_TIMEOUT|LAMBDA_MEMORY|FRONTEND_DOMAIN_NAME|FRONTEND_HOSTED_ZONE_ID|FRONTEND_ACM_CERTIFICATE_ARN|ENABLE_CUSTOM_DOMAIN|ENABLE_FRONTEND_WEBSITE|PYTHON_VERSION|NODEJS_VERSION|STAFF_TABLE|USERS_TABLE|CONNECTIONS_TABLE|MESSAGES_TABLE|UNAVAILABLE_SLOTS_TABLE|APPOINTMENTS_TABLE|SERVICE_PRICES_TABLE|ORDERS_TABLE|ITEM_PRICES_TABLE|INQUIRIES_TABLE|PAYMENTS_TABLE|REPORTS_BUCKET_NAME|AUTH0_DOMAIN|AUTH0_AUDIENCE|FRONTEND_REPO_OWNER|FRONTEND_REPO_NAME|FRONTEND_GITHUB_TOKEN|STRIPE_WEBHOOK_ENDPOINT_ID|STRIPE_PUBLISHABLE_KEY|STRIPE_SECRET_KEY|STRIPE_WEBHOOK_SECRET|SHARED_KEY|FIREBASE_PROJECT_ID|FIREBASE_SERVICE_ACCOUNT_KEY|SES_DOMAIN_NAME|SES_HOSTED_ZONE_ID|MAIL_FROM_ADDRESS|NO_REPLY_EMAIL|SES_REGION)=' | sort
     echo "=========================================="
 }
 
@@ -141,6 +227,13 @@ set_default_environment() {
 # Function to prompt user for environment if not specified
 prompt_for_environment() {
     local default_env=$(get_default_environment)
+    
+    # Skip prompt in CI/CD environments or if AUTO_CONFIRM is set - use default
+    if [ -n "$GITHUB_ACTIONS" ] || [ -n "$CI" ] || [ "$AUTO_CONFIRM" = "true" ]; then
+        echo "Running in automated environment - using default environment: $default_env"
+        echo "$default_env"
+        return
+    fi
     
     echo "Available environments:"
     echo "  1) development (dev) - For testing and development"

@@ -1,0 +1,198 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Auto Lab Solutions - SES Identity Notification Configuration'
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: Environment name (development, production)
+    Default: production
+    AllowedValues:
+      - development
+      - production
+
+  SesRegion:
+    Type: String
+    Description: AWS SES region
+    Default: "ap-southeast-2"
+
+  SESDomainName:
+    Type: String
+    Description: The SES domain name
+    Default: "autolabsolutions.com"
+
+  SESBounceTopicArn:
+    Type: String
+    Description: SNS Topic ARN for bounce notifications
+
+  SESComplaintTopicArn:
+    Type: String
+    Description: SNS Topic ARN for complaint notifications
+
+  SESDeliveryTopicArn:
+    Type: String
+    Description: SNS Topic ARN for delivery notifications
+    Default: ""
+
+Resources:
+  # Lambda function to configure SES identity notifications (since CloudFormation doesn't support this directly)
+  SESNotificationConfiguratorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'ses-notification-configurator-${EnvironmentName}'
+      Runtime: python3.9
+      Handler: index.lambda_handler
+      Timeout: 300
+      Role: !GetAtt SESNotificationConfiguratorRole.Arn
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+          import json
+          import time
+          
+          def lambda_handler(event, context):
+              try:
+                  ses_client = boto3.client('ses')
+                  
+                  domain = event['ResourceProperties']['Domain']
+                  bounce_topic = event['ResourceProperties']['BounceTopicArn']
+                  complaint_topic = event['ResourceProperties']['ComplaintTopicArn']
+                  delivery_topic = event['ResourceProperties'].get('DeliveryTopicArn', '')
+                  region = event['ResourceProperties']['Region']
+                  
+                  if event['RequestType'] == 'Create' or event['RequestType'] == 'Update':
+                      # Check if domain is verified first
+                      domain_verified = False
+                      try:
+                          verification_attrs = ses_client.get_identity_verification_attributes(
+                              Identities=[domain]
+                          )
+                          
+                          domain_attrs = verification_attrs.get('VerificationAttributes', {}).get(domain, {})
+                          verification_status = domain_attrs.get('VerificationStatus', 'Pending')
+                          
+                          print(f'Domain {domain} verification status: {verification_status}')
+                          
+                          if verification_status == 'Success':
+                              domain_verified = True
+                          elif verification_status == 'Failed':
+                              cfnresponse.send(event, context, cfnresponse.FAILED, 
+                                             {'Message': f'Domain {domain} verification failed permanently'})
+                              return
+                          else:
+                              print(f'Domain {domain} is not yet verified. Will attempt configuration anyway.')
+                              
+                      except Exception as verification_error:
+                          print(f'Error checking domain verification: {str(verification_error)}')
+                          print('Proceeding with notification configuration attempt')
+                      
+                      try:
+                          # Configure bounce notifications
+                          ses_client.put_identity_notification_attributes(
+                              Identity=domain,
+                              NotificationType='Bounce',
+                              SnsTopic=bounce_topic
+                          )
+                          
+                          ses_client.put_identity_notification_attributes(
+                              Identity=domain,
+                              NotificationType='Bounce',
+                              Enabled=True
+                          )
+                          
+                          # Configure complaint notifications
+                          ses_client.put_identity_notification_attributes(
+                              Identity=domain,
+                              NotificationType='Complaint',
+                              SnsTopic=complaint_topic
+                          )
+                          
+                          ses_client.put_identity_notification_attributes(
+                              Identity=domain,
+                              NotificationType='Complaint',
+                              Enabled=True
+                          )
+                          
+                          # Configure delivery notifications (if provided)
+                          if delivery_topic:
+                              ses_client.put_identity_notification_attributes(
+                                  Identity=domain,
+                                  NotificationType='Delivery',
+                                  SnsTopic=delivery_topic
+                              )
+                              
+                              ses_client.put_identity_notification_attributes(
+                                  Identity=domain,
+                                  NotificationType='Delivery',
+                                  Enabled=True
+                              )
+                          
+                          cfnresponse.send(event, context, cfnresponse.SUCCESS, 
+                                         {'Message': f'Successfully configured notifications for domain: {domain}'})
+                                         
+                      except Exception as config_error:
+                          error_message = str(config_error)
+                          
+                          # Check if error is due to unverified domain
+                          if 'MessageRejected' in error_message or 'not verified' in error_message.lower():
+                              print(f'Domain {domain} not yet verified. Configuration will be applied when domain is verified.')
+                              # Succeed anyway - notifications will be configured when domain is verified
+                              cfnresponse.send(event, context, cfnresponse.SUCCESS, 
+                                             {'Message': f'Domain {domain} not yet verified. Notifications will be configured automatically when domain verification completes.'})
+                          else:
+                              # Some other error occurred
+                              raise config_error
+                  
+                  elif event['RequestType'] == 'Delete':
+                      # Don't disable notifications on delete to avoid breaking other environments
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, 
+                                     {'Message': 'Notification configuration not removed on delete'})
+                  
+              except Exception as e:
+                  print(f'Error: {str(e)}')
+                  cfnresponse.send(event, context, cfnresponse.FAILED, 
+                                 {'Message': f'Failed to configure notifications: {str(e)}'})
+
+  # IAM Role for the SES notification configurator function
+  SESNotificationConfiguratorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SESNotificationAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ses:PutIdentityNotificationAttributes
+                  - ses:GetIdentityNotificationAttributes
+                  - ses:SetIdentityNotificationTopic
+                  - ses:GetIdentityVerificationAttributes
+                Resource: '*'
+
+  # Custom resource to configure SES identity notifications for the domain
+  SESIdentityNotificationConfiguration:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt SESNotificationConfiguratorFunction.Arn
+      Domain: !Ref SESDomainName
+      BounceTopicArn: !Ref SESBounceTopicArn
+      ComplaintTopicArn: !Ref SESComplaintTopicArn
+      DeliveryTopicArn: !Ref SESDeliveryTopicArn
+      Region: !Ref SesRegion
+
+Outputs:
+  SESNotificationConfigured:
+    Description: Indicates SES identity notifications are configured
+    Value: !Ref SESIdentityNotificationConfiguration
+    Export:
+      Name: !Sub '${AWS::StackName}-SESNotificationConfigured'

@@ -1,11 +1,10 @@
 import os
+import time
 import json
 import stripe
-import time
-import hmac
-import hashlib
 import db_utils as db
 import response_utils as resp
+from notification_manager import notification_manager, invoice_manager
 
 # Set Stripe configuration
 stripe.api_key = os.environ.get('STRIPE_SECRET_KEY')
@@ -15,7 +14,7 @@ def lambda_handler(event, context):
     try:
         # Get the raw body and signature
         payload = event.get('body', '')
-        signature_header = event.get('headers', {}).get('stripe-signature', '')
+        signature_header = event.get('headers', {}).get('Stripe-Signature', '')
         
         if not payload or not signature_header:
             return resp.error_response("Missing payload or signature", 400)
@@ -55,7 +54,7 @@ def handle_payment_succeeded(payment_intent):
         
         # Update payment record
         payment_update_data = {
-            'status': 'succeeded',
+            'status': 'paid',
             'receiptUrl': payment_intent.get('charges', {}).get('data', [{}])[0].get('receipt_url'),
             'stripePaymentMethodId': payment_intent.get('payment_method'),
             'updatedAt': int(time.time())
@@ -73,12 +72,13 @@ def handle_payment_succeeded(payment_intent):
             return
         
         reference_number = payment_record.get('referenceNumber')
-        payment_type = payment_record.get('type')
+        payment_type = payment_record.get('type') 
         
         # Update the appointment/order record
         update_data = {
             'paymentStatus': 'paid',
             'paidAt': int(time.time()),
+            'paymentMethod': 'stripe',
             'paymentAmount': float(payment_intent['amount']) / 100,  # Convert cents to dollars
             'updatedAt': int(time.time())
         }
@@ -89,10 +89,20 @@ def handle_payment_succeeded(payment_intent):
         else:  # order
             success = db.update_order(reference_number, update_data)
             record = db.get_order(reference_number)
+
+        print("Success: ", success, "\nRecord: ", record, "\n")
         
         if success and record:
+            # Queue invoice generation asynchronously for faster webhook response
+            if record.get('paymentStatus') == 'paid':
+                try:
+                    invoice_manager.queue_invoice_generation(record, payment_type, payment_intent_id)
+                    print(f"Invoice generation queued for {payment_type} {reference_number}")
+                except Exception as e:
+                    print(f"Error queuing invoice generation: {str(e)}")
+            
             # Send notification
-            send_payment_notification(record, payment_type, 'succeeded')
+            send_payment_notification(record, payment_type, 'paid')
         
     except Exception as e:
         print(f"Error handling payment succeeded: {str(e)}")
@@ -188,10 +198,18 @@ def handle_payment_canceled(payment_intent):
         print(f"Error handling payment canceled: {str(e)}")
 
 def send_payment_notification(record, record_type, status):
-    """Send payment status notification - placeholder for WebSocket integration"""
+    """Send payment status notification via WebSocket and Firebase using PaymentManager"""
     try:
+        from payment_manager import PaymentManager
+        
         print(f"Payment notification: {record_type} {record.get(f'{record_type}Id')} status changed to {status}")
-        # TODO: Implement WebSocket notifications when WebSocket API is available
-        # This would send real-time notifications to connected clients
+        
+        # Use PaymentManager's notification method
+        reference_id = record.get(f'{record_type}Id')
+        PaymentManager._send_payment_confirmation_notifications(record, record_type, 'stripe', reference_id)
+        
     except Exception as e:
-        print(f"Error logging payment notification: {str(e)}")
+        print(f"Error queueing payment notification: {str(e)}")
+
+
+

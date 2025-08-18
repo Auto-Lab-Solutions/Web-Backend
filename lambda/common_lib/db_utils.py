@@ -20,6 +20,7 @@ ORDERS_TABLE = os.environ.get('ORDERS_TABLE')
 ITEM_PRICES_TABLE = os.environ.get('ITEM_PRICES_TABLE')
 INQUIRIES_TABLE = os.environ.get('INQUIRIES_TABLE')
 PAYMENTS_TABLE = os.environ.get('PAYMENTS_TABLE')
+INVOICES_TABLE = os.environ.get('INVOICES_TABLE')
 
 # ------------------  Staff Table Functions ------------------
 
@@ -153,6 +154,14 @@ def get_all_users():
     except ClientError as e:
         print(f"Error scanning user records: {e.response['Error']['Message']}")
         return []
+
+def get_user_by_id(user_id):
+    """Get user by ID - alias for get_user_record for consistency"""
+    return get_user_record(user_id)
+
+def get_user(user_id):
+    """Get user by ID - alias for get_user_record for invoice generation"""
+    return get_user_record(user_id)
 
 # ------------------  Connection Table Functions ------------------
 
@@ -474,6 +483,94 @@ def update_unavailable_slots(date, time_slots):
         print(f"Error updating unavailable slots for date {date}: {e}")
         return False
 
+def update_unavailable_slots_range(start_date, end_date, time_slots):
+    """Update unavailable slots for a date range"""
+    from datetime import datetime, timedelta
+    
+    try:
+        # Parse dates
+        start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+        end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+        
+        if end_dt < start_dt:
+            print(f"Error: End date {end_date} is before start date {start_date}")
+            return False
+        
+        # Build time slots list for DynamoDB
+        time_slots_list = []
+        for slot in time_slots:
+            time_slots_list.append({
+                'M': {
+                    'startTime': {'S': slot['startTime']},
+                    'endTime': {'S': slot['endTime']}
+                }
+            })
+        
+        # Update slots for each date in the range
+        current_date = start_dt
+        success_count = 0
+        total_dates = (end_dt - start_dt).days + 1
+        
+        while current_date <= end_dt:
+            date_str = current_date.strftime('%Y-%m-%d')
+            try:
+                dynamodb.put_item(
+                    TableName=UNAVAILABLE_SLOTS_TABLE,
+                    Item={
+                        'date': {'S': date_str},
+                        'timeSlots': {'L': time_slots_list},
+                        'updatedAt': {'N': str(int(time.time()))}
+                    }
+                )
+                success_count += 1
+                print(f"Unavailable slots updated for date {date_str}")
+            except ClientError as e:
+                print(f"Error updating unavailable slots for date {date_str}: {e}")
+            
+            current_date += timedelta(days=1)
+        
+        print(f"Updated unavailable slots for {success_count}/{total_dates} dates in range {start_date} to {end_date}")
+        return success_count == total_dates
+        
+    except ValueError as e:
+        print(f"Error parsing dates: {e}")
+        return False
+    except ClientError as e:
+        print(f"Error updating unavailable slots for date range: {e}")
+        return False
+
+def get_unavailable_slots_range(start_date, end_date):
+    """Get unavailable slots for a date range"""
+    from datetime import datetime, timedelta
+    
+    try:
+        # Parse dates
+        start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+        end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+        
+        if end_dt < start_dt:
+            print(f"Error: End date {end_date} is before start date {start_date}")
+            return {}
+        
+        result = {}
+        current_date = start_dt
+        
+        while current_date <= end_dt:
+            date_str = current_date.strftime('%Y-%m-%d')
+            try:
+                unavailable_slots = get_unavailable_slots(date_str)
+                result[date_str] = unavailable_slots.get('timeSlots', []) if unavailable_slots else []
+            except Exception as e:
+                print(f"Error getting unavailable slots for date {date_str}: {e}")
+                result[date_str] = []
+            
+            current_date += timedelta(days=1)
+        
+        return result
+        
+    except ValueError as e:
+        print(f"Error parsing dates: {e}")
+        return {}
 
 # ------------------  Appointments Table Functions ------------------
 
@@ -617,6 +714,8 @@ def build_update_expression_for_appointment(data):
                     expression_values[f':{key}'] = {'S': value}
                 elif isinstance(value, int):
                     expression_values[f':{key}'] = {'N': str(value)}
+                elif isinstance(value, float):
+                    expression_values[f':{key}'] = {'N': str(value)}
                 elif isinstance(value, bool):
                     expression_values[f':{key}'] = {'BOOL': value}
                 elif isinstance(value, dict):
@@ -680,7 +779,7 @@ def build_appointment_data(appointment_id, service_id, plan_id, is_buyer, buyer_
         'createdUserId': {'S': created_user_id},
         'status': {'S': 'PENDING'},
         'price': {'N': str(price)},
-        'paymentCompleted': {'BOOL': False},
+        'paymentStatus': {'S': 'pending'},
         'postNotes': {'S': ''},
         'reports': {'L': []},
         'createdAt': {'N': str(current_time)},
@@ -698,11 +797,11 @@ def get_daily_unpaid_appointments_count(user_id, today):
             TableName=APPOINTMENTS_TABLE,
             IndexName='createdUserId-index',
             KeyConditionExpression='createdUserId = :uid',
-            FilterExpression='createdDate = :date AND paymentCompleted = :paid',
+            FilterExpression='createdDate = :date AND paymentStatus <> :paid',
             ExpressionAttributeValues={
                 ':uid': {'S': user_id},
                 ':date': {'S': today_str},
-                ':paid': {'BOOL': False}
+                ':paid': {'S': 'paid'}
             }
         )
         return result.get('Count', 0)
@@ -712,6 +811,24 @@ def get_daily_unpaid_appointments_count(user_id, today):
 
 
 # ------------------  Service Pricing Table Functions ------------------
+
+def get_service_plan_names(service_id, plan_id):
+    """Get service plan names by service_id and plan_id"""
+    try:
+        result = dynamodb.get_item(
+            TableName=SERVICE_PRICES_TABLE,
+            Key={
+                'serviceId': {'N': str(service_id)},
+                'planId': {'N': str(plan_id)}
+            }
+        )
+        if 'Item' in result:
+            item = deserialize_item(result['Item'])
+            return item.get('serviceName'), item.get('planName')
+        return None
+    except ClientError as e:
+        print(f"Error getting service plan name for service {service_id} and plan {plan_id}: {e}")
+        return None
 
 def get_service_pricing(service_id, plan_id):
     """Get service pricing by service_id and plan_id, return only the price field"""
@@ -840,11 +957,11 @@ def get_daily_unpaid_orders_count(user_id, today):
             TableName=ORDERS_TABLE,
             IndexName='createdUserId-index',
             KeyConditionExpression='createdUserId = :uid',
-            FilterExpression='createdDate = :date AND paymentCompleted = :paid',
+            FilterExpression='createdDate = :date AND paymentStatus <> :paid',
             ExpressionAttributeValues={
                 ':uid': {'S': user_id},
                 ':date': {'S': today_str},
-                ':paid': {'BOOL': False}
+                ':paid': {'S': 'paid'}
             }
         )
         return result.get('Count', 0)
@@ -946,7 +1063,7 @@ def build_order_data(order_id, items, customer_data, car_data, notes, delivery_l
         'createdUserId': {'S': created_user_id},
         'status': {'S': 'PENDING'},
         'totalPrice': {'N': str(total_price)},
-        'paymentCompleted': {'BOOL': False},
+        'paymentStatus': {'S': 'pending'},
         'postNotes': {'S': ''},
         'createdAt': {'N': str(current_time)},
         'createdDate': {'S': current_date},
@@ -957,6 +1074,24 @@ def build_order_data(order_id, items, customer_data, car_data, notes, delivery_l
 
 
 # ------------------  Item Prices Table Functions ------------------
+
+def get_category_item_names(category_id, item_id):
+    """Get category item names by category_id and item_id"""
+    try:
+        result = dynamodb.get_item(
+            TableName=ITEM_PRICES_TABLE,
+            Key={
+                'categoryId': {'N': str(category_id)},
+                'itemId': {'N': str(item_id)}
+            }
+        )
+        if 'Item' in result:
+            item = deserialize_item(result['Item'])
+            return item.get('categoryName'), item.get('itemName')
+        return None
+    except ClientError as e:
+        print(f"Error getting item name for category {category_id} and item {item_id}: {e}")
+        return None
 
 def get_item_pricing(category_id, item_id):
     """Get item pricing by category_id and item_id, return only the price field"""
@@ -1160,6 +1295,152 @@ def build_update_expression_for_payment(update_data):
         return update_expression, expression_values, expression_names
     else:
         return None, None, None
+
+# ------------------ Invoice Table Functions ------------------
+
+def get_invoices_by_date_range(start_date, end_date, limit=100):
+    """Get invoices within a date range using the invoiceDate-index GSI"""
+    try:
+        # Use the invoiceDate-index to efficiently query by date range
+        # We'll need to scan with a filter since invoiceDate is the hash key
+        result = dynamodb.scan(
+            TableName=INVOICES_TABLE,
+            FilterExpression='invoiceDate BETWEEN :start_date AND :end_date',
+            ExpressionAttributeValues={
+                ':start_date': {'N': str(start_date)},
+                ':end_date': {'N': str(end_date)}
+            },
+            Limit=limit
+        )
+        invoices = [deserialize_item_json_safe(item) for item in result.get('Items', [])]
+        return invoices
+    except ClientError as e:
+        print(f"Error querying invoices by date range: {e}")
+        return []
+
+def create_invoice_record(invoice_data):
+    """Create a new invoice record in the database"""
+    try:
+        # Prepare item data with required fields
+        item = {
+            'invoiceId': {'S': invoice_data['invoiceId']},
+            'invoiceDate': {'N': str(invoice_data['invoiceDate'])},
+            'paymentIntentId': {'S': invoice_data['paymentIntentId']},
+            'referenceNumber': {'S': invoice_data['referenceNumber']},
+            'referenceType': {'S': invoice_data['referenceType']},
+            's3Key': {'S': invoice_data['s3Key']},
+            'fileUrl': {'S': invoice_data['fileUrl']},
+            'fileSize': {'N': str(invoice_data['fileSize'])},
+            'format': {'S': invoice_data.get('format', 'html')},
+            'createdAt': {'N': str(invoice_data['createdAt'])},
+            'status': {'S': invoice_data.get('status', 'generated')}
+        }
+        
+        if 'metadata' in invoice_data:
+            if isinstance(invoice_data['metadata'], dict):
+                # Convert dict to DynamoDB Map format if needed
+                if invoice_data['metadata']:  # Only add if not empty
+                    item['metadata'] = convert_to_dynamodb_format(invoice_data['metadata'])
+            else:
+                item['metadata'] = {'M': {}}
+        
+        dynamodb.put_item(
+            TableName=INVOICES_TABLE,
+            Item=item
+        )
+        print(f"Invoice {invoice_data['invoiceId']} created successfully")
+        return True
+    except ClientError as e:
+        print(f"Error creating invoice: {e}")
+        return False
+
+
+# ------------------  Backup/Restore Utility Functions ------------------
+
+def scan_all_items(table_name):
+    """Scan all items from a DynamoDB table"""
+    try:
+        items = []
+        response = dynamodb.scan(TableName=table_name)
+        items.extend(response.get('Items', []))
+        
+        while 'LastEvaluatedKey' in response:
+            response = dynamodb.scan(
+                TableName=table_name,
+                ExclusiveStartKey=response['LastEvaluatedKey']
+            )
+            items.extend(response.get('Items', []))
+        
+        print(f"Scanned {len(items)} items from {table_name}")
+        return items
+    except ClientError as e:
+        print(f"Error scanning table {table_name}: {e}")
+        raise
+
+def get_table_key_schema(table_name):
+    """Get the key schema for a DynamoDB table"""
+    try:
+        response = dynamodb.describe_table(TableName=table_name)
+        return response['Table']['KeySchema']
+    except ClientError as e:
+        print(f"Error getting key schema for {table_name}: {e}")
+        raise
+
+def scan_table_keys_only(table_name, key_names):
+    """Scan table and return only the key attributes"""
+    try:
+        items = []
+        projection_expression = ', '.join(key_names)
+        
+        response = dynamodb.scan(
+            TableName=table_name,
+            ProjectionExpression=projection_expression
+        )
+        items.extend(response.get('Items', []))
+        
+        while 'LastEvaluatedKey' in response:
+            response = dynamodb.scan(
+                TableName=table_name,
+                ProjectionExpression=projection_expression,
+                ExclusiveStartKey=response['LastEvaluatedKey']
+            )
+            items.extend(response.get('Items', []))
+        
+        return items
+    except ClientError as e:
+        print(f"Error scanning keys from {table_name}: {e}")
+        raise
+
+def delete_item(table_name, key):
+    """Delete an item from DynamoDB table"""
+    try:
+        dynamodb.delete_item(TableName=table_name, Key=key)
+        return True
+    except ClientError as e:
+        print(f"Error deleting item from {table_name}: {e}")
+        raise
+
+def batch_write_items(table_name, items):
+    """Write items to DynamoDB table in batch"""
+    try:
+        request_items = {
+            table_name: [
+                {'PutRequest': {'Item': item}} for item in items
+            ]
+        }
+        
+        response = dynamodb.batch_write_item(RequestItems=request_items)
+        
+        # Handle unprocessed items
+        unprocessed = response.get('UnprocessedItems', {})
+        while unprocessed:
+            response = dynamodb.batch_write_item(RequestItems=unprocessed)
+            unprocessed = response.get('UnprocessedItems', {})
+        
+        return True
+    except ClientError as e:
+        print(f"Error batch writing items to {table_name}: {e}")
+        raise
 
 # -------------------------------------------------------------
 

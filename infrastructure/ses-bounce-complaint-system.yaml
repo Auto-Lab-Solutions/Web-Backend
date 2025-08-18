@@ -1,0 +1,387 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Auto Lab Solutions - AWS SES Bounce and Complaint Handling System'
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: Environment name (development, production)
+    Default: production
+    AllowedValues:
+      - development
+      - production
+
+  MailSendingAddress:
+    Type: String
+    Description: SES verified email address for sending emails
+    Default: "noreply@autolabsolutions.com"
+
+  SesRegion:
+    Type: String
+    Description: AWS SES region
+    Default: "ap-southeast-2"
+
+  CloudFormationBucket:
+    Type: String
+    Description: S3 bucket containing CloudFormation templates and Lambda packages
+    Default: "auto-lab-cloudformation-templates"
+
+  MailReceivingAddress:
+    Type: String
+    Description: Email address for receiving emails (environment-specific)
+    Default: "mail@autolabsolutions.com"
+
+Resources:
+  # DynamoDB Table for Email Suppression List
+  EmailSuppressionTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'EmailSuppression-${EnvironmentName}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: email
+          AttributeType: S
+        - AttributeName: suppression_type
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: email
+          KeyType: HASH
+        - AttributeName: suppression_type
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: SuppressionTypeIndex
+          KeySchema:
+            - AttributeName: suppression_type
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: AutoLabSolutions
+        - Key: Purpose
+          Value: EmailSuppressionList
+
+  # DynamoDB Table for Bounce and Complaint Analytics
+  EmailAnalyticsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'EmailAnalytics-${EnvironmentName}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: email
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+        - AttributeName: event_type
+          AttributeType: S
+        - AttributeName: date_partition
+          AttributeType: S
+      KeySchema:
+        - AttributeName: email
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: EventTypeIndex
+          KeySchema:
+            - AttributeName: event_type
+              KeyType: HASH
+            - AttributeName: timestamp
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: DatePartitionIndex
+          KeySchema:
+            - AttributeName: date_partition
+              KeyType: HASH
+            - AttributeName: timestamp
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: AutoLabSolutions
+        - Key: Purpose
+          Value: EmailAnalytics
+
+  # SNS Topic for Bounce Notifications
+  SESBounceNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub 'ses-bounce-notifications-${EnvironmentName}'
+      DisplayName: !Sub 'SES Bounce Notifications - ${EnvironmentName}'
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: AutoLabSolutions
+        - Key: Purpose
+          Value: SESBounceNotifications
+
+  # SNS Topic for Complaint Notifications
+  SESComplaintNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub 'ses-complaint-notifications-${EnvironmentName}'
+      DisplayName: !Sub 'SES Complaint Notifications - ${EnvironmentName}'
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: AutoLabSolutions
+        - Key: Purpose
+          Value: SESComplaintNotifications
+
+  # SNS Topic for Delivery Notifications (Optional, for analytics)
+  SESDeliveryNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub 'ses-delivery-notifications-${EnvironmentName}'
+      DisplayName: !Sub 'SES Delivery Notifications - ${EnvironmentName}'
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: AutoLabSolutions
+        - Key: Purpose
+          Value: SESDeliveryNotifications
+
+  # IAM Role for SES Bounce/Complaint Handler Lambda
+  SESBounceComplaintHandlerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'SESBounceComplaintHandlerRole-${EnvironmentName}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SESBounceComplaintHandlerPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !GetAtt EmailSuppressionTable.Arn
+                  - !Sub '${EmailSuppressionTable.Arn}/index/*'
+                  - !GetAtt EmailAnalyticsTable.Arn
+                  - !Sub '${EmailAnalyticsTable.Arn}/index/*'
+              - Effect: Allow
+                Action:
+                  - ses:PutIdentityNotificationAttributes
+                  - ses:GetIdentityNotificationAttributes
+                  - ses:PutAccountSuppressionAttributes
+                  - ses:GetAccountSuppressionAttributes
+                  - ses:PutSuppressedDestination
+                  - ses:DeleteSuppressedDestination
+                  - ses:GetSuppressedDestination
+                  - ses:ListSuppressedDestinations
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  # Lambda Function for Processing Bounce Notifications
+  SESBounceHandlerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'ses-bounce-handler-${EnvironmentName}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt SESBounceComplaintHandlerRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: 'lambda/ses-bounce-handler.zip'
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref EnvironmentName
+          SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTable
+          ANALYTICS_TABLE_NAME: !Ref EmailAnalyticsTable
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+      Timeout: 30
+      MemorySize: 256
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: AutoLabSolutions
+        - Key: Purpose
+          Value: SESBounceHandler
+
+  # Lambda Function for Processing Complaint Notifications
+  SESComplaintHandlerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'ses-complaint-handler-${EnvironmentName}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt SESBounceComplaintHandlerRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: 'lambda/ses-complaint-handler.zip'
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref EnvironmentName
+          SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTable
+          ANALYTICS_TABLE_NAME: !Ref EmailAnalyticsTable
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+      Timeout: 30
+      MemorySize: 256
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: AutoLabSolutions
+        - Key: Purpose
+          Value: SESComplaintHandler
+
+  # Lambda Function for Processing Delivery Notifications (Analytics)
+  SESDeliveryHandlerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'ses-delivery-handler-${EnvironmentName}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt SESBounceComplaintHandlerRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: 'lambda/ses-delivery-handler.zip'
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref EnvironmentName
+          ANALYTICS_TABLE_NAME: !Ref EmailAnalyticsTable
+          MAIL_FROM_ADDRESS: !Ref MailSendingAddress
+      Timeout: 30
+      MemorySize: 256
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Project
+          Value: AutoLabSolutions
+        - Key: Purpose
+          Value: SESDeliveryHandler
+
+  # SNS Subscription for Bounce Notifications
+  SESBounceSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: lambda
+      TopicArn: !Ref SESBounceNotificationTopic
+      Endpoint: !GetAtt SESBounceHandlerFunction.Arn
+
+  # SNS Subscription for Complaint Notifications
+  SESComplaintSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: lambda
+      TopicArn: !Ref SESComplaintNotificationTopic
+      Endpoint: !GetAtt SESComplaintHandlerFunction.Arn
+
+  # SNS Subscription for Delivery Notifications
+  SESDeliverySubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Protocol: lambda
+      TopicArn: !Ref SESDeliveryNotificationTopic
+      Endpoint: !GetAtt SESDeliveryHandlerFunction.Arn
+
+  # Lambda Permission for SNS to invoke Bounce Handler
+  SESBounceHandlerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SESBounceHandlerFunction
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref SESBounceNotificationTopic
+
+  # Lambda Permission for SNS to invoke Complaint Handler
+  SESComplaintHandlerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SESComplaintHandlerFunction
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref SESComplaintNotificationTopic
+
+  # Lambda Permission for SNS to invoke Delivery Handler
+  SESDeliveryHandlerPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SESDeliveryHandlerFunction
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref SESDeliveryNotificationTopic
+
+Outputs:
+  EmailSuppressionTableName:
+    Description: 'Name of the Email Suppression DynamoDB Table'
+    Value: !Ref EmailSuppressionTable
+    Export:
+      Name: !Sub '${AWS::StackName}-EmailSuppressionTableName'
+
+  EmailAnalyticsTableName:
+    Description: 'Name of the Email Analytics DynamoDB Table'
+    Value: !Ref EmailAnalyticsTable
+    Export:
+      Name: !Sub '${AWS::StackName}-EmailAnalyticsTableName'
+
+  SESBounceTopicArn:
+    Description: 'ARN of the SES Bounce Notification SNS Topic'
+    Value: !Ref SESBounceNotificationTopic
+    Export:
+      Name: !Sub '${AWS::StackName}-SESBounceTopicArn'
+
+  SESComplaintTopicArn:
+    Description: 'ARN of the SES Complaint Notification SNS Topic'
+    Value: !Ref SESComplaintNotificationTopic
+    Export:
+      Name: !Sub '${AWS::StackName}-SESComplaintTopicArn'
+
+  SESDeliveryTopicArn:
+    Description: 'ARN of the SES Delivery Notification SNS Topic'
+    Value: !Ref SESDeliveryNotificationTopic
+    Export:
+      Name: !Sub '${AWS::StackName}-SESDeliveryTopicArn'
+
+  SESBounceHandlerArn:
+    Description: 'ARN of the SES Bounce Handler Lambda Function'
+    Value: !GetAtt SESBounceHandlerFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-SESBounceHandlerArn'
+
+  SESComplaintHandlerArn:
+    Description: 'ARN of the SES Complaint Handler Lambda Function'
+    Value: !GetAtt SESComplaintHandlerFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-SESComplaintHandlerArn'

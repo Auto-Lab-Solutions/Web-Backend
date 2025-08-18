@@ -2,14 +2,14 @@ import boto3, os, json
 from botocore.exceptions import ClientError
 
 # Environment variables
-WS_ENDPOINT_URL = os.environ.get('WEBSOCKET_ENDPOINT_URL')
+WEBSOCKET_ENDPOINT_URL = os.environ.get('WEBSOCKET_ENDPOINT_URL')
 
 def get_apigateway_client(domain=None, stage=None):
     try:
         if domain and stage:
             endpoint_url = "https://" + domain + "/" + stage
         else:
-            endpoint_url = WS_ENDPOINT_URL
+            endpoint_url = WEBSOCKET_ENDPOINT_URL
         return boto3.client('apigatewaymanagementapi', endpoint_url=endpoint_url)
     except Exception as e:
         print(f"Error creating API Gateway Management client: {e}")

@@ -214,3 +214,11 @@ stack-outputs.json
 
 # GitHub Actions logs
 .github/workflows/*.log
+
+# Firebase configuration files with credentials
+config/firebase-*.conf
+!config/firebase-development.conf.example
+!config/firebase-production.conf.example
+
+# Firebase service account keys
+firebase-service-account*.json

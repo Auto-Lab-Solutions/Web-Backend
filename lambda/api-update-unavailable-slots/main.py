@@ -1,85 +1,18 @@
-from datetime import datetime
-import db_utils as db
 import response_utils as resp
-import request_utils as req
+import business_logic_utils as biz
 
-PERMITTED_ROLE = 'ADMIN'
-
+@biz.handle_business_logic_error
 def lambda_handler(event, context):
-    # Get staff user information
-    staff_user_email = req.get_staff_user_email(event)
-    if not staff_user_email:
-        return resp.error_response("Unauthorized: Staff authentication required", 401)
-        
-    staff_user_record = db.get_staff_record(staff_user_email)
-    if not staff_user_record:
-        return resp.error_response(f"No staff record found for email: {staff_user_email}", 404)
-    
-    staff_roles = staff_user_record.get('roles', [])
-    if PERMITTED_ROLE not in staff_roles:
-        return resp.error_response("Unauthorized: Insufficient permissions", 403)
-    
-    # Get date and operation from query parameters or body
-    date = req.get_query_param(event, 'date') or req.get_body_param(event, 'date')
-    operation = req.get_body_param(event, 'operation') or 'get'
-    time_slots = req.get_body_param(event, 'timeSlots')
-    
-    if not date or not operation:
-        return resp.error_response("date and operation are required.")
-    
-    # Validate date format (YYYY-MM-DD)
     try:
-        datetime.strptime(date, '%Y-%m-%d')
-    except ValueError:
-        return resp.error_response("Date must be in YYYY-MM-DD format")
-    
-    # Handle different operations
-    if operation == 'get':
-        # Get unavailable slots for the date
-        unavailable_slots = db.get_unavailable_slots(date)
-        if not unavailable_slots:
-            return resp.success_response({
-                "date": date,
-                "timeSlots": []
-            })
-        return resp.success_response({
-            "date": date,
-            "timeSlots": unavailable_slots.get('timeSlots', [])
-        })
-    
-    elif operation in ['create', 'update']:
-        # Validate time slots for create/update operations
-        if not time_slots or not isinstance(time_slots, list):
-            return resp.error_response("timeSlots array is required for create/update operations")
+        # Get unavailable slot manager and validate staff authentication
+        slot_manager = biz.get_unavailable_slot_manager()
+        staff_context = slot_manager.validate_staff_authentication(event, slot_manager.admin_roles)
         
-        # Validate time slot format
-        for slot in time_slots:
-            if not isinstance(slot, dict) or 'startTime' not in slot or 'endTime' not in slot:
-                return resp.error_response("Each time slot must have startTime and endTime")
-            
-            # Validate time format (HH:MM)
-            try:
-                datetime.strptime(slot['startTime'], '%H:%M')
-                datetime.strptime(slot['endTime'], '%H:%M')
-            except ValueError:
-                return resp.error_response("Time must be in HH:MM format")
-            
-            # Validate that end time is after start time
-            start_time = datetime.strptime(slot['startTime'], '%H:%M')
-            end_time = datetime.strptime(slot['endTime'], '%H:%M')
-            if end_time <= start_time:
-                return resp.error_response("End time must be after start time")
+        # Update unavailable slots
+        result = slot_manager.update_unavailable_slots(event, staff_context)
         
-        result = db.update_unavailable_slots(date, time_slots)
-        
-        if result:
-            return resp.success_response({
-                "message": f"Unavailable slots for {date} {operation}d successfully",
-                "date": date,
-                "timeSlots": time_slots
-            })
-        else:
-            return resp.error_response(f"Failed to {operation} unavailable slots", 500)
-    
-    else:
-        return resp.error_response("Invalid operation. Must be 'get', 'create', or 'update'.")
+        return resp.success_response(result)
+
+    except Exception as e:
+        print(f"Error in update unavailable slots lambda: {str(e)}")
+        return resp.error_response("Internal server error", 500)

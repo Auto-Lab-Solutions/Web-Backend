@@ -1,0 +1,50 @@
+"""
+Notification utilities (legacy module)
+This module is deprecated - use NotificationManager from notification_manager instead
+"""
+
+from notification_manager import notification_manager
+
+# Legacy email notification functions for backward compatibility
+queue_email_notification = notification_manager.queue_email_notification
+queue_appointment_created_email = notification_manager.queue_appointment_created_email
+queue_appointment_updated_email = notification_manager.queue_appointment_updated_email
+queue_appointment_cancelled_email = notification_manager.queue_appointment_cancelled_email
+queue_appointment_reminder_email = notification_manager.queue_appointment_reminder_email
+queue_order_created_email = notification_manager.queue_order_created_email
+queue_order_updated_email = notification_manager.queue_order_updated_email
+queue_order_status_email = notification_manager.queue_order_status_email
+queue_inquiry_response_email = notification_manager.queue_inquiry_response_email
+queue_report_ready_email = notification_manager.queue_report_ready_email
+queue_payment_confirmation_email = notification_manager.queue_payment_confirmation_email
+queue_welcome_email = notification_manager.queue_welcome_email
+queue_password_reset_email = notification_manager.queue_password_reset_email
+
+# Legacy WebSocket notification functions for backward compatibility
+queue_websocket_notification = notification_manager.queue_websocket_notification
+queue_appointment_websocket_notification = notification_manager.queue_appointment_websocket_notification
+queue_order_websocket_notification = notification_manager.queue_order_websocket_notification
+queue_staff_websocket_notification = notification_manager.queue_staff_websocket_notification
+queue_inquiry_websocket_notification = notification_manager.queue_inquiry_websocket_notification
+queue_message_websocket_notification = notification_manager.queue_message_websocket_notification
+queue_payment_websocket_notification = notification_manager.queue_payment_websocket_notification
+
+# Legacy Firebase notification functions for backward compatibility
+queue_firebase_notification = notification_manager.queue_firebase_notification
+queue_order_firebase_notification = notification_manager.queue_order_firebase_notification
+queue_appointment_firebase_notification = notification_manager.queue_appointment_firebase_notification
+queue_payment_firebase_notification = notification_manager.queue_payment_firebase_notification
+queue_system_notification_firebase = notification_manager.queue_system_notification_firebase
+
+# Additional Firebase notification functions that were in the original file
+def queue_inquiry_firebase_notification(inquiry_id, staff_user_ids=None, customer_name=None):
+    """Queue Firebase notification for new inquiry to staff"""
+    return notification_manager.queue_inquiry_firebase_notification(inquiry_id, customer_name, staff_user_ids)
+
+def queue_message_firebase_notification(message_id, sender_name, staff_user_ids=None, recipient_type='staff'):
+    """Queue Firebase notification for new message to staff"""
+    return notification_manager.queue_message_firebase_notification(message_id, sender_name, recipient_type, staff_user_ids)
+
+def queue_user_assignment_firebase_notification(client_id, assigned_staff_name, exclude_user_id=None):
+    """Queue Firebase notification for user assignment to staff"""
+    return notification_manager.queue_user_assignment_firebase_notification(client_id, assigned_staff_name, exclude_user_id)

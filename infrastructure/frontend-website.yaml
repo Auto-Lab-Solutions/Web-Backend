@@ -1,0 +1,270 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Frontend Website Infrastructure for Auto Lab Solutions'
+
+Parameters:
+  Environment:
+    Type: String
+    AllowedValues: [development, production]
+    Default: production
+    Description: Environment name
+
+  DomainName:
+    Type: String
+    Description: The full domain name for the website (e.g., www.auto-lab.com)
+    Default: ''
+
+  HostedZoneId:
+    Type: String
+    Description: The ID of the Route53 hosted zone (leave empty to skip Route53 setup)
+    Default: ''
+
+  AcmCertificateArn:
+    Type: String
+    Description: ARN of the ACM certificate in us-east-1 for your domain (leave empty for development)
+    Default: ''
+
+  EnableCustomDomain:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+    Description: Whether to enable custom domain with Route53 and SSL certificate
+
+Conditions:
+  HasCustomDomain: !Equals [!Ref EnableCustomDomain, 'true']
+  HasCertificate: !And 
+    - !Condition HasCustomDomain
+    - !Not [!Equals [!Ref AcmCertificateArn, '']]
+  HasHostedZone: !And
+    - !Condition HasCustomDomain
+    - !Not [!Equals [!Ref HostedZoneId, '']]
+
+Resources:
+  # S3 Bucket for Frontend Website
+  WebsiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "auto-lab-frontend-${Environment}-${AWS::AccountId}"
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: error.html
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, HEAD]
+            AllowedOrigins: ['*']
+            MaxAge: 3000
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: AutoLabSolutions
+        - Key: Component
+          Value: Frontend
+
+  # Origin Access Control for CloudFront
+  OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "${AWS::StackName}-oac"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+        Description: !Sub "Origin Access Control for ${Environment} frontend"
+
+  # CloudFront Distribution
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "Auto Lab Solutions Frontend - ${Environment}"
+        DefaultRootObject: index.html
+        HttpVersion: http2and3
+        PriceClass: !If [HasCustomDomain, PriceClass_All, PriceClass_100]
+        
+        # Custom Domain Configuration
+        Aliases: !If
+          - HasCustomDomain
+          - [!Ref DomainName]
+          - !Ref AWS::NoValue
+        
+        # SSL Certificate Configuration
+        ViewerCertificate: !If
+          - HasCertificate
+          - AcmCertificateArn: !Ref AcmCertificateArn
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          - CloudFrontDefaultCertificate: true
+        
+        # Default Cache Behavior
+        DefaultCacheBehavior:
+          TargetOriginId: s3-origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD]
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad  # Managed-CachingOptimized
+          OriginRequestPolicyId: 88a5eaf4-2fd4-4709-b370-b4c650ea3fcf  # Managed-CORS-S3Origin
+          ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03  # Managed-SimpleCORS
+          Compress: true
+        
+        # Cache Behaviors for Different File Types
+        CacheBehaviors:
+          # Static assets (CSS, JS, Images) - longer cache
+          - PathPattern: "*.css"
+            TargetOriginId: s3-origin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: 88a5eaf4-2fd4-4709-b370-b4c650ea3fcf
+            ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03
+            Compress: true
+          - PathPattern: "*.js"
+            TargetOriginId: s3-origin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: 88a5eaf4-2fd4-4709-b370-b4c650ea3fcf
+            ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03
+            Compress: true
+          - PathPattern: "*.png"
+            TargetOriginId: s3-origin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: 88a5eaf4-2fd4-4709-b370-b4c650ea3fcf
+            ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03
+            Compress: true
+          - PathPattern: "*.jpg"
+            TargetOriginId: s3-origin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: 88a5eaf4-2fd4-4709-b370-b4c650ea3fcf
+            ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03
+            Compress: true
+          - PathPattern: "*.svg"
+            TargetOriginId: s3-origin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: 88a5eaf4-2fd4-4709-b370-b4c650ea3fcf
+            ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03
+            Compress: true
+          # API paths - no caching
+          - PathPattern: "/api/*"
+            TargetOriginId: s3-origin
+            ViewerProtocolPolicy: redirect-to-https
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: 88a5eaf4-2fd4-4709-b370-b4c650ea3fcf
+            ResponseHeadersPolicyId: 67f7725c-6f97-4210-82d7-5512b31e9d03
+
+        # Origin Configuration
+        Origins:
+          - Id: s3-origin
+            DomainName: !GetAtt WebsiteBucket.RegionalDomainName
+            OriginAccessControlId: !Ref OriginAccessControl
+            S3OriginConfig: {}
+
+        # Custom Error Pages for SPA
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: AutoLabSolutions
+        - Key: Component
+          Value: Frontend
+
+  # S3 Bucket Policy for CloudFront Access
+  WebsiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebsiteBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontServicePrincipal
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${WebsiteBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
+
+  # Route53 DNS Record (only if custom domain is enabled)
+  DNSRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: HasHostedZone
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt CloudFrontDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2  # CloudFront hosted zone ID (always the same globally)
+
+  # WWW Subdomain Redirect (optional)
+  WWWRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: HasHostedZone
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Sub "www.${DomainName}"
+      Type: CNAME
+      TTL: 300
+      ResourceRecords:
+        - !Ref DomainName
+
+Outputs:
+  WebsiteBucketName:
+    Description: Name of the S3 bucket for website content
+    Value: !Ref WebsiteBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-WebsiteBucketName"
+
+  WebsiteBucketArn:
+    Description: ARN of the S3 bucket for website content
+    Value: !GetAtt WebsiteBucket.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-WebsiteBucketArn"
+
+  CloudFrontDistributionId:
+    Description: CloudFront Distribution ID
+    Value: !Ref CloudFrontDistribution
+    Export:
+      Name: !Sub "${AWS::StackName}-CloudFrontDistributionId"
+
+  CloudFrontDomainName:
+    Description: CloudFront Distribution Domain Name
+    Value: !GetAtt CloudFrontDistribution.DomainName
+    Export:
+      Name: !Sub "${AWS::StackName}-CloudFrontDomainName"
+
+  WebsiteURL:
+    Description: URL of the website
+    Value: !If
+      - HasCustomDomain
+      - !Sub "https://${DomainName}"
+      - !Sub "https://${CloudFrontDistribution.DomainName}"
+    Export:
+      Name: !Sub "${AWS::StackName}-WebsiteURL"
+
+  DistributionConfig:
+    Description: Distribution configuration summary
+    Value: !Sub |
+      Environment: ${Environment}
+      Custom Domain: ${EnableCustomDomain}
+      Domain Name: ${DomainName}
+      Certificate: ${AcmCertificateArn}

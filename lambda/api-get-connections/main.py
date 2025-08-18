@@ -1,30 +1,19 @@
-import db_utils as db
-import request_utils as req
 import response_utils as resp
+import request_utils as req
+import data_retrieval_utils as data
 
-PERMITTED_ROLE = 'CUSTOMER_SUPPORT'
-
+@data.handle_data_retrieval_error
 def lambda_handler(event, context):
+    """Get WebSocket connections with proper staff access control"""
+    
+    # Extract staff user email
     staff_user_email = req.get_staff_user_email(event)
-    if not staff_user_email:
-        return resp.error_response("Unauthorized: Staff authentication required", 401)
-
-    staff_user_record = db.get_staff_record(staff_user_email)
-    if not staff_user_record:
-        return resp.error_response("Unauthorized: Staff user not found.")
-
-    staff_user_id = staff_user_record.get('userId')
-    staff_roles = staff_user_record.get('roles', [])
     
-    if not staff_user_id or not staff_roles:
-        return resp.error_response("Unauthorized: Invalid staff user record.")
-
-    if PERMITTED_ROLE not in staff_roles:
-        return resp.error_response("Unauthorized: Insufficient permissions.")
+    # Use data retriever to handle access control
+    result = data.StaffDataRetriever.get_connections_with_access_control(
+        staff_user_email=staff_user_email
+    )
     
-    connections = db.get_all_active_connections()
-    return resp.success_response({
-        "connections": resp.convert_decimal(connections)
-    })
+    return resp.success_response(result)
 
 

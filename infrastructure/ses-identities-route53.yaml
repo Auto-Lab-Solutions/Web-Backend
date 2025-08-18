@@ -1,0 +1,139 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Auto Lab Solutions - SES Domain/Email Identities and Route53 DNS Records'
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: Environment name (development, production)
+    Default: production
+    AllowedValues:
+      - development
+      - production
+
+  SesRegion:
+    Type: String
+    Description: AWS SES region
+    Default: "ap-southeast-2"
+
+  HostedZoneId:
+    Type: String
+    Description: Route53 hosted zone ID for the domain
+    Default: ""
+
+  DomainName:
+    Type: String
+    Description: The base domain name (e.g., autolabsolutions.com or dev.autolabsolutions.com)
+    Default: "autolabsolutions.com"
+
+Conditions:
+  HasHostedZone: !Not [!Equals [!Ref HostedZoneId, ""]]
+
+Resources:
+  # SES Domain Identity (covers ALL email addresses under this domain)
+  # This automatically verifies mail@domain.com, noreply@domain.com, etc.
+  # MAIL-FROM domain is configured directly on this identity
+  SESDomainIdentity:
+    Type: AWS::SES::EmailIdentity
+    Properties:
+      EmailIdentity: !Ref DomainName
+      DkimSigningAttributes:
+        NextSigningKeyLength: RSA_2048_BIT
+      MailFromAttributes:
+        MailFromDomain: !Sub 'mail.${DomainName}'
+        BehaviorOnMxFailure: USE_DEFAULT_VALUE
+
+  # SES Configuration Set for tracking
+  SESConfigurationSet:
+    Type: AWS::SES::ConfigurationSet
+    Properties:
+      Name: !Sub 'auto-lab-config-set-${EnvironmentName}'
+
+  # Route53 DNS Records (only if hosted zone is provided)
+  # DKIM Records for domain verification (AWS automatically provides these tokens)
+  DkimRecord1:
+    Type: AWS::Route53::RecordSet
+    Condition: HasHostedZone
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Sub '${SESDomainIdentity.DkimDNSTokenName1}._domainkey.${DomainName}'
+      Type: CNAME
+      TTL: 300
+      ResourceRecords:
+        - !Sub '${SESDomainIdentity.DkimDNSTokenName1}.dkim.amazonses.com'
+
+  DkimRecord2:
+    Type: AWS::Route53::RecordSet
+    Condition: HasHostedZone
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Sub '${SESDomainIdentity.DkimDNSTokenName2}._domainkey.${DomainName}'
+      Type: CNAME
+      TTL: 300
+      ResourceRecords:
+        - !Sub '${SESDomainIdentity.DkimDNSTokenName2}.dkim.amazonses.com'
+
+  DkimRecord3:
+    Type: AWS::Route53::RecordSet
+    Condition: HasHostedZone
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Sub '${SESDomainIdentity.DkimDNSTokenName3}._domainkey.${DomainName}'
+      Type: CNAME
+      TTL: 300
+      ResourceRecords:
+        - !Sub '${SESDomainIdentity.DkimDNSTokenName3}.dkim.amazonses.com'
+
+  # MX Record for Email Receiving
+  EmailReceivingMXRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: HasHostedZone
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: MX
+      TTL: 300
+      ResourceRecords:
+        - !Sub '10 inbound-smtp.${SesRegion}.amazonses.com'
+
+  # MAIL FROM Domain MX Record (for improved deliverability)
+  MailFromMXRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: HasHostedZone
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Sub 'mail.${DomainName}'
+      Type: MX
+      TTL: 300
+      ResourceRecords:
+        - !Sub '10 feedback-smtp.${SesRegion}.amazonses.com'
+
+  # SPF Record for MAIL FROM Domain
+  MailFromSPFRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: HasHostedZone
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Sub 'mail.${DomainName}'
+      Type: TXT
+      TTL: 300
+      ResourceRecords:
+        - '"v=spf1 include:amazonses.com ~all"'
+
+Outputs:
+  SESDomainIdentity:
+    Description: SES Domain Identity (includes MAIL FROM configuration)
+    Value: !Ref SESDomainIdentity
+    Export:
+      Name: !Sub '${AWS::StackName}-SESDomainIdentity'
+
+  SESConfigurationSet:
+    Description: SES Configuration Set
+    Value: !Ref SESConfigurationSet
+    Export:
+      Name: !Sub '${AWS::StackName}-SESConfigurationSet'
+
+  DomainName:
+    Description: The domain name configured for SES
+    Value: !Ref DomainName
+    Export:
+      Name: !Sub '${AWS::StackName}-DomainName'

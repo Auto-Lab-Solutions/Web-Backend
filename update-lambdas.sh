@@ -1,9 +1,5 @@
 #!/bin/bash
-
-# Update Lambda Functions Script
 # This script updates only Lambda function code without redeploying infrastructure
-
-set -e
 
 # Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -47,6 +43,11 @@ show_usage() {
     echo "  --list, -l             List all available Lambda functions"
     echo "  --help, -h             Show this help message"
     echo ""
+    echo "Pipeline/Automated Execution:"
+    echo "  export AUTO_CONFIRM=true    # Skip all confirmation prompts"
+    echo "  export CI=true              # Detected in most CI/CD systems"
+    echo "  export GITHUB_ACTIONS=true  # Auto-detected in GitHub Actions"
+    echo ""
     echo "Examples:"
     echo "  $0 --env dev --all                           # Update all functions in dev"
     echo "  $0 --env prod api-get-prices api-get-users   # Update specific functions in prod"
@@ -81,6 +82,35 @@ list_functions() {
             echo "  - $lambda_name"
         fi
     done
+    echo ""
+    echo "SQS Processing Functions:"
+    for lambda_dir in lambda/sqs-*/; do
+        if [ -d "$lambda_dir" ]; then
+            lambda_name=$(basename "$lambda_dir")
+            echo "  - $lambda_name"
+        fi
+    done
+    
+    echo ""
+    echo "SES Bounce/Complaint Functions:"
+    for lambda_dir in lambda/ses-*; do
+        if [ -d "$lambda_dir" ]; then
+            lambda_name=$(basename "$lambda_dir")
+            echo "  - $lambda_name"
+        fi
+    done
+    
+    echo ""
+    echo "Other Functions:"
+    for lambda_dir in lambda/*/; do
+        if [ -d "$lambda_dir" ]; then
+            lambda_name=$(basename "$lambda_dir")
+            # Skip already categorized functions and system directories
+            if [[ ! "$lambda_name" =~ ^api- ]] && [[ ! "$lambda_name" =~ ^ws- ]] && [[ ! "$lambda_name" =~ ^staff-authorizer ]] && [[ ! "$lambda_name" =~ ^sqs- ]] && [[ ! "$lambda_name" =~ ^ses- ]] && [ "$lambda_name" != "common_lib" ] && [ "$lambda_name" != "tmp" ]; then
+                echo "  - $lambda_name"
+            fi
+        fi
+    done
 }
 
 # Function to get all Lambda function names
@@ -110,6 +140,9 @@ package_lambda() {
         print_error "Lambda directory not found: $lambda_dir"
         return 1
     fi
+    if [ "$lambda_dir" == "lambda/common_lib/" ]; then
+        continue  # Skip common library directory
+    fi
     
     print_status "Packaging $lambda_name..."
     
@@ -138,6 +171,9 @@ package_lambda() {
     cd "$temp_dir"
     zip -r "../$lambda_name.zip" . -q
     cd - > /dev/null
+
+    # Upload to S3 - all lambdas use lambda/ path
+    aws s3 cp "dist/lambda/$lambda_name.zip" "s3://$CLOUDFORMATION_BUCKET/lambda/$lambda_name.zip"
     
     print_success "Packaged $lambda_name"
     return 0
@@ -149,6 +185,10 @@ update_lambda_code() {
     local full_function_name="${lambda_name}-${ENVIRONMENT}"
     local zip_file="dist/lambda/$lambda_name.zip"
     
+    if [ "$lambda_name" == "common_lib" ]; then
+        print_warning "Skipping common library update"
+        return 0
+    fi
     if [ ! -f "$zip_file" ]; then
         print_error "ZIP file not found: $zip_file"
         return 1
@@ -157,11 +197,119 @@ update_lambda_code() {
     # Check if function exists
     if ! function_exists "$lambda_name"; then
         print_error "Lambda function '$full_function_name' does not exist in AWS"
-        print_warning "Please deploy infrastructure first using ./deploy.sh --env $ENVIRONMENT"
+        print_warning "Please deploy infrastructure first using ./deploy.sh $ENVIRONMENT"
         return 1
     fi
     
     print_status "Updating Lambda function code: $full_function_name"
+    
+    # Update function code
+    aws lambda update-function-code \
+        --function-name "$full_function_name" \
+        --zip-file "fileb://$zip_file" \
+        --region $AWS_REGION > /dev/null
+    
+    # Wait for update to complete
+    print_status "Waiting for update to complete..."
+    aws lambda wait function-updated \
+        --function-name "$full_function_name" \
+        --region $AWS_REGION
+    
+    print_success "Updated $full_function_name"
+    return 0
+}
+
+# Function to update notification processor Lambda function code (managed by NotificationQueueStack)
+update_notification_processor_lambda() {
+    local lambda_name=$1
+    local full_function_name="${lambda_name}-${ENVIRONMENT}"
+    local zip_file="dist/lambda/$lambda_name.zip"
+
+    if [ ! -f "$zip_file" ]; then
+        print_error "ZIP file not found: $zip_file"
+        return 1
+    fi
+    
+    # Check if function exists
+    if ! aws lambda get-function --function-name "$full_function_name" --region $AWS_REGION &>/dev/null; then
+        print_error "Lambda function '$full_function_name' does not exist in AWS"
+        print_warning "Please deploy infrastructure first using ./deploy.sh $ENVIRONMENT"
+        return 1
+    fi
+    
+    print_status "Updating Notification Processor Lambda function code: $full_function_name"
+    
+    # Update function code
+    aws lambda update-function-code \
+        --function-name "$full_function_name" \
+        --zip-file "fileb://$zip_file" \
+        --region $AWS_REGION > /dev/null
+    
+    # Wait for update to complete
+    print_status "Waiting for update to complete..."
+    aws lambda wait function-updated \
+        --function-name "$full_function_name" \
+        --region $AWS_REGION
+    
+    print_success "Updated $full_function_name"
+    return 0
+}
+
+# Function to update backup Lambda function code (managed by BackupSystemStack)
+update_backup_lambda() {
+    local lambda_name=$1
+    local full_function_name="${lambda_name}-${ENVIRONMENT}"
+    local zip_file="dist/lambda/$lambda_name.zip"
+
+    if [ ! -f "$zip_file" ]; then
+        print_error "ZIP file not found: $zip_file"
+        return 1
+    fi
+    
+    # Check if function exists
+    if ! aws lambda get-function --function-name "$full_function_name" --region $AWS_REGION &>/dev/null; then
+        print_error "Lambda function '$full_function_name' does not exist in AWS"
+        print_warning "Please deploy infrastructure first using ./deploy.sh $ENVIRONMENT"
+        return 1
+    fi
+    
+    print_status "Updating Backup Lambda function code: $full_function_name"
+    
+    # Update function code
+    aws lambda update-function-code \
+        --function-name "$full_function_name" \
+        --zip-file "fileb://$zip_file" \
+        --region $AWS_REGION > /dev/null
+    
+    # Wait for update to complete
+    print_status "Waiting for update to complete..."
+    aws lambda wait function-updated \
+        --function-name "$full_function_name" \
+        --region $AWS_REGION
+    
+    print_success "Updated $full_function_name"
+    return 0
+}
+
+# Function to update SES Lambda function code (managed by SESBounceComplaintStack)
+update_ses_lambda() {
+    local lambda_name=$1
+    local full_function_name="${lambda_name}-${ENVIRONMENT}"
+    local zip_file="dist/lambda/$lambda_name.zip"
+
+    if [ ! -f "$zip_file" ]; then
+        print_error "ZIP file not found: $zip_file"
+        return 1
+    fi
+    
+    # Check if function exists
+    if ! aws lambda get-function --function-name "$full_function_name" --region $AWS_REGION &>/dev/null; then
+        print_error "Lambda function '$full_function_name' does not exist in AWS"
+        print_warning "Please deploy infrastructure first using ./deploy.sh $ENVIRONMENT"
+        return 1
+    fi
+    
+    print_status "Updating SES Lambda function code: $full_function_name"
     
     # Update function code
     aws lambda update-function-code \
@@ -196,11 +344,35 @@ update_functions() {
         
         # Package the function
         if package_lambda "$lambda_name"; then
-            # Update the function
-            if update_lambda_code "$lambda_name"; then
-                ((success_count++))
+            # Update the function - handle different lambda types
+            if [[ "$lambda_name" == sqs-process-*-notification-queue ]]; then
+                # Notification processor lambdas are managed by NotificationQueueStack
+                if update_notification_processor_lambda "$lambda_name"; then
+                    ((success_count++))
+                else
+                    ((error_count++))
+                fi
+            elif [[ "$lambda_name" == "backup-restore" ]] || [[ "$lambda_name" == "api-backup-restore" ]]; then
+                # Backup lambdas are managed by BackupSystemStack
+                if update_backup_lambda "$lambda_name"; then
+                    ((success_count++))
+                else
+                    ((error_count++))
+                fi
+            elif [[ "$lambda_name" =~ ^ses- ]]; then
+                # SES bounce/complaint lambdas are managed by SESBounceComplaintStack
+                if update_ses_lambda "$lambda_name"; then
+                    ((success_count++))
+                else
+                    ((error_count++))
+                fi
             else
-                ((error_count++))
+                # Standard lambdas
+                if update_lambda_code "$lambda_name"; then
+                    ((success_count++))
+                else
+                    ((error_count++))
+                fi
             fi
         else
             ((error_count++))
@@ -255,12 +427,17 @@ confirm_update() {
     done
     echo ""
     
-    read -p "Continue? (y/N): " -n 1 -r
-    echo ""
-    
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        print_status "Update cancelled."
-        exit 0
+    # Skip confirmation prompt in CI/CD environments or if AUTO_CONFIRM is set
+    if [ -n "$GITHUB_ACTIONS" ] || [ -n "$CI" ] || [ "$AUTO_CONFIRM" = "true" ]; then
+        print_status "Running in automated environment - proceeding with update"
+    else
+        read -p "Continue? (y/N): " -n 1 -r
+        echo ""
+        
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            print_status "Update cancelled."
+            exit 0
+        fi
     fi
 }
 
@@ -366,7 +543,7 @@ main() {
     else
         print_warning "Some Lambda functions failed to update. Check the output above."
     fi
-    
+
     exit $exit_code
 }
 

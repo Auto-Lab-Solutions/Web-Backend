@@ -68,7 +68,15 @@ get_logs() {
     print_status "Getting recent logs for $full_function_name..."
     
     # Get logs from the last 10 minutes
-    local start_time=$(date -d '10 minutes ago' +%s)000
+    # Use a cross-platform approach for calculating timestamp
+    local start_time
+    if date -d '10 minutes ago' +%s >/dev/null 2>&1; then
+        # GNU date (Linux)
+        start_time=$(date -d '10 minutes ago' +%s)000
+    else
+        # BSD date (macOS)
+        start_time=$(date -v-10M +%s)000
+    fi
     
     aws logs filter-log-events \
         --log-group-name "$log_group" \
@@ -128,17 +136,31 @@ test_function() {
     
     print_status "Invoking function with test event..."
     
+    # Create a temporary file for the response
+    local response_file=$(mktemp)
+    
+    # Invoke the Lambda function
+    set +e  # Temporarily disable exit on error
     aws lambda invoke \
         --function-name "$full_function_name" \
         --payload "$test_event" \
         --region $AWS_REGION \
-        --cli-binary-format raw-in-base64-out \
-        response.json
+        "$response_file" 2>/dev/null
+    local invoke_exit_code=$?
+    set -e  # Re-enable exit on error
     
-    if [ -f response.json ]; then
+    if [ $invoke_exit_code -eq 0 ] && [ -f "$response_file" ]; then
         print_success "Function response:"
-        cat response.json | python3 -m json.tool 2>/dev/null || cat response.json
-        rm response.json
+        cat "$response_file" | python3 -m json.tool 2>/dev/null || cat "$response_file"
+        rm "$response_file"
+    else
+        print_error "Failed to invoke Lambda function: $full_function_name"
+        if [ -f "$response_file" ]; then
+            print_warning "Error response:"
+            cat "$response_file"
+            rm "$response_file"
+        fi
+        print_warning "Make sure the function exists and you have proper permissions"
     fi
 }
 
@@ -162,6 +184,12 @@ show_env() {
 show_status() {
     print_status "Checking deployment status for environment: $ENVIRONMENT..."
     
+    # Verify required variables are set
+    if [ -z "$STACK_NAME" ] || [ -z "$AWS_REGION" ]; then
+        print_error "Required environment variables not set. Please check environment configuration."
+        return 1
+    fi
+    
     # Check CloudFormation stack
     local stack_status=$(aws cloudformation describe-stacks \
         --stack-name "$STACK_NAME" \
@@ -181,15 +209,25 @@ show_status() {
         if [ -d "$lambda_dir" ] && [ "$(basename "$lambda_dir")" != "common_lib" ] && [ "$(basename "$lambda_dir")" != "tmp" ]; then
             local function_name=$(basename "$lambda_dir")
             local full_function_name="${function_name}-${ENVIRONMENT}"
+            
+            # Temporarily disable exit on error for AWS command
+            set +e
             local state=$(aws lambda get-function \
                 --function-name "$full_function_name" \
                 --query 'Configuration.State' \
                 --output text \
-                --region $AWS_REGION 2>/dev/null || echo "NOT_FOUND")
+                --region $AWS_REGION 2>/dev/null)
+            local aws_exit_code=$?
+            set -e
             
-            ((function_count++))
+            # Handle the result
+            if [ $aws_exit_code -ne 0 ] || [ -z "$state" ]; then
+                state="NOT_FOUND"
+            fi
+            
+            function_count=$((function_count + 1))
             if [ "$state" = "Active" ]; then
-                ((active_count++))
+                active_count=$((active_count + 1))
                 echo "  ✅ $full_function_name: $state"
             else
                 echo "  ❌ $full_function_name: $state"
@@ -201,20 +239,29 @@ show_status() {
     
     # Check DynamoDB tables
     print_status "DynamoDB Tables:"
-    local tables=("$STAFF_TABLE" "$USERS_TABLE" "$CONNECTIONS_TABLE" "$MESSAGES_TABLE" "$UNAVAILABLE_SLOTS_TABLE" "$APPOINTMENTS_TABLE" "$SERVICE_PRICES_TABLE" "$ORDERS_TABLE" "$ITEM_PRICES_TABLE" "$INQUIRIES_TABLE")
+    local tables=("$STAFF_TABLE" "$USERS_TABLE" "$CONNECTIONS_TABLE" "$MESSAGES_TABLE" "$UNAVAILABLE_SLOTS_TABLE" "$APPOINTMENTS_TABLE" "$SERVICE_PRICES_TABLE" "$ORDERS_TABLE" "$ITEM_PRICES_TABLE" "$INQUIRIES_TABLE" "$PAYMENTS_TABLE")
     local table_count=0
     local active_tables=0
     
     for table in "${tables[@]}"; do
+        # Temporarily disable exit on error for AWS command
+        set +e
         local status=$(aws dynamodb describe-table \
             --table-name "$table" \
             --query 'Table.TableStatus' \
             --output text \
-            --region $AWS_REGION 2>/dev/null || echo "NOT_FOUND")
+            --region $AWS_REGION 2>/dev/null)
+        local aws_exit_code=$?
+        set -e
         
-        ((table_count++))
+        # Handle the result
+        if [ $aws_exit_code -ne 0 ] || [ -z "$status" ]; then
+            status="NOT_FOUND"
+        fi
+        
+        table_count=$((table_count + 1))
         if [ "$status" = "ACTIVE" ]; then
-            ((active_tables++))
+            active_tables=$((active_tables + 1))
             echo "  ✅ $table: $status"
         else
             echo "  ❌ $table: $status"
@@ -237,26 +284,58 @@ show_endpoints() {
     
     # Get WebSocket endpoint
     local ws_endpoint=$(aws cloudformation describe-stacks \
-    local ws_endpoint=$(aws cloudformation describe-stacks \
         --stack-name "$STACK_NAME" \
         --query 'Stacks[0].Outputs[?OutputKey==`WebSocketApiEndpoint`].OutputValue' \
         --output text \
         --region $AWS_REGION 2>/dev/null || echo "NOT_FOUND")
     
-    # Get CloudFront domain
+    # Get CloudFront domain for reports
     local cf_domain=$(aws cloudformation describe-stacks \
         --stack-name "$STACK_NAME" \
         --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDomainName`].OutputValue' \
         --output text \
         --region $AWS_REGION 2>/dev/null || echo "NOT_FOUND")
     
+    # Get Frontend Website URL
+    local frontend_url=$(aws cloudformation describe-stacks \
+        --stack-name "$STACK_NAME" \
+        --query 'Stacks[0].Outputs[?OutputKey==`FrontendWebsiteURL`].OutputValue' \
+        --output text \
+        --region $AWS_REGION 2>/dev/null || echo "NOT_FOUND")
+    
+    # Get Frontend CloudFront domain
+    local frontend_cf_domain=$(aws cloudformation describe-stacks \
+        --stack-name "$STACK_NAME" \
+        --query 'Stacks[0].Outputs[?OutputKey==`FrontendCloudFrontDomainName`].OutputValue' \
+        --output text \
+        --region $AWS_REGION 2>/dev/null || echo "NOT_FOUND")
+
+    # Get Frontend CloudFront distribution ID
+    local frontend_cf_id=$(aws cloudformation describe-stacks \
+        --stack-name "$STACK_NAME" \
+        --query 'Stacks[0].Outputs[?OutputKey==`FrontendCloudFrontDistributionId`].OutputValue' \
+        --output text \
+        --region $AWS_REGION 2>/dev/null || echo "NOT_FOUND")
+
+    # Get Stripe Webhook URL (REST endpoint + /payments/stripe/webhook)
+    local stripe_webhook_url="${rest_endpoint}/payments/stripe/webhook"
+    
     echo ""
     print_success "API Endpoints:"
     echo "  🌐 REST API: $rest_endpoint"
     echo "  🔌 WebSocket API: $ws_endpoint"
-    echo "  📁 CloudFront CDN: https://$cf_domain"
+    echo "  📁 Reports CDN: https://$cf_domain"
     echo ""
     
+    print_success "Frontend Website:"
+    echo "  🏠 Website URL: $frontend_url"
+    echo "  📦 CloudFront: https://$frontend_cf_domain"
+    echo "      ID: $frontend_cf_id"
+    echo "  📊 Status: $([ "$frontend_url" != "NOT_FOUND" ] && echo "✅ Deployed" || echo "❌ Not Deployed")"
+    echo ""
+    print_success "Stripe Webhook URL:"
+    echo "  🔑 $stripe_webhook_url"
+    echo ""
     print_status "Sample API calls:"
     echo "  curl \"$rest_endpoint/get-staff-roles?email=test@example.com\""
     echo "  curl \"$rest_endpoint/prices\" -H \"Authorization: Bearer YOUR_TOKEN\""

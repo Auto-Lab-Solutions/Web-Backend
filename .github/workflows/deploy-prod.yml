@@ -10,6 +10,17 @@ on:
 env:
   AWS_REGION: ap-southeast-2
   ENVIRONMENT: production
+  AUTH0_DOMAIN: ${{ vars.AUTH0_DOMAIN }}
+  AUTH0_AUDIENCE: ${{ vars.AUTH0_AUDIENCE }}
+  STRIPE_WEBHOOK_ENDPOINT_ID: ${{ vars.STRIPE_WEBHOOK_ENDPOINT_ID }}
+  STRIPE_PUBLISHABLE_KEY: ${{ vars.STRIPE_PUBLISHABLE_KEY }}
+  STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+  STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+  SHARED_KEY: ${{ secrets.SHARED_KEY }}
+  FRONTEND_GITHUB_TOKEN: ${{ secrets.FRONTEND_GITHUB_TOKEN }}
+  # Firebase configuration - credentials passed from GitHub secrets/vars
+  FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID_PROD }}
+  FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY_PROD }}
 
 jobs:
   validate:
@@ -42,13 +53,28 @@ jobs:
       run: |
         # Install AWS CLI
         pip install awscli
-        # Validate CloudFormation templates
-        aws cloudformation validate-template --template-body file://infrastructure/main-stack.yaml --region $AWS_REGION || true
-        aws cloudformation validate-template --template-body file://infrastructure/dynamodb-tables.yaml --region $AWS_REGION || true
-        aws cloudformation validate-template --template-body file://infrastructure/lambda-functions.yaml --region $AWS_REGION || true
-        aws cloudformation validate-template --template-body file://infrastructure/api-gateway.yaml --region $AWS_REGION || true
-        aws cloudformation validate-template --template-body file://infrastructure/websocket-api.yaml --region $AWS_REGION || true
-        aws cloudformation validate-template --template-body file://infrastructure/s3-cloudfront.yaml --region $AWS_REGION || true
+        
+        # Validate templates that can be validated individually (no cross-references)
+        echo "Validating standalone templates..."
+        aws cloudformation validate-template --template-body file://infrastructure/dynamodb-tables.yaml --region $AWS_REGION
+        aws cloudformation validate-template --template-body file://infrastructure/s3-cloudfront.yaml --region $AWS_REGION
+        aws cloudformation validate-template --template-body file://infrastructure/websocket-api.yaml --region $AWS_REGION
+        
+        # Check existence of cross-reference templates (skip validation due to dependencies)
+        echo "Checking cross-reference templates exist..."
+        if [[ ! -f "infrastructure/main-stack.yaml" ]]; then
+          echo "Error: main-stack.yaml not found"
+          exit 1
+        fi
+        if [[ ! -f "infrastructure/lambda-functions.yaml" ]]; then
+          echo "Error: lambda-functions.yaml not found"
+          exit 1
+        fi
+        if [[ ! -f "infrastructure/api-gateway.yaml" ]]; then
+          echo "Error: api-gateway.yaml not found"
+          exit 1
+        fi
+        echo "All templates exist and cross-reference validation skipped"
 
   security-check:
     name: Security and Compliance Check
@@ -132,7 +158,7 @@ jobs:
     - name: Deploy infrastructure
       run: |
         echo "Deploying to production environment"
-        ./deploy.sh --env production
+        ./deploy.sh production
       env:
         AUTO_LAB_ENV: production
 
@@ -140,6 +166,20 @@ jobs:
       run: |
         echo "Validating production deployment"
         ./validate-deployment.sh --env production
+      env:
+        AUTO_LAB_ENV: production
+
+    - name: Update Stripe webhook endpoint
+      run: |
+        echo "Updating Stripe webhook endpoint for production"
+        ./update-stripe-webhook.sh
+      env:
+        AUTO_LAB_ENV: production
+
+    - name: Update frontend environment variables
+      run: |
+        echo "Updating frontend environment variables for production"
+        ./update-frontend-env-vars.sh
       env:
         AUTO_LAB_ENV: production
 

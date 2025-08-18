@@ -1,7 +1,7 @@
 import db_utils as db
-import wsgw_utils as wsgw
 import response_utils as resp
 import request_utils as req
+from notification_manager import notification_manager
 
 valid_statuses = [
     'TYPING',
@@ -10,8 +10,6 @@ valid_statuses = [
     'MESSAGE_DELETED',
     'MESSAGE_EDITED'
 ]
-
-wsgw_client = wsgw.get_apigateway_client()
 
 def lambda_handler(event, context):
     staff_user_email = req.get_staff_user_email(event)
@@ -40,18 +38,7 @@ def lambda_handler(event, context):
     if not action_sender_conn:
         return resp.error_response(f"No connection found for userId: {action_sender_id}.")
 
-    receiverConnections = []
     if status == 'TYPING':
-        if not action_sender_conn.get('staff'):
-            action_sender_record = db.get_user_record(action_sender_id)
-            receiverConnections = db.get_assigned_or_all_staff_connections(assigned_to=action_sender_record.get('assignedTo'))
-        else:
-            if not client_id:
-                return resp.error_response("clientId is required for TYPING status.")
-            client_conn = db.get_connection_by_user_id(client_id)
-            if client_conn:
-                receiverConnections.append(client_conn)
-
         notification = {
             "type": "notification",
             "subtype": "status",
@@ -59,12 +46,20 @@ def lambda_handler(event, context):
             "status": status,
             "senderId": action_sender_id
         }
-
-        for receiverConnection in receiverConnections:
-            wsgw.send_notification(wsgw_client, receiverConnection.get('connectionId'), notification)
+        
+        if not action_sender_conn.get('staff'):
+            # User is typing - notify assigned staff or all staff
+            action_sender_record = db.get_user_record(action_sender_id)
+            assigned_to = action_sender_record.get('assignedTo') if action_sender_record else None
+            notification_manager.queue_staff_websocket_notification(notification, assigned_to=assigned_to)
+        else:
+            # Staff is typing - notify specific client
+            if not client_id:
+                return resp.error_response("clientId is required for TYPING status.")
+            notification_manager.queue_websocket_notification('typing_notification', notification, user_id=client_id)
         
         return resp.success_response(
-            { "message": f"Notification sent successfully for TYPING status to {len(receiverConnections)} receivers." },
+            { "message": f"Notification queued successfully for TYPING status." },
             success=True
         )
 
@@ -89,23 +84,12 @@ def lambda_handler(event, context):
     if status in ['MESSAGE_RECEIVED', 'MESSAGE_VIEWED']:
         if msg_receiver_id == 'ALL':
             msg_receiver_id = action_sender_id
-            # return resp.success_response(
-            #     { "message": "Cannot send notifications for staff unassigned messages. Skipping." },
-            #     success=False
-            # )
+            
         if msg_receiver_id != action_sender_id:
             return resp.error_response("You are not authorized to send RECEIVED/VIEWED notifications for this message.")
         
-        msg_sender_conn = db.get_connection_by_user_id(msg_sender_id)
-        msg_sender_conn_id = msg_sender_conn.get('connectionId') if msg_sender_conn else None
-        skip = not msg_sender_conn_id
-
-        if not skip:
-            wsgw.send_notification(
-                wsgw_client,
-                msg_sender_conn_id,
-                notification
-            )
+        # Queue notification to message sender
+        notification_manager.queue_websocket_notification('message_status_notification', notification, user_id=msg_sender_id)
 
         update_status = db.update_message_status(
             message_id=message_id,
@@ -115,8 +99,8 @@ def lambda_handler(event, context):
             return resp.error_response(f"Failed to update message status for messageId: {message_id}.")
         
         return resp.success_response(
-            { "message": f"No connection found for senderId: {msg_sender_id}. Skipping notification." if skip else f"Notification sent successfully for {status}." }, 
-            success=not skip
+            { "message": f"Notification queued successfully for {status}." }, 
+            success=True
         )
 
     elif status in ['MESSAGE_DELETED', 'MESSAGE_EDITED']:
@@ -125,15 +109,6 @@ def lambda_handler(event, context):
         if msg_sender_id != action_sender_id:
             return resp.error_response("You are not authorized to send DELETED/EDITED notifications for this message.")
         
-        msg_receiver_connections = []
-        if msg_receiver_id == 'ALL':
-            msg_receiver_connections = db.get_all_staff_connections()
-        else:
-            msg_receiver_conn = db.get_connection_by_user_id(msg_receiver_id)
-            if msg_receiver_conn:
-                msg_receiver_connections.append(msg_receiver_conn)
-            skip = not msg_receiver_conn
-
         if status == 'MESSAGE_EDITED':
             if not new_message:
                 return resp.error_response("newMessage is required for MESSAGE_EDITED status.")
@@ -151,17 +126,17 @@ def lambda_handler(event, context):
                 f"Failed to {status.lower()} message with ID: {message_id}. Please try again later."
             )
         
-        if not skip:
-            for msg_receiver_conn in msg_receiver_connections:
-                wsgw.send_notification(
-                    wsgw_client,
-                    msg_receiver_conn.get('connectionId'),
-                    notification
-                )
+        # Queue notification to message receiver(s)
+        if msg_receiver_id == 'ALL':
+            # Broadcast to all staff
+            notification_manager.queue_staff_websocket_notification(notification)
+        else:
+            # Send to specific user
+            notification_manager.queue_websocket_notification('message_edit_notification', notification, user_id=msg_receiver_id)
 
         return resp.success_response(
-            { "message": f"No connection found for receiverId: {msg_receiver_id}. Skipping notification." if skip else f"Notification sent successfully for {status}." }, 
-            success=not skip
+            { "message": f"Notification queued successfully for {status}." }, 
+            success=True
         )
 
     return resp.error_response(f"Unsupported status: {status}")

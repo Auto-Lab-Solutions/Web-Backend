@@ -1,25 +1,21 @@
-import db_utils as db
 import response_utils as resp
-import request_utils as req
+import business_logic_utils as biz
 
+@biz.handle_business_logic_error
 def lambda_handler(event, context):
-    staff_user_email = req.get_staff_user_email(event)
-    if not staff_user_email:
-        return resp.error_response("Unauthorized: Staff authentication required", 401)
+    try:
+        # Get user manager and validate staff authentication
+        user_manager = biz.get_user_manager()
+        staff_context = user_manager.validate_staff_authentication(event)
+        
+        # Get all users
+        user_data = user_manager.get_all_users()
+        
+        return resp.success_response({
+            "customerUsers": resp.convert_decimal(user_data['customer_users']),
+            "staffUsers": resp.convert_decimal(user_data['staff_users'])
+        })
 
-    staff_user_record = db.get_staff_record(staff_user_email)
-    if not staff_user_record:
-        return resp.error_response("Unauthorized: Staff user not found.")
-
-    staff_user_id = staff_user_record.get('userId')
-    staff_roles = staff_user_record.get('roles', [])
-    
-    if not staff_user_id or not staff_roles:
-        return resp.error_response("Unauthorized: Invalid staff user record.")
-    
-    customer_users = db.get_all_users()
-    staff_users = db.get_all_staff_records()
-    return resp.success_response({
-        "customerUsers": resp.convert_decimal(customer_users),
-        "staffUsers": resp.convert_decimal(staff_users)
-    })
+    except Exception as e:
+        print(f"Error in get users lambda: {str(e)}")
+        return resp.error_response("Internal server error", 500)

@@ -1,0 +1,548 @@
+# SQS Queue Infrastructure for Asynchronous Notification Processing
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'SQS Queues for asynchronous notification processing (email & websocket) in Auto Lab Solutions'
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: 'dev'
+    Description: Environment name (dev, staging, prod)
+  
+  CloudFormationBucket:
+    Type: String
+    Description: S3 bucket containing Lambda deployment packages
+  
+  # DynamoDB Table Parameters
+  StaffTable:
+    Type: String
+    Description: Staff DynamoDB table name
+  
+  UsersTable:
+    Type: String
+    Description: Users DynamoDB table name
+  
+  ConnectionsTable:
+    Type: String
+    Description: Connections DynamoDB table name
+  
+  MessagesTable:
+    Type: String
+    Description: Messages DynamoDB table name
+  
+  UnavailableSlotsTable:
+    Type: String
+    Description: Unavailable slots DynamoDB table name
+  
+  AppointmentsTable:
+    Type: String
+    Description: Appointments DynamoDB table name
+  
+  ServicePricesTable:
+    Type: String
+    Description: Service prices DynamoDB table name
+  
+  OrdersTable:
+    Type: String
+    Description: Orders DynamoDB table name
+  
+  ItemPricesTable:
+    Type: String
+    Description: Item prices DynamoDB table name
+  
+  InquiriesTable:
+    Type: String
+    Description: Inquiries DynamoDB table name
+  
+  PaymentsTable:
+    Type: String
+    Description: Payments DynamoDB table name
+  
+  InvoicesTable:
+    Type: String
+    Description: Invoices DynamoDB table name
+  
+  EmailSuppressionTableName:
+    Type: String
+    Description: Email suppression DynamoDB table name
+  
+  ReportsBucketName:
+    Type: String
+    Description: S3 bucket name for storing reports and invoices
+  
+  CloudFrontDomain:
+    Type: String
+    Description: CloudFront domain for file access
+    Default: ""
+  
+  FrontendRootUrl:
+    Type: String
+    Description: Frontend root URL for email links
+  
+  MailSendingAddress:
+    Type: String
+    Description: SES verified email address for sending notifications
+    Default: "noreply@autolabsolutions.com"
+  
+  WebSocketApiId:
+    Type: String
+    Description: WebSocket API Gateway ID for sending WebSocket notifications
+
+  # Firebase Parameters (Optional)
+  EnableFirebaseNotifications:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+    Description: Whether to enable Firebase push notifications
+
+  FirebaseProjectId:
+    Type: String
+    Description: Firebase project ID for push notifications (required if Firebase enabled)
+    Default: ""
+
+  FirebaseServiceAccountKey:
+    Type: String
+    NoEcho: true
+    Description: Firebase service account key (JSON) for authentication (required if Firebase enabled)
+    Default: ""
+
+Conditions:
+  ShouldEnableFirebase: !Equals [!Ref EnableFirebaseNotifications, 'true']
+
+Resources:
+  # SQS Queue for email notifications
+  EmailNotificationQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 'sqs-email-notification-queue-${EnvironmentName}'
+      VisibilityTimeout: 300  # 5 minutes (should be >= Lambda timeout)
+      MessageRetentionPeriod: 1209600  # 14 days
+      ReceiveMessageWaitTimeSeconds: 20  # Long polling
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt EmailNotificationDLQ.Arn
+        maxReceiveCount: 3  # Retry up to 3 times before moving to DLQ
+
+  # Dead Letter Queue for failed email notifications
+  EmailNotificationDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 'sqs-email-notification-dlq-${EnvironmentName}'
+      MessageRetentionPeriod: 1209600  # 14 days
+
+  # SQS Queue for WebSocket notifications
+  WebSocketNotificationQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 'sqs-websocket-notification-queue-${EnvironmentName}'
+      VisibilityTimeout: 300  # 5 minutes
+      MessageRetentionPeriod: 1209600  # 14 days
+      ReceiveMessageWaitTimeSeconds: 20  # Long polling
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt WebSocketNotificationDLQ.Arn
+        maxReceiveCount: 3  # Retry up to 3 times before moving to DLQ
+
+  # Dead Letter Queue for failed WebSocket notifications
+  WebSocketNotificationDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub 'sqs-websocket-notification-dlq-${EnvironmentName}'
+      MessageRetentionPeriod: 1209600  # 14 days
+
+  # SQS Queue for Firebase push notifications (conditional)
+  FirebaseNotificationQueue:
+    Type: AWS::SQS::Queue
+    Condition: ShouldEnableFirebase
+    Properties:
+      QueueName: !Sub 'sqs-firebase-notification-queue-${EnvironmentName}'
+      VisibilityTimeout: 300  # 5 minutes
+      MessageRetentionPeriod: 1209600  # 14 days
+      ReceiveMessageWaitTimeSeconds: 20  # Long polling
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt FirebaseNotificationDLQ.Arn
+        maxReceiveCount: 3  # Retry up to 3 times before moving to DLQ
+
+  # Dead Letter Queue for failed Firebase notifications (conditional)
+  FirebaseNotificationDLQ:
+    Type: AWS::SQS::Queue
+    Condition: ShouldEnableFirebase
+    Properties:
+      QueueName: !Sub 'sqs-firebase-notification-dlq-${EnvironmentName}'
+      MessageRetentionPeriod: 1209600  # 14 days
+
+  # Lambda function to process email notification queue
+  EmailNotificationProcessorLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'sqs-process-email-notification-queue-${EnvironmentName}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt EmailNotificationProcessorRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: 'lambda/sqs-process-email-notification-queue.zip'
+      Timeout: 300
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          REPORTS_BUCKET_NAME: !Ref ReportsBucketName
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          MAIL_FROM_ADDRESS: !Ref MailSendingAddress
+          ENVIRONMENT: !Ref EnvironmentName
+
+  # Lambda function to process WebSocket notification queue
+  WebSocketNotificationProcessorLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'sqs-process-websocket-notification-queue-${EnvironmentName}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt WebSocketNotificationProcessorRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: 'lambda/sqs-process-websocket-notification-queue.zip'
+      Timeout: 300
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          WEBSOCKET_API_ID: !Ref WebSocketApiId
+          ENVIRONMENT: !Ref EnvironmentName
+
+  # Lambda function to process Firebase notification queue (conditional)
+  FirebaseNotificationProcessorLambda:
+    Type: AWS::Lambda::Function
+    Condition: ShouldEnableFirebase
+    Properties:
+      FunctionName: !Sub 'sqs-process-firebase-notification-queue-${EnvironmentName}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt FirebaseNotificationProcessorRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: 'lambda/sqs-process-firebase-notification-queue.zip'
+      Timeout: 300
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          FIREBASE_PROJECT_ID: !Ref FirebaseProjectId
+          FIREBASE_SERVICE_ACCOUNT_KEY: !Ref FirebaseServiceAccountKey
+          ENVIRONMENT: !Ref EnvironmentName
+
+  # IAM Role for Email Notification Processor Lambda
+  EmailNotificationProcessorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'EmailNotificationProcessorRole-${EnvironmentName}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: EmailNotificationProcessorPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${StaffTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UsersTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ConnectionsTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${MessagesTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UnavailableSlotsTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AppointmentsTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ServicePricesTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${OrdersTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ItemPricesTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InquiriesTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${PaymentsTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InvoicesTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailSuppressionTableName}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${StaffTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UsersTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ConnectionsTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${MessagesTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UnavailableSlotsTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AppointmentsTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ServicePricesTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${OrdersTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ItemPricesTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InquiriesTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${PaymentsTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InvoicesTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailSuppressionTableName}/index/*'
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                Resource:
+                  - !GetAtt EmailNotificationQueue.Arn
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource:
+                  - !Sub 'arn:aws:s3:::${ReportsBucketName}/*'
+
+  # IAM Role for WebSocket Notification Processor Lambda
+  WebSocketNotificationProcessorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'WebSocketNotificationProcessorRole-${EnvironmentName}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: WebSocketNotificationProcessorPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${StaffTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UsersTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ConnectionsTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${MessagesTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UnavailableSlotsTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AppointmentsTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ServicePricesTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${OrdersTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ItemPricesTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InquiriesTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${PaymentsTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InvoicesTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${StaffTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UsersTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ConnectionsTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${MessagesTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UnavailableSlotsTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AppointmentsTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ServicePricesTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${OrdersTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ItemPricesTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InquiriesTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${PaymentsTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InvoicesTable}/index/*'
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                Resource:
+                  - !GetAtt WebSocketNotificationQueue.Arn
+              - Effect: Allow
+                Action:
+                  - execute-api:ManageConnections
+                Resource:
+                  - !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApiId}/*'
+
+  # IAM Role for Firebase Notification Processor Lambda (conditional)
+  FirebaseNotificationProcessorRole:
+    Type: AWS::IAM::Role
+    Condition: ShouldEnableFirebase
+    Properties:
+      RoleName: !Sub 'FirebaseNotificationProcessorRole-${EnvironmentName}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: FirebaseNotificationProcessorPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource:
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${StaffTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UsersTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ConnectionsTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${MessagesTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UnavailableSlotsTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AppointmentsTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ServicePricesTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${OrdersTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ItemPricesTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InquiriesTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${PaymentsTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InvoicesTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${StaffTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UsersTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ConnectionsTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${MessagesTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UnavailableSlotsTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AppointmentsTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ServicePricesTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${OrdersTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ItemPricesTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InquiriesTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${PaymentsTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InvoicesTable}/index/*'
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                Resource:
+                  - !GetAtt FirebaseNotificationQueue.Arn
+
+  # Event Source Mapping for Email Notification Queue
+  EmailNotificationEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !GetAtt EmailNotificationQueue.Arn
+      FunctionName: !Ref EmailNotificationProcessorLambda
+      BatchSize: 1  # Process one message at a time
+      MaximumBatchingWindowInSeconds: 5
+
+  # Event Source Mapping for WebSocket Notification Queue
+  WebSocketNotificationEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !GetAtt WebSocketNotificationQueue.Arn
+      FunctionName: !Ref WebSocketNotificationProcessorLambda
+      BatchSize: 10  # Process up to 10 messages at a time for better throughput
+      MaximumBatchingWindowInSeconds: 5
+
+  # Event Source Mapping for Firebase Notification Queue (conditional)
+  FirebaseNotificationEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Condition: ShouldEnableFirebase
+    Properties:
+      EventSourceArn: !GetAtt FirebaseNotificationQueue.Arn
+      FunctionName: !Ref FirebaseNotificationProcessorLambda
+      BatchSize: 10  # Process up to 10 messages at a time for better throughput
+      MaximumBatchingWindowInSeconds: 5
+
+Outputs:
+  EmailNotificationQueueUrl:
+    Description: 'URL of the Email Notification SQS Queue'
+    Value: !Ref EmailNotificationQueue
+    Export:
+      Name: !Sub '${AWS::StackName}-EmailNotificationQueueUrl'
+
+  EmailNotificationQueueArn:
+    Description: 'ARN of the Email Notification SQS Queue'
+    Value: !GetAtt EmailNotificationQueue.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-EmailNotificationQueueArn'
+
+  WebSocketNotificationQueueUrl:
+    Description: 'URL of the WebSocket Notification SQS Queue'
+    Value: !Ref WebSocketNotificationQueue
+    Export:
+      Name: !Sub '${AWS::StackName}-WebSocketNotificationQueueUrl'
+
+  WebSocketNotificationQueueArn:
+    Description: 'ARN of the WebSocket Notification SQS Queue'
+    Value: !GetAtt WebSocketNotificationQueue.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-WebSocketNotificationQueueArn'
+
+  EmailNotificationDLQUrl:
+    Description: 'URL of the Email Notification Dead Letter Queue'
+    Value: !Ref EmailNotificationDLQ
+    Export:
+      Name: !Sub '${AWS::StackName}-EmailNotificationDLQUrl'
+
+  WebSocketNotificationDLQUrl:
+    Description: 'URL of the WebSocket Notification Dead Letter Queue'
+    Value: !Ref WebSocketNotificationDLQ
+    Export:
+      Name: !Sub '${AWS::StackName}-WebSocketNotificationDLQUrl'
+
+  FirebaseNotificationQueueUrl:
+    Condition: ShouldEnableFirebase
+    Description: 'URL of the Firebase Notification SQS Queue (only if Firebase enabled)'
+    Value: !Ref FirebaseNotificationQueue
+    Export:
+      Name: !Sub '${AWS::StackName}-FirebaseNotificationQueueUrl'
+
+  FirebaseNotificationQueueArn:
+    Condition: ShouldEnableFirebase
+    Description: 'ARN of the Firebase Notification SQS Queue (only if Firebase enabled)'
+    Value: !GetAtt FirebaseNotificationQueue.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-FirebaseNotificationQueueArn'
+
+  FirebaseNotificationDLQUrl:
+    Condition: ShouldEnableFirebase
+    Description: 'URL of the Firebase Notification Dead Letter Queue (only if Firebase enabled)'
+    Value: !Ref FirebaseNotificationDLQ
+    Export:
+      Name: !Sub '${AWS::StackName}-FirebaseNotificationDLQUrl'

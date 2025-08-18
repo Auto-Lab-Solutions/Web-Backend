@@ -3,7 +3,9 @@ from decimal import Decimal
 
 response_headers = {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*"
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token",
+    "Access-Control-Allow-Methods": "OPTIONS,GET,POST,PATCH,PUT"
 }
 
 def error_response(message, status_code=400):

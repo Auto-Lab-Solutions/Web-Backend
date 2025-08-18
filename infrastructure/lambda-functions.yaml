@@ -65,6 +65,111 @@ Parameters:
     NoEcho: true
     Description: Stripe webhook endpoint secret for signature verification
 
+  Auth0Domain:
+    Type: String
+    NoEcho: true
+    Description: Auth0 domain for token validation
+    Default: ""
+
+  Auth0Audience:
+    Type: String
+    NoEcho: true
+    Description: Auth0 API audience for token validation
+    Default: ""
+
+  CloudFrontDomain:
+    Type: String
+    Description: CloudFront domain for file access
+    Default: ""
+
+  ReportsBucketName:
+    Type: String
+    Description: S3 bucket name for storing reports
+    Default: ""
+
+  SharedKey:
+    Type: String
+    NoEcho: true
+    Description: Shared key for secure operations
+    Default: ""
+
+  Stage:
+    Type: String
+    Description: API Gateway stage name
+    Default: "prod"
+
+  EmailNotificationQueueUrl:
+    Type: String
+    Description: SQS Queue URL for email notifications
+    Default: ""
+
+  WebSocketNotificationQueueUrl:
+    Type: String
+    Description: SQS Queue URL for WebSocket notifications
+    Default: ""
+
+  FirebaseNotificationQueueUrl:
+    Type: String
+    Description: SQS Queue URL for Firebase push notifications
+    Default: ""
+
+  InvoiceGenerationQueueUrl:
+    Type: String
+    Description: SQS Queue URL for invoice generation
+    Default: ""
+
+  MailSendingAddress:
+    Type: String
+    Description: SES verified email address for sending emails
+    Default: "noreply@autolabsolutions.com"
+
+  SesRegion:
+    Type: String
+    Description: AWS SES region
+    Default: "us-east-1"
+
+  FrontendRootUrl:
+    Type: String
+    Description: Frontend root URL for invoice links and QR codes
+    Default: ""
+
+  InvoicesTable:
+    Type: String
+    Description: Invoices Table Name
+
+  InvoiceQueueUrl:
+    Type: String
+    Description: SQS Queue URL for asynchronous invoice processing
+    Default: ""
+
+  EmailSuppressionTableName:
+    Type: String
+    Description: Email suppression DynamoDB table name
+    Default: ""
+
+  EmailAnalyticsTableName:
+    Type: String
+    Description: Email analytics DynamoDB table name
+    Default: ""
+
+  EmailStorageBucket:
+    Type: String
+    Description: S3 bucket for storing received emails
+    Default: ""
+
+  EmailMetadataTable:
+    Type: String
+    Description: DynamoDB table for email metadata
+    Default: ""
+
+  MailReceivingAddress:
+    Type: String
+    Description: Email address for receiving emails (environment-specific)
+    Default: "mail@autolabsolutions.com"
+
+Conditions:
+  IsProduction: !Equals [!Ref Environment, 'production']
+
 Resources:
   # Lambda Execution Role
   LambdaExecutionRole:
@@ -116,6 +221,14 @@ Resources:
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InquiriesTable}/index/*'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${PaymentsTable}'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${PaymentsTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InvoicesTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InvoicesTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailSuppressionTableName}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailSuppressionTableName}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailAnalyticsTableName}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailAnalyticsTableName}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailMetadataTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailMetadataTable}/index/*'
         - PolicyName: S3Access
           PolicyDocument:
             Version: '2012-10-17'
@@ -135,6 +248,48 @@ Resources:
                 Action:
                   - execute-api:ManageConnections
                 Resource: '*'
+        - PolicyName: SQSAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                  - sqs:GetQueueAttributes
+                Resource: '*'
+        - PolicyName: SESAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                  - ses:GetSendQuota
+                  - ses:GetSendStatistics
+                  - ses:VerifyEmailIdentity
+                  - ses:ListVerifiedEmailAddresses
+                  - ses:PutSuppressedDestination
+                  - ses:DeleteSuppressedDestination
+                  - ses:GetSuppressedDestination
+                  - ses:ListSuppressedDestinations
+                  - ses:PutAccountSuppressionAttributes
+                  - ses:GetAccountSuppressionAttributes
+                Resource: '*'
+        - PolicyName: S3EmailStorageAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub 'arn:aws:s3:::${EmailStorageBucket}/*'
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !Sub 'arn:aws:s3:::${EmailStorageBucket}'
 
   # Staff Authorizer Lambda
   StaffAuthorizer:
@@ -149,9 +304,10 @@ Resources:
         S3Key: lambda/staff-authorizer.zip
       Environment:
         Variables:
-          STAFF_TABLE: !Ref StaffTable
           ENVIRONMENT: !Ref Environment
           LOG_LEVEL: !If [IsProduction, 'INFO', 'DEBUG']
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
       Timeout: !If [IsProduction, 60, 30]
       MemorySize: !If [IsProduction, 512, 256]
       Tags:
@@ -162,7 +318,7 @@ Resources:
   StaffAuthorizerOptional:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: staff-authorizer-optional
+      FunctionName: !Sub 'staff-authorizer-optional-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -171,7 +327,9 @@ Resources:
         S3Key: lambda/staff-authorizer-optional.zip
       Environment:
         Variables:
-          STAFF_TABLE: !Ref StaffTable
+          ENVIRONMENT: !Ref Environment
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -180,7 +338,7 @@ Resources:
   ApiGetPrices:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-get-prices
+      FunctionName: !Sub 'api-get-prices-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -192,6 +350,7 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           ITEM_PRICES_TABLE: !Ref ItemPricesTable
           SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -199,7 +358,7 @@ Resources:
   ApiGetUsers:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-get-users
+      FunctionName: !Sub 'api-get-users-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -210,6 +369,7 @@ Resources:
         Variables:
           STAFF_TABLE: !Ref StaffTable
           USERS_TABLE: !Ref UsersTable
+          ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -217,7 +377,7 @@ Resources:
   ApiGetAppointments:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-get-appointments
+      FunctionName: !Sub 'api-get-appointments-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -227,7 +387,9 @@ Resources:
       Environment:
         Variables:
           STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -235,7 +397,7 @@ Resources:
   ApiCreateAppointment:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-create-appointment
+      FunctionName: !Sub 'api-create-appointment-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -247,6 +409,15 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
           USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ENVIRONMENT: !Ref Environment
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -254,7 +425,7 @@ Resources:
   ApiUpdateAppointment:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-update-appointment
+      FunctionName: !Sub 'api-update-appointment-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -264,7 +435,17 @@ Resources:
       Environment:
         Variables:
           STAFF_TABLE: !Ref StaffTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          USERS_TABLE: !Ref UsersTable
+          ENVIRONMENT: !Ref Environment
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -272,7 +453,7 @@ Resources:
   ApiGetUnavailableSlots:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-get-unavailable-slots
+      FunctionName: !Sub 'api-get-unavailable-slots-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -281,8 +462,9 @@ Resources:
         S3Key: lambda/api-get-unavailable-slots.zip
       Environment:
         Variables:
-          STAFF_TABLE: !Ref StaffTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
           UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -290,7 +472,7 @@ Resources:
   ApiUpdateUnavailableSlots:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-update-unavailable-slots
+      FunctionName: !Sub 'api-update-unavailable-slots-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -301,6 +483,7 @@ Resources:
         Variables:
           STAFF_TABLE: !Ref StaffTable
           UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -308,7 +491,7 @@ Resources:
   ApiGetOrders:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-get-orders
+      FunctionName: !Sub 'api-get-orders-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -318,7 +501,9 @@ Resources:
       Environment:
         Variables:
           STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
           ORDERS_TABLE: !Ref OrdersTable
+          ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -326,7 +511,7 @@ Resources:
   ApiCreateOrder:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-create-order
+      FunctionName: !Sub 'api-create-order-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -338,6 +523,15 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           ORDERS_TABLE: !Ref OrdersTable
           USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          ENVIRONMENT: !Ref Environment
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -345,7 +539,7 @@ Resources:
   ApiUpdateOrder:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-update-order
+      FunctionName: !Sub 'api-update-order-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -355,31 +549,55 @@ Resources:
       Environment:
         Variables:
           STAFF_TABLE: !Ref StaffTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
           ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          USERS_TABLE: !Ref UsersTable
+          ENVIRONMENT: !Ref Environment
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
       Tags:
         - Key: Environment
           Value: !Ref Environment
 
-  ApiConfirmPayment:
+  ApiConfirmCashPayment:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-confirm-payment
+      FunctionName: !Sub 'api-confirm-cash-payment-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
       Code:
         S3Bucket: !Ref CloudFormationBucket
-        S3Key: lambda/api-confirm-payment.zip
+        S3Key: lambda/api-confirm-cash-payment.zip
       Environment:
         Variables:
           STAFF_TABLE: !Ref StaffTable
           USERS_TABLE: !Ref UsersTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
-          ORDERS_TABLE: !Ref OrdersTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
           PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
           STRIPE_SECRET_KEY: !Ref StripeSecretKey
-          API_GATEWAY_URL: !Sub "${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}"
+          ENVIRONMENT: !Ref Environment
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -387,7 +605,7 @@ Resources:
   ApiCreatePaymentIntent:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-create-payment-intent
+      FunctionName: !Sub 'api-create-payment-intent-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -396,58 +614,89 @@ Resources:
         S3Key: lambda/api-create-payment-intent.zip
       Environment:
         Variables:
-          STAFF_TABLE: !Ref StaffTable
           USERS_TABLE: !Ref UsersTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
           ORDERS_TABLE: !Ref OrdersTable
           PAYMENTS_TABLE: !Ref PaymentsTable
           STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
           Value: !Ref Environment
 
-  ApiConfirmPaymentSuccess:
+  ApiConfirmStripePayment:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-confirm-payment-success
+      FunctionName: !Sub 'api-confirm-stripe-payment-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
       Code:
         S3Bucket: !Ref CloudFormationBucket
-        S3Key: lambda/api-confirm-payment-success.zip
-      Environment:
-        Variables:
-          STAFF_TABLE: !Ref StaffTable
-          USERS_TABLE: !Ref UsersTable
-          APPOINTMENTS_TABLE: !Ref AppointmentsTable
-          ORDERS_TABLE: !Ref OrdersTable
-          PAYMENTS_TABLE: !Ref PaymentsTable
-          STRIPE_SECRET_KEY: !Ref StripeSecretKey
-      Tags:
-        - Key: Environment
-          Value: !Ref Environment
-
-  WebhookStripePayment:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: webhook-stripe-payment
-      Runtime: python3.13
-      Handler: main.lambda_handler
-      Role: !GetAtt LambdaExecutionRole.Arn
-      Code:
-        S3Bucket: !Ref CloudFormationBucket
-        S3Key: lambda/webhook-stripe-payment.zip
+        S3Key: lambda/api-confirm-stripe-payment.zip
       Environment:
         Variables:
           STAFF_TABLE: !Ref StaffTable
           USERS_TABLE: !Ref UsersTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
           ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
           PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          ENVIRONMENT: !Ref Environment
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiWebhookStripePayment:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'api-webhook-stripe-payment-${Environment}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-webhook-stripe-payment.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
           STRIPE_SECRET_KEY: !Ref StripeSecretKey
           STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          ENVIRONMENT: !Ref Environment
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -455,7 +704,7 @@ Resources:
   ApiGetInquiries:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-get-inquiries
+      FunctionName: !Sub 'api-get-inquiries-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -466,6 +715,7 @@ Resources:
         Variables:
           STAFF_TABLE: !Ref StaffTable
           INQUIRIES_TABLE: !Ref InquiriesTable
+          ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -473,7 +723,7 @@ Resources:
   ApiCreateInquiry:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-create-inquiry
+      FunctionName: !Sub 'api-create-inquiry-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -482,9 +732,14 @@ Resources:
         S3Key: lambda/api-create-inquiry.zip
       Environment:
         Variables:
-          STAFF_TABLE: !Ref StaffTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
           INQUIRIES_TABLE: !Ref InquiriesTable
           USERS_TABLE: !Ref UsersTable
+          ENVIRONMENT: !Ref Environment
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -492,7 +747,7 @@ Resources:
   ApiGetReportUploadUrl:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-get-report-upload-url
+      FunctionName: !Sub 'api-get-report-upload-url-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -501,7 +756,11 @@ Resources:
         S3Key: lambda/api-get-report-upload-url.zip
       Environment:
         Variables:
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
           STAFF_TABLE: !Ref StaffTable
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET_NAME: !Ref ReportsBucketName
+          ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -509,7 +768,7 @@ Resources:
   ApiGetAnalytics:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-get-analytics
+      FunctionName: !Sub 'api-get-analytics-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -521,7 +780,10 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
           ORDERS_TABLE: !Ref OrdersTable
-          INQUIRIES_TABLE: !Ref InquiriesTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          USERS_TABLE: !Ref UsersTable
+          ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -529,7 +791,7 @@ Resources:
   ApiGetStaffRoles:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-get-staff-roles
+      FunctionName: !Sub 'api-get-staff-roles-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -539,6 +801,8 @@ Resources:
       Environment:
         Variables:
           STAFF_TABLE: !Ref StaffTable
+          SHARED_KEY: !Ref SharedKey
+          ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -546,7 +810,7 @@ Resources:
   ApiNotify:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-notify
+      FunctionName: !Sub 'api-notify-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -556,7 +820,13 @@ Resources:
       Environment:
         Variables:
           STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          ENVIRONMENT: !Ref Environment
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -564,7 +834,7 @@ Resources:
   ApiTakeUser:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-take-user
+      FunctionName: !Sub 'api-take-user-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -576,6 +846,10 @@ Resources:
           STAFF_TABLE: !Ref StaffTable
           USERS_TABLE: !Ref UsersTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
+          ENVIRONMENT: !Ref Environment
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -583,7 +857,7 @@ Resources:
   ApiGetConnections:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-get-connections
+      FunctionName: !Sub 'api-get-connections-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -594,6 +868,7 @@ Resources:
         Variables:
           STAFF_TABLE: !Ref StaffTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
+          ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -601,7 +876,7 @@ Resources:
   ApiGetMessages:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-get-messages
+      FunctionName: !Sub 'api-get-messages-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -612,6 +887,8 @@ Resources:
         Variables:
           STAFF_TABLE: !Ref StaffTable
           MESSAGES_TABLE: !Ref MessagesTable
+          USERS_TABLE: !Ref UsersTable
+          ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -619,7 +896,7 @@ Resources:
   ApiGetLastMessages:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-get-last-messages
+      FunctionName: !Sub 'api-get-last-messages-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -630,6 +907,7 @@ Resources:
         Variables:
           STAFF_TABLE: !Ref StaffTable
           MESSAGES_TABLE: !Ref MessagesTable
+          ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -637,7 +915,7 @@ Resources:
   ApiSendMessage:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: api-send-message
+      FunctionName: !Sub 'api-send-message-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -647,8 +925,13 @@ Resources:
       Environment:
         Variables:
           STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
           MESSAGES_TABLE: !Ref MessagesTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
+          ENVIRONMENT: !Ref Environment
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -657,7 +940,7 @@ Resources:
   WsConnect:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: ws-connect
+      FunctionName: !Sub 'ws-connect-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -667,6 +950,7 @@ Resources:
       Environment:
         Variables:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
+          ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -674,7 +958,7 @@ Resources:
   WsDisconnect:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: ws-disconnect
+      FunctionName: !Sub 'ws-disconnect-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -684,6 +968,8 @@ Resources:
       Environment:
         Variables:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
+          USERS_TABLE: !Ref UsersTable
+          ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -691,7 +977,7 @@ Resources:
   WsInit:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: ws-init
+      FunctionName: !Sub 'ws-init-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -702,6 +988,7 @@ Resources:
         Variables:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           USERS_TABLE: !Ref UsersTable
+          ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -709,7 +996,7 @@ Resources:
   WsPing:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: ws-ping
+      FunctionName: !Sub 'ws-ping-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -718,7 +1005,7 @@ Resources:
         S3Key: lambda/ws-ping.zip
       Environment:
         Variables:
-          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -726,7 +1013,7 @@ Resources:
   WsStaffInit:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: ws-staff-init
+      FunctionName: !Sub 'ws-staff-init-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
@@ -735,11 +1022,136 @@ Resources:
         S3Key: lambda/ws-staff-init.zip
       Environment:
         Variables:
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           STAFF_TABLE: !Ref StaffTable
+          ENVIRONMENT: !Ref Environment
       Tags:
         - Key: Environment
           Value: !Ref Environment
+
+  ApiGetInvoices:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'api-get-invoices-${Environment}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-get-invoices.zip
+      Environment:
+        Variables:
+          STAFF_TABLE: !Ref StaffTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          ENVIRONMENT: !Ref Environment
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiGenerateInvoice:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'api-generate-invoice-${Environment}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-generate-invoice.zip
+      Environment:
+        Variables:
+          INVOICES_TABLE: !Ref InvoicesTable
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          SHARED_KEY: !Ref SharedKey
+          ENVIRONMENT: !Ref Environment
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Email Suppression Manager API Function
+  ApiEmailSuppressionManager:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'api-email-suppression-manager-${Environment}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          ANALYTICS_TABLE_NAME: !Ref EmailAnalyticsTableName
+          SHARED_KEY: !Ref SharedKey
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: 'lambda/api-email-suppression-manager.zip'
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: AutoLabSolutions
+        - Key: Purpose
+          Value: EmailSuppressionAPI
+
+  # API Get Emails Function
+  ApiGetEmails:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'api-get-emails-${Environment}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          STAFF_TABLE: !Ref StaffTable
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: 'lambda/api-get-emails.zip'
+      Timeout: 30
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: AutoLabSolutions
+        - Key: Purpose
+          Value: EmailAPI
+
+  # API Send Email Function
+  ApiSendEmail:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'api-send-email-${Environment}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          STAFF_TABLE: !Ref StaffTable
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: 'lambda/api-send-email.zip'
+      Timeout: 60
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: AutoLabSolutions
+        - Key: Purpose
+          Value: EmailAPI
 
 Outputs:
   StaffAuthorizerArn:
@@ -794,17 +1206,21 @@ Outputs:
     Description: Update Order Lambda ARN
     Value: !GetAtt ApiUpdateOrder.Arn
 
-  ConfirmPaymentArn:
-    Description: Confirm Payment Lambda ARN
-    Value: !GetAtt ApiConfirmPayment.Arn
+  ConfirmCashPaymentArn:
+    Description: Confirm Cash Payment Lambda ARN
+    Value: !GetAtt ApiConfirmCashPayment.Arn
 
   CreatePaymentIntentArn:
     Description: Create Payment Intent Lambda ARN
     Value: !GetAtt ApiCreatePaymentIntent.Arn
 
-  ConfirmPaymentSuccessArn:
-    Description: Confirm Payment Success Lambda ARN
-    Value: !GetAtt ApiConfirmPaymentSuccess.Arn
+  ConfirmStripePaymentArn:
+    Description: Confirm Stripe Payment Lambda ARN
+    Value: !GetAtt ApiConfirmStripePayment.Arn
+
+  WebhookStripePaymentArn:
+    Description: Webhook Stripe Payment Lambda ARN
+    Value: !GetAtt ApiWebhookStripePayment.Arn
 
   GetInquiriesArn:
     Description: Get Inquiries Lambda ARN
@@ -870,6 +1286,29 @@ Outputs:
     Description: WebSocket Staff Init Lambda ARN
     Value: !GetAtt WsStaffInit.Arn
 
-  WebhookStripePaymentArn:
-    Description: Webhook Stripe Payment Lambda ARN
-    Value: !GetAtt WebhookStripePayment.Arn
+  GetInvoicesArn:
+    Description: Get Invoices Lambda ARN
+    Value: !GetAtt ApiGetInvoices.Arn
+
+  ApiGenerateInvoiceArn:
+    Description: Generate Invoice Lambda ARN
+    Value: !GetAtt ApiGenerateInvoice.Arn
+
+  ApiEmailSuppressionManagerArn:
+    Description: Email Suppression Manager API Lambda ARN
+    Value: !GetAtt ApiEmailSuppressionManager.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiEmailSuppressionManagerArn'
+
+  ApiGetEmailsArn:
+    Description: Get Emails API Lambda ARN
+    Value: !GetAtt ApiGetEmails.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiGetEmailsArn'
+
+  ApiSendEmailArn:
+    Description: Send Email API Lambda ARN
+    Value: !GetAtt ApiSendEmail.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiSendEmailArn'
+
