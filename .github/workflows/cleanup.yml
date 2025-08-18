@@ -10,10 +10,6 @@ on:
         options:
         - development
         - production
-      confirm:
-        description: 'Type "DELETE" to confirm cleanup'
-        required: true
-        type: string
 
 env:
   AWS_REGION: ap-southeast-2
@@ -22,8 +18,8 @@ jobs:
   cleanup:
     name: Cleanup Environment
     runs-on: ubuntu-latest
-    if: github.event.inputs.confirm == 'DELETE'
-    
+    environment: ${{ github.event.inputs.environment }}
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -36,9 +32,15 @@ jobs:
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        aws-access-key-id: ${{ github.event.inputs.environment == 'production' && secrets.PROD_AWS_ACCESS_KEY_ID || secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ github.event.inputs.environment == 'production' && secrets.PROD_AWS_SECRET_ACCESS_KEY || secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
+
+    - name: Verify AWS credentials
+      run: |
+        echo "Verifying AWS credentials..."
+        aws sts get-caller-identity
+        echo "AWS credentials are working correctly"
 
     - name: Install dependencies
       run: |
