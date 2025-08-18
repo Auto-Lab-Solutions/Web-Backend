@@ -52,13 +52,34 @@ Resources:
           
           def lambda_handler(event, context):
               try:
-                  ses_client = boto3.client('ses')
+                  print(f'Received event: {json.dumps(event, default=str)}')
+                  
+                  # Validate required parameters
+                  required_params = ['Domain', 'BounceTopicArn', 'ComplaintTopicArn', 'Region']
+                  for param in required_params:
+                      if param not in event.get('ResourceProperties', {}):
+                          raise ValueError(f'Missing required parameter: {param}')
                   
                   domain = event['ResourceProperties']['Domain']
                   bounce_topic = event['ResourceProperties']['BounceTopicArn']
                   complaint_topic = event['ResourceProperties']['ComplaintTopicArn']
                   delivery_topic = event['ResourceProperties'].get('DeliveryTopicArn', '')
                   region = event['ResourceProperties']['Region']
+                  
+                  # Validate parameter values
+                  if not domain:
+                      raise ValueError('Domain parameter is empty')
+                  if not bounce_topic.startswith('arn:aws:sns:'):
+                      raise ValueError(f'Invalid bounce topic ARN format: {bounce_topic}')
+                  if not complaint_topic.startswith('arn:aws:sns:'):
+                      raise ValueError(f'Invalid complaint topic ARN format: {complaint_topic}')
+                  if delivery_topic and not delivery_topic.startswith('arn:aws:sns:'):
+                      raise ValueError(f'Invalid delivery topic ARN format: {delivery_topic}')
+                  
+                  # Create SES client in the specified region
+                  ses_client = boto3.client('ses', region_name=region)
+                  
+                  print(f'Configuring SES notifications for domain: {domain} in region: {region}')
                   
                   if event['RequestType'] == 'Create' or event['RequestType'] == 'Update':
                       # Check if domain is verified first
@@ -88,6 +109,9 @@ Resources:
                       
                       try:
                           # Configure bounce notifications
+                          print(f'Configuring bounce notifications for {domain}...')
+                          print(f'Bounce topic ARN: {bounce_topic}')
+                          
                           ses_client.put_identity_notification_attributes(
                               Identity=domain,
                               NotificationType='Bounce',
@@ -99,8 +123,12 @@ Resources:
                               NotificationType='Bounce',
                               Enabled=True
                           )
+                          print('Bounce notifications configured successfully')
                           
                           # Configure complaint notifications
+                          print(f'Configuring complaint notifications for {domain}...')
+                          print(f'Complaint topic ARN: {complaint_topic}')
+                          
                           ses_client.put_identity_notification_attributes(
                               Identity=domain,
                               NotificationType='Complaint',
@@ -112,9 +140,13 @@ Resources:
                               NotificationType='Complaint',
                               Enabled=True
                           )
+                          print('Complaint notifications configured successfully')
                           
                           # Configure delivery notifications (if provided)
                           if delivery_topic:
+                              print(f'Configuring delivery notifications for {domain}...')
+                              print(f'Delivery topic ARN: {delivery_topic}')
+                              
                               ses_client.put_identity_notification_attributes(
                                   Identity=domain,
                                   NotificationType='Delivery',
@@ -126,21 +158,34 @@ Resources:
                                   NotificationType='Delivery',
                                   Enabled=True
                               )
+                              print('Delivery notifications configured successfully')
+                          else:
+                              print('No delivery topic provided, skipping delivery notifications')
                           
                           cfnresponse.send(event, context, cfnresponse.SUCCESS, 
                                          {'Message': f'Successfully configured notifications for domain: {domain}'})
                                          
                       except Exception as config_error:
                           error_message = str(config_error)
+                          print(f'Configuration error: {error_message}')
                           
-                          # Check if error is due to unverified domain
+                          # Check for specific error types
                           if 'MessageRejected' in error_message or 'not verified' in error_message.lower():
                               print(f'Domain {domain} not yet verified. Configuration will be applied when domain is verified.')
                               # Succeed anyway - notifications will be configured when domain is verified
                               cfnresponse.send(event, context, cfnresponse.SUCCESS, 
                                              {'Message': f'Domain {domain} not yet verified. Notifications will be configured automatically when domain verification completes.'})
+                          elif 'InvalidParameter' in error_message:
+                              print(f'Invalid parameter error: {error_message}')
+                              cfnresponse.send(event, context, cfnresponse.FAILED, 
+                                             {'Message': f'Invalid parameter: {error_message}'})
+                          elif 'AccessDenied' in error_message:
+                              print(f'Access denied error: {error_message}')
+                              cfnresponse.send(event, context, cfnresponse.FAILED, 
+                                             {'Message': f'Access denied: {error_message}'})
                           else:
                               # Some other error occurred
+                              print(f'Unexpected configuration error: {error_message}')
                               raise config_error
                   
                   elif event['RequestType'] == 'Delete':
@@ -149,9 +194,13 @@ Resources:
                                      {'Message': 'Notification configuration not removed on delete'})
                   
               except Exception as e:
-                  print(f'Error: {str(e)}')
+                  error_message = str(e)
+                  print(f'Unexpected error: {error_message}')
+                  print(f'Event: {json.dumps(event, default=str)}')
+                  
+                  # Provide more detailed error information
                   cfnresponse.send(event, context, cfnresponse.FAILED, 
-                                 {'Message': f'Failed to configure notifications: {str(e)}'})
+                                 {'Message': f'Failed to configure SES notifications: {error_message}', 'Error': str(e)})
 
   # IAM Role for the SES notification configurator function
   SESNotificationConfiguratorRole:
