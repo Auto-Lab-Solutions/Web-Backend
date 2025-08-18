@@ -434,9 +434,3 @@ Outputs:
     Value: !Ref SESReceiptRuleSet
     Export:
       Name: !Sub '${AWS::StackName}-SESReceiptRuleSet'
-
-  MailReceivingAddress:
-    Description: Email address for receiving emails in this environment
-    Value: !Ref MailReceivingAddress
-    Export:
-      Name: !Sub '${AWS::StackName}-MailReceivingAddress'

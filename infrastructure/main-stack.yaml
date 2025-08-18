@@ -692,7 +692,7 @@ Outputs:
 
   MailReceivingAddress:
     Description: Email address for receiving emails in this environment
-    Value: !GetAtt SESEmailStorageStack.Outputs.MailReceivingAddress
+    Value: !Ref MailReceivingAddress
     Export:
       Name: !Sub '${AWS::StackName}-MailReceivingAddress'
 
