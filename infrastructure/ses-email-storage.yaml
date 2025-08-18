@@ -91,6 +91,15 @@ Resources:
         BlockPublicPolicy: false
         IgnorePublicAcls: true
         RestrictPublicBuckets: false
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt EmailProcessorFunction.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: emails/
       LifecycleConfiguration:
         Rules:
           - Id: DeleteOldEmails
@@ -230,6 +239,167 @@ Resources:
           - S3Action:
               BucketName: !Ref EmailStorageBucket
               ObjectKeyPrefix: emails/
+
+  # Lambda function to activate the SES receipt rule set (since CloudFormation doesn't support this directly)
+  SESRuleSetActivatorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'ses-ruleset-activator-${EnvironmentName}'
+      Runtime: python3.9
+      Handler: index.lambda_handler
+      Timeout: 60
+      Role: !GetAtt SESRuleSetActivatorRole.Arn
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+          import json
+          
+          def lambda_handler(event, context):
+              try:
+                  ses_client = boto3.client('ses')
+                  
+                  if event['RequestType'] == 'Create' or event['RequestType'] == 'Update':
+                      rule_set_name = event['ResourceProperties']['RuleSetName']
+                      region = event['ResourceProperties']['Region']
+                      
+                      # Set the rule set as active
+                      ses_client.set_active_receipt_rule_set(RuleSetName=rule_set_name)
+                      
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, 
+                                     {'Message': f'Successfully activated rule set: {rule_set_name}'})
+                  
+                  elif event['RequestType'] == 'Delete':
+                      # Don't deactivate on delete to avoid breaking other environments
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, 
+                                     {'Message': 'Rule set activation not removed on delete'})
+                  
+              except Exception as e:
+                  print(f'Error: {str(e)}')
+                  cfnresponse.send(event, context, cfnresponse.FAILED, 
+                                 {'Message': f'Failed to manage rule set: {str(e)}'})
+
+  # IAM Role for the SES rule set activator function
+  SESRuleSetActivatorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SESRuleSetAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ses:SetActiveReceiptRuleSet
+                  - ses:DescribeActiveReceiptRuleSet
+                  - ses:ListReceiptRuleSets
+                Resource: '*'
+
+  # Custom resource to activate the SES receipt rule set
+  SESRuleSetActivation:
+    Type: AWS::CloudFormation::CustomResource
+    DependsOn: SESReceiptRule
+    Properties:
+      ServiceToken: !GetAtt SESRuleSetActivatorFunction.Arn
+      RuleSetName: !Ref SESReceiptRuleSet
+      Region: !Ref SesRegion
+
+  # Lambda function to activate the SES receipt rule set (since CloudFormation doesn't support this directly)
+  SESRuleSetActivatorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'ses-ruleset-activator-${EnvironmentName}'
+      Runtime: python3.9
+      Handler: index.lambda_handler
+      Timeout: 60
+      Role: !GetAtt SESRuleSetActivatorRole.Arn
+      Code:
+        ZipFile: |
+          import boto3
+          import cfnresponse
+          import json
+          
+          def lambda_handler(event, context):
+              try:
+                  ses_client = boto3.client('ses')
+                  
+                  if event['RequestType'] == 'Create' or event['RequestType'] == 'Update':
+                      rule_set_name = event['ResourceProperties']['RuleSetName']
+                      region = event['ResourceProperties']['Region']
+                      
+                      # Set the rule set as active
+                      ses_client.set_active_receipt_rule_set(RuleSetName=rule_set_name)
+                      
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, 
+                                     {'Message': f'Successfully activated rule set: {rule_set_name}'})
+                  
+                  elif event['RequestType'] == 'Delete':
+                      # Don't deactivate on delete to avoid breaking other environments
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, 
+                                     {'Message': 'Rule set activation not removed on delete'})
+                  
+              except Exception as e:
+                  print(f'Error: {str(e)}')
+                  cfnresponse.send(event, context, cfnresponse.FAILED, 
+                                 {'Message': f'Failed to manage rule set: {str(e)}'})
+
+  # IAM Role for the SES rule set activator function
+  SESRuleSetActivatorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SESRuleSetAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ses:SetActiveReceiptRuleSet
+                  - ses:DescribeActiveReceiptRuleSet
+                  - ses:ListReceiptRuleSets
+                Resource: '*'
+
+  # Custom resource to activate the SES receipt rule set
+  SESRuleSetActivation:
+    Type: AWS::CloudFormation::CustomResource
+    DependsOn: SESReceiptRule
+    Properties:
+      ServiceToken: !GetAtt SESRuleSetActivatorFunction.Arn
+      RuleSetName: !Ref SESReceiptRuleSet
+      Region: !Ref SesRegion
+
+  # S3 Bucket Notification Configuration (triggers Lambda when emails arrive)
+  EmailProcessorBucketNotification:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${EmailStorageBucketName}-${AWS::AccountId}-${EnvironmentName}'
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt EmailProcessorFunction.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: emails/
 
 Outputs:
   EmailStorageBucket:

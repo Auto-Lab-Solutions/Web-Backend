@@ -210,27 +210,17 @@ auto_verify_identities() {
     print_status "Verifying domain: $domain"
     if aws ses verify-domain-identity --domain "$domain" --region "$SES_REGION" &>/dev/null; then
         print_success "Domain verification initiated for: $domain"
+        print_success "✅ Domain verification covers ALL @$domain email addresses including:"
+        print_success "  - $email_to_verify"
+        if [ "$MAIL_FROM_ADDRESS" != "$email_to_verify" ]; then
+            print_success "  - $MAIL_FROM_ADDRESS"
+        fi
     else
         print_warning "Failed to initiate domain verification for: $domain"
     fi
     
-    # Verify email address
-    print_status "Verifying email address: $email_to_verify"
-    if aws ses verify-email-identity --email-address "$email_to_verify" --region "$SES_REGION" &>/dev/null; then
-        print_success "Email verification initiated for: $email_to_verify"
-    else
-        print_warning "Failed to initiate email verification for: $email_to_verify"
-    fi
-    
-    # Also verify the MAIL_FROM_ADDRESS if different
-    if [ "$MAIL_FROM_ADDRESS" != "$email_to_verify" ]; then
-        print_status "Verifying email address: $MAIL_FROM_ADDRESS"
-        if aws ses verify-email-identity --email-address "$MAIL_FROM_ADDRESS" --region "$SES_REGION" &>/dev/null; then
-            print_success "Email verification initiated for: $MAIL_FROM_ADDRESS"
-        else
-            print_warning "Failed to initiate email verification for: $MAIL_FROM_ADDRESS"
-        fi
-    fi
+    # Note: Individual email verification is not needed when domain is verified
+    print_status "ℹ️  Individual email verification skipped - domain verification covers all @$domain addresses"
 }
 
 # Function to check and display DNS requirements

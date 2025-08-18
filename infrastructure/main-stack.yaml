@@ -91,6 +91,17 @@ Parameters:
     Description: AWS region for SES service
     Default: "ap-southeast-2"
 
+  # SES Domain and Route53 Configuration Parameters
+  SESHostedZoneId:
+    Type: String
+    Description: Route53 hosted zone ID for SES domain verification (leave empty to skip Route53 configuration)
+    Default: ""
+
+  SESDomainName:
+    Type: String
+    Description: The domain name for SES (e.g., autolabsolutions.com or dev.autolabsolutions.com)
+    Default: "autolabsolutions.com"
+
   # Email Storage Parameters
   MailReceivingAddress:
     Type: String
@@ -406,9 +417,26 @@ Resources:
         - Key: Purpose
           Value: BackupSystem
 
+  # SES Identities and Route53 DNS Records Stack
+  SESIdentitiesStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/ses-identities-route53.yaml'
+      Parameters:
+        EnvironmentName: !Ref Environment
+        SesRegion: !Ref SesRegion
+        HostedZoneId: !Ref SESHostedZoneId
+        DomainName: !Ref SESDomainName
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: SESIdentities
+
   # SES Bounce and Complaint Handling System
   SESBounceComplaintStack:
     Type: AWS::CloudFormation::Stack
+    DependsOn: SESIdentitiesStack
     Properties:
       TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/ses-bounce-complaint-system.yaml'
       Parameters:
@@ -420,6 +448,7 @@ Resources:
   # SES Email Storage System
   SESEmailStorageStack:
     Type: AWS::CloudFormation::Stack
+    DependsOn: SESIdentitiesStack
     Properties:
       TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/ses-email-storage.yaml'
       Parameters:
@@ -434,6 +463,27 @@ Resources:
           Value: !Ref Environment
         - Key: Component
           Value: EmailStorage
+
+  # SES Identity Notification Configuration
+  SESNotificationConfigStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: 
+      - SESIdentitiesStack
+      - SESBounceComplaintStack
+    Properties:
+      TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/ses-notification-config.yaml'
+      Parameters:
+        EnvironmentName: !Ref Environment
+        SesRegion: !Ref SesRegion
+        SESDomainName: !Ref SESDomainName
+        SESBounceTopicArn: !GetAtt SESBounceComplaintStack.Outputs.SESBounceTopicArn
+        SESComplaintTopicArn: !GetAtt SESBounceComplaintStack.Outputs.SESComplaintTopicArn
+        SESDeliveryTopicArn: !GetAtt SESBounceComplaintStack.Outputs.SESDeliveryTopicArn
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: SESNotifications
 
 
 Outputs:
@@ -645,3 +695,28 @@ Outputs:
     Value: !GetAtt SESEmailStorageStack.Outputs.MailReceivingAddress
     Export:
       Name: !Sub '${AWS::StackName}-MailReceivingAddress'
+
+  # SES Identity Outputs
+  SESDomainIdentity:
+    Description: SES Domain Identity
+    Value: !GetAtt SESIdentitiesStack.Outputs.SESDomainIdentity
+    Export:
+      Name: !Sub '${AWS::StackName}-SESDomainIdentity'
+
+  SESMailFromDomainIdentity:
+    Description: SES MAIL FROM Domain Identity
+    Value: !GetAtt SESIdentitiesStack.Outputs.SESMailFromDomainIdentity
+    Export:
+      Name: !Sub '${AWS::StackName}-SESMailFromDomainIdentity'
+
+  SESConfigurationSet:
+    Description: SES Configuration Set
+    Value: !GetAtt SESIdentitiesStack.Outputs.SESConfigurationSet
+    Export:
+      Name: !Sub '${AWS::StackName}-SESConfigurationSet'
+
+  SESDomainName:
+    Description: The domain name configured for SES
+    Value: !GetAtt SESIdentitiesStack.Outputs.DomainName
+    Export:
+      Name: !Sub '${AWS::StackName}-SESDomainName'

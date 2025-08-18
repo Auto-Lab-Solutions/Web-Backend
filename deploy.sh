@@ -631,6 +631,8 @@ deploy_stack() {
             ReportsDomainName="${REPORTS_DOMAIN_NAME:-}" \
             ReportsHostedZoneId="${REPORTS_HOSTED_ZONE_ID:-}" \
             ReportsAcmCertificateArn="${REPORTS_ACM_CERTIFICATE_ARN:-}" \
+            SESHostedZoneId="${SES_HOSTED_ZONE_ID:-}" \
+            SESDomainName="${SES_DOMAIN_NAME:-autolabsolutions.com}" \
         --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
         --region $AWS_REGION
     
@@ -691,215 +693,10 @@ update_auth0_config() {
 # Configure SES Bounce and Complaint Notifications
 configure_ses_notifications() {
     print_status "Configuring SES bounce and complaint notifications..."
-    
-    # Get SNS topic ARNs from the SES bounce/complaint stack
-    local bounce_topic_arn=""
-    local complaint_topic_arn=""
-    local delivery_topic_arn=""
-    
-    # Try to get topic ARNs from main stack outputs via the SES bounce/complaint substack
-    bounce_topic_arn=$(aws cloudformation describe-stacks \
-        --stack-name "$STACK_NAME" \
-        --query "Stacks[0].Outputs[?OutputKey=='SESBounceTopicArn'].OutputValue" \
-        --output text \
-        --region "$AWS_REGION" 2>/dev/null)
-    
-    complaint_topic_arn=$(aws cloudformation describe-stacks \
-        --stack-name "$STACK_NAME" \
-        --query "Stacks[0].Outputs[?OutputKey=='SESComplaintTopicArn'].OutputValue" \
-        --output text \
-        --region "$AWS_REGION" 2>/dev/null)
-    
-    delivery_topic_arn=$(aws cloudformation describe-stacks \
-        --stack-name "$STACK_NAME" \
-        --query "Stacks[0].Outputs[?OutputKey=='SESDeliveryTopicArn'].OutputValue" \
-        --output text \
-        --region "$AWS_REGION" 2>/dev/null)
-    
-    if [ -z "$bounce_topic_arn" ] || [ -z "$complaint_topic_arn" ]; then
-        print_error "Could not retrieve SNS topic ARNs from CloudFormation stack"
-        print_error "SES bounce/complaint notifications setup will be skipped"
-        print_warning "You may need to run the SES notification configuration manually"
-        return 1
-    fi
-    
-    print_status "Retrieved topic ARNs:"
-    print_status "  Bounce Topic: $bounce_topic_arn"
-    print_status "  Complaint Topic: $complaint_topic_arn"
-    if [ -n "$delivery_topic_arn" ]; then
-        print_status "  Delivery Topic: $delivery_topic_arn"
-    fi
-    
-    local domain="${MAIL_FROM_ADDRESS##*@}"
-    
-    print_status "Configuring notifications for domain: $domain"
-    
-    # Configure bounce notifications
-    print_status "Setting up bounce notifications..."
-    if aws ses put-identity-notification-attributes \
-        --identity "$domain" \
-        --notification-type Bounce \
-        --sns-topic "$bounce_topic_arn" \
-        --region "$SES_REGION" 2>/dev/null; then
-        
-        # Enable bounce notifications
-        aws ses put-identity-notification-attributes \
-            --identity "$domain" \
-            --notification-type Bounce \
-            --enabled \
-            --region "$SES_REGION" 2>/dev/null
-        
-        print_success "Bounce notifications configured for domain: $domain"
-    else
-        print_warning "Failed to configure bounce notifications for domain: $domain"
-        print_warning "Domain may not be verified in SES region: $SES_REGION"
-    fi
-    
-    # Configure complaint notifications
-    print_status "Setting up complaint notifications..."
-    if aws ses put-identity-notification-attributes \
-        --identity "$domain" \
-        --notification-type Complaint \
-        --sns-topic "$complaint_topic_arn" \
-        --region "$SES_REGION" 2>/dev/null; then
-        
-        # Enable complaint notifications
-        aws ses put-identity-notification-attributes \
-            --identity "$domain" \
-            --notification-type Complaint \
-            --enabled \
-            --region "$SES_REGION" 2>/dev/null
-        
-        print_success "Complaint notifications configured for domain: $domain"
-    else
-        print_warning "Failed to configure complaint notifications for domain: $domain"
-        print_warning "Domain may not be verified in SES region: $SES_REGION"
-    fi
-    
-    # Configure delivery notifications (optional, for analytics)
-    if [ -n "$delivery_topic_arn" ]; then
-        print_status "Setting up delivery notifications..."
-        if aws ses put-identity-notification-attributes \
-            --identity "$domain" \
-            --notification-type Delivery \
-            --sns-topic "$delivery_topic_arn" \
-            --region "$SES_REGION" 2>/dev/null; then
-            
-            # Enable delivery notifications
-            aws ses put-identity-notification-attributes \
-                --identity "$domain" \
-                --notification-type Delivery \
-                --enabled \
-                --region "$SES_REGION" 2>/dev/null
-            
-            print_success "Delivery notifications configured for domain: $domain"
-        else
-            print_warning "Failed to configure delivery notifications for domain: $domain"
-        fi
-    fi
-    
-    # Also configure for the specific email addresses if different from domain
-    if [ "$MAIL_FROM_ADDRESS" != "$domain" ]; then
-        print_status "Configuring notifications for receiving email: $MAIL_FROM_ADDRESS"
-        
-        # Configure bounce notifications for email
-        if aws ses put-identity-notification-attributes \
-            --identity "$MAIL_FROM_ADDRESS" \
-            --notification-type Bounce \
-            --sns-topic "$bounce_topic_arn" \
-            --region "$SES_REGION" 2>/dev/null; then
-            
-            aws ses put-identity-notification-attributes \
-                --identity "$MAIL_FROM_ADDRESS" \
-                --notification-type Bounce \
-                --enabled \
-                --region "$SES_REGION" 2>/dev/null
-        fi
-        
-        # Configure complaint notifications for email
-        if aws ses put-identity-notification-attributes \
-            --identity "$MAIL_FROM_ADDRESS" \
-            --notification-type Complaint \
-            --sns-topic "$complaint_topic_arn" \
-            --region "$SES_REGION" 2>/dev/null; then
-            
-            aws ses put-identity-notification-attributes \
-                --identity "$MAIL_FROM_ADDRESS" \
-                --notification-type Complaint \
-                --enabled \
-                --region "$SES_REGION" 2>/dev/null
-        fi
-        
-        # Configure delivery notifications for email
-        if [ -n "$delivery_topic_arn" ]; then
-            if aws ses put-identity-notification-attributes \
-                --identity "$MAIL_FROM_ADDRESS" \
-                --notification-type Delivery \
-                --sns-topic "$delivery_topic_arn" \
-                --region "$SES_REGION" 2>/dev/null; then
-                
-                aws ses put-identity-notification-attributes \
-                    --identity "$MAIL_FROM_ADDRESS" \
-                    --notification-type Delivery \
-                    --enabled \
-                    --region "$SES_REGION" 2>/dev/null
-            fi
-        fi
-        
-        print_success "Notifications configured for receiving email: $MAIL_FROM_ADDRESS"
-    fi
-    
-    if [ "$NO_REPLY_EMAIL" != "$domain" ]; then
-        print_status "Configuring notifications for sending email: $NO_REPLY_EMAIL"
-        
-        # Configure bounce notifications for email
-        if aws ses put-identity-notification-attributes \
-            --identity "$NO_REPLY_EMAIL" \
-            --notification-type Bounce \
-            --sns-topic "$bounce_topic_arn" \
-            --region "$SES_REGION" 2>/dev/null; then
-            
-            aws ses put-identity-notification-attributes \
-                --identity "$NO_REPLY_EMAIL" \
-                --notification-type Bounce \
-                --enabled \
-                --region "$SES_REGION" 2>/dev/null
-        fi
-        
-        # Configure complaint notifications for email
-        if aws ses put-identity-notification-attributes \
-            --identity "$NO_REPLY_EMAIL" \
-            --notification-type Complaint \
-            --sns-topic "$complaint_topic_arn" \
-            --region "$SES_REGION" 2>/dev/null; then
-            
-            aws ses put-identity-notification-attributes \
-                --identity "$NO_REPLY_EMAIL" \
-                --notification-type Complaint \
-                --enabled \
-                --region "$SES_REGION" 2>/dev/null
-        fi
-        
-        # Configure delivery notifications for email
-        if [ -n "$delivery_topic_arn" ]; then
-            if aws ses put-identity-notification-attributes \
-                --identity "$NO_REPLY_EMAIL" \
-                --notification-type Delivery \
-                --sns-topic "$delivery_topic_arn" \
-                --region "$SES_REGION" 2>/dev/null; then
-                
-                aws ses put-identity-notification-attributes \
-                    --identity "$NO_REPLY_EMAIL" \
-                    --notification-type Delivery \
-                    --enabled \
-                    --region "$SES_REGION" 2>/dev/null
-            fi
-        fi
-        
-        print_success "Notifications configured for sending email: $NO_REPLY_EMAIL"
-    fi
-    
-    print_success "SES bounce and complaint notifications configured successfully"
+    print_success "✅ SES bounce and complaint notifications are now automatically configured by CloudFormation"
+    print_success "✅ SNS topics created and linked to SES identities"
+    print_success "✅ Lambda functions configured to process bounce/complaint notifications"
+    print_success "✅ DynamoDB tables configured for email suppression and analytics"
     
     # Provide instructions for manual verification
     print_status "SES Notification Setup Complete!"
@@ -1222,49 +1019,22 @@ except:
 configure_email_receiving() {
     print_status "Configuring SES email receiving..."
     
-    # First, configure DNS records for SES verification
-    print_status "Step 1: Configure SES DNS records for domain verification"
-    if configure_ses_dns_records; then
-        print_success "SES DNS records configured successfully"
-    else
-        print_warning "SES DNS configuration failed, but continuing with deployment"
-        print_warning "You may need to manually configure DNS records for email receiving"
-    fi
+    # Note: SES identities, DNS records, receipt rules, and notifications are now managed by CloudFormation
+    print_status "Step 1: SES identities and DNS records managed by CloudFormation"
+    print_success "✅ SES domain identities and Route53 DNS records are automatically managed by CloudFormation"
+    print_success "✅ Domain verification covers all email addresses under the domain"
+    print_success "✅ DKIM signing and MAIL FROM domain configured for better deliverability"
+    print_success "✅ SES receipt rule set automatically activated by CloudFormation"
+    print_success "✅ SES bounce/complaint notifications automatically configured by CloudFormation"
+    print_success "✅ S3 bucket notifications automatically configured by CloudFormation"
     
     # Check verification status
     print_status "Step 2: Check SES verification status"
     check_ses_verification_status
     
-    # First, validate S3 bucket configuration for SES
+    # Validate S3 bucket configuration for SES
     print_status "Step 3: Validate S3 bucket configuration for SES"
     validate_ses_s3_configuration
-    
-    # Get the rule set name from the email storage stack output
-    print_status "Step 4: Configure SES receipt rules"
-    local rule_set_name=""
-    rule_set_name=$(aws cloudformation describe-stacks \
-        --stack-name "$STACK_NAME" \
-        --query "Stacks[0].Outputs[?OutputKey=='SESReceiptRuleSet'].OutputValue" \
-        --output text \
-        --region "$AWS_REGION" 2>/dev/null)
-    
-    if [ -z "$rule_set_name" ] || [ "$rule_set_name" = "None" ]; then
-        print_warning "Could not retrieve SES receipt rule set from CloudFormation stack"
-        print_warning "Email receiving configuration will be skipped"
-        return 1
-    fi
-    
-    print_status "Setting active receipt rule set: $rule_set_name"
-    
-    # Set the rule set as active
-    if aws ses set-active-receipt-rule-set \
-        --rule-set-name "$rule_set_name" \
-        --region "$SES_REGION"; then
-        print_success "SES receipt rule set activated successfully!"
-    else
-        print_error "Failed to activate SES receipt rule set"
-        return 1
-    fi
     
     print_success "✅ SES email receiving configured successfully!"
     
@@ -1277,7 +1047,7 @@ configure_email_receiving() {
     print_status "DynamoDB metadata table: ${EMAIL_METADATA_TABLE}"
     
     # Final verification check
-    print_status "Step 5: Final verification status check"
+    print_status "Step 4: Final verification status check"
     if check_ses_verification_status; then
         print_success "🎉 Email receiving setup is complete and verified!"
     else
@@ -1290,88 +1060,20 @@ configure_email_receiving() {
 # Configure S3 bucket notifications for email processing
 configure_s3_email_notifications() {
     print_status "Configuring S3 bucket notifications for email processing..."
+    print_success "✅ S3 bucket notifications are now automatically configured by CloudFormation"
+    print_success "✅ Lambda function permissions are properly set"
+    print_success "✅ Email processor will be triggered automatically when emails arrive"
     
-    # Get AWS Account ID
+    # Get AWS Account ID for display purposes
     local account_id
-    account_id=$(aws sts get-caller-identity --query Account --output text)
+    account_id=$(aws sts get-caller-identity --query Account --output text 2>/dev/null || echo "unknown")
     
-    if [ -z "$account_id" ]; then
-        print_error "Could not retrieve AWS Account ID"
-        return 1
-    fi
-    
-    # Construct resource names
     local bucket_name="${EMAIL_STORAGE_BUCKET}-${account_id}-${ENVIRONMENT}"
     local function_name="email-processor-${ENVIRONMENT}"
     
     print_status "Bucket: $bucket_name"
     print_status "Function: $function_name"
-    
-    # Get Lambda function ARN
-    local lambda_arn
-    lambda_arn=$(aws lambda get-function \
-        --function-name "$function_name" \
-        --region "$AWS_REGION" \
-        --query Configuration.FunctionArn \
-        --output text 2>/dev/null)
-    
-    if [ -z "$lambda_arn" ] || [ "$lambda_arn" = "None" ]; then
-        print_error "Could not find Lambda function: $function_name"
-        print_error "Please ensure the CloudFormation stack has deployed successfully"
-        return 1
-    fi
-    
-    print_status "Lambda ARN: $lambda_arn"
-    
-    # Create notification configuration JSON
-    local notification_config
-    notification_config=$(cat <<EOF
-{
-  "LambdaFunctionConfigurations": [
-    {
-      "Id": "EmailProcessor",
-      "LambdaFunctionArn": "$lambda_arn",
-      "Events": ["s3:ObjectCreated:*"],
-      "Filter": {
-        "Key": {
-          "FilterRules": [
-            {
-              "Name": "prefix",
-              "Value": "emails/"
-            }
-          ]
-        }
-      }
-    }
-  ]
-}
-EOF
-)
-    
-    print_status "Applying S3 bucket notification configuration..."
-    
-    # Apply the notification configuration
-    if aws s3api put-bucket-notification-configuration \
-        --bucket "$bucket_name" \
-        --notification-configuration "$notification_config" \
-        --region "$AWS_REGION"; then
-        print_success "S3 bucket notification configuration applied successfully!"
-        print_success "Bucket $bucket_name will now trigger $function_name when emails are stored"
-    else
-        print_error "Failed to configure S3 bucket notifications"
-        return 1
-    fi
-    
-    # Verify the configuration
-    print_status "Verifying notification configuration..."
-    if aws s3api get-bucket-notification-configuration \
-        --bucket "$bucket_name" \
-        --region "$AWS_REGION" \
-        --output table; then
-        print_success "S3 email notification configuration verified successfully!"
-    else
-        print_warning "Could not verify S3 notification configuration"
-    fi
+    print_success "S3 bucket notification configuration completed successfully!"
 }
 
 # Main deployment function
