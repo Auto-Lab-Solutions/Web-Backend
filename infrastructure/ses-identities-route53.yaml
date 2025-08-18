@@ -37,8 +37,6 @@ Resources:
       EmailIdentity: !Ref DomainName
       DkimSigningAttributes:
         NextSigningKeyLength: RSA_2048_BIT
-      ConfigurationSetAttributes:
-        ConfigurationSetName: !Ref SESConfigurationSet
 
   # SES Configuration Set for tracking
   SESConfigurationSet:
@@ -56,8 +54,6 @@ Resources:
       MailFromAttributes:
         MailFromDomain: !Sub 'mail.${DomainName}'
         BehaviorOnMxFailure: USE_DEFAULT_VALUE
-      ConfigurationSetAttributes:
-        ConfigurationSetName: !Ref SESConfigurationSet
 
   # Route53 DNS Records (only if hosted zone is provided)
   # DKIM Records for domain verification (AWS automatically provides these tokens)
