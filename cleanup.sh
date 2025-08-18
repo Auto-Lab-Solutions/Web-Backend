@@ -95,6 +95,27 @@ cleanup_local() {
     fi
 }
 
+# Function to deactivate SES rule sets
+deactivate_ses_rule_sets() {
+    print_status "Deactivating SES rule sets..."
+    
+    local rule_set_name="auto-lab-email-rules-${ENVIRONMENT}"
+    
+    # Check if the rule set exists and is active
+    local active_rule_set
+    active_rule_set=$(aws ses describe-active-receipt-rule-set --query 'RuleSet.Name' --output text 2>/dev/null || echo "None")
+    
+    if [ "$active_rule_set" = "$rule_set_name" ]; then
+        print_status "Deactivating active SES rule set: $rule_set_name"
+        aws ses set-active-receipt-rule-set 2>/dev/null || true
+        print_success "Deactivated SES rule set: $rule_set_name"
+    elif [ "$active_rule_set" = "None" ]; then
+        print_status "No active SES rule set found"
+    else
+        print_status "Active rule set '$active_rule_set' is not from this environment"
+    fi
+}
+
 # Main cleanup function
 main() {
     local environment=""
@@ -154,6 +175,9 @@ main() {
     fi
     
     print_status "Starting cleanup process..."
+    
+    # Deactivate SES rule sets before stack deletion
+    deactivate_ses_rule_sets
     
     # First empty S3 buckets (required before stack deletion)
     empty_s3_bucket "$REPORTS_BUCKET_NAME"
