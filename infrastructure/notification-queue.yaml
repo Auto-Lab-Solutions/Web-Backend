@@ -79,7 +79,7 @@ Parameters:
     Type: String
     Description: Frontend root URL for email links
   
-  FromEmail:
+  MailSendingAddress:
     Type: String
     Description: SES verified email address for sending notifications
     Default: "noreply@autolabsolutions.com"
@@ -199,7 +199,7 @@ Resources:
           REPORTS_BUCKET_NAME: !Ref ReportsBucketName
           CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
-          MAIL_FROM_ADDRESS: !Ref FromEmail
+          MAIL_FROM_ADDRESS: !Ref MailSendingAddress
           ENVIRONMENT: !Ref EnvironmentName
 
   # Lambda function to process WebSocket notification queue

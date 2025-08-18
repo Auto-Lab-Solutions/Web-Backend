@@ -118,7 +118,7 @@ Parameters:
     Description: SQS Queue URL for invoice generation
     Default: ""
 
-  FromEmail:
+  MailSendingAddress:
     Type: String
     Description: SES verified email address for sending emails
     Default: "noreply@autolabsolutions.com"
@@ -162,7 +162,7 @@ Parameters:
     Description: DynamoDB table for email metadata
     Default: ""
 
-  ToEmail:
+  MailReceivingAddress:
     Type: String
     Description: Email address for receiving emails (environment-specific)
     Default: "mail@autolabsolutions.com"
@@ -412,7 +412,7 @@ Resources:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           SERVICE_PRICES_TABLE: !Ref ServicePricesTable
           ENVIRONMENT: !Ref Environment
-          MAIL_FROM_ADDRESS: !Ref FromEmail
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
@@ -440,7 +440,7 @@ Resources:
           SERVICE_PRICES_TABLE: !Ref ServicePricesTable
           USERS_TABLE: !Ref UsersTable
           ENVIRONMENT: !Ref Environment
-          MAIL_FROM_ADDRESS: !Ref FromEmail
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
@@ -526,7 +526,7 @@ Resources:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           ITEM_PRICES_TABLE: !Ref ItemPricesTable
           ENVIRONMENT: !Ref Environment
-          MAIL_FROM_ADDRESS: !Ref FromEmail
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
@@ -554,7 +554,7 @@ Resources:
           ITEM_PRICES_TABLE: !Ref ItemPricesTable
           USERS_TABLE: !Ref UsersTable
           ENVIRONMENT: !Ref Environment
-          MAIL_FROM_ADDRESS: !Ref FromEmail
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
@@ -593,7 +593,7 @@ Resources:
           CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
-          MAIL_FROM_ADDRESS: !Ref FromEmail
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
           FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
@@ -653,7 +653,7 @@ Resources:
           CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
-          MAIL_FROM_ADDRESS: !Ref FromEmail
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
           FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
@@ -692,7 +692,7 @@ Resources:
           CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
-          MAIL_FROM_ADDRESS: !Ref FromEmail
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
           FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
@@ -1068,7 +1068,7 @@ Resources:
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           SHARED_KEY: !Ref SharedKey
           ENVIRONMENT: !Ref Environment
-          MAIL_FROM_ADDRESS: !Ref FromEmail
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -1135,8 +1135,8 @@ Resources:
       Environment:
         Variables:
           ENVIRONMENT: !Ref Environment
-          MAIL_FROM_ADDRESS: !Ref FromEmail
-          NO_REPLY_EMAIL: !Ref ToEmail
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          NO_REPLY_EMAIL: !Ref FromEmail
           EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
           EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
           EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName

@@ -25,7 +25,7 @@ Parameters:
     Description: S3 bucket containing CloudFormation templates and Lambda packages
     Default: "auto-lab-cloudformation-templates"
 
-  ToEmail:
+  MailReceivingAddress:
     Type: String
     Description: Email address for receiving emails (environment-specific)
     Default: "mail@autolabsolutions.com"
@@ -225,7 +225,7 @@ Resources:
         Name: !Sub 'auto-lab-email-rule-${EnvironmentName}'
         Enabled: true
         Recipients:
-          - !Ref ToEmail
+          - !Ref MailReceivingAddress
         Actions:
           - S3Action:
               BucketName: !Ref EmailStorageBucket
@@ -256,8 +256,8 @@ Outputs:
     Export:
       Name: !Sub '${AWS::StackName}-SESReceiptRuleSet'
 
-  ToEmailAddress:
+  MailReceivingAddress:
     Description: Email address for receiving emails in this environment
-    Value: !Ref ToEmail
+    Value: !Ref MailReceivingAddress
     Export:
-      Name: !Sub '${AWS::StackName}-ToEmailAddress'
+      Name: !Sub '${AWS::StackName}-MailReceivingAddress'

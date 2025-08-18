@@ -10,7 +10,7 @@ Parameters:
       - development
       - production
 
-  FromEmail:
+  MailSendingAddress:
     Type: String
     Description: SES verified email address for sending emails
     Default: "noreply@autolabsolutions.com"
@@ -223,7 +223,7 @@ Resources:
           ENVIRONMENT: !Ref EnvironmentName
           SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTable
           ANALYTICS_TABLE_NAME: !Ref EmailAnalyticsTable
-          MAIL_FROM_ADDRESS: !Ref FromEmail
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
       Timeout: 30
       MemorySize: 256
       Tags:
@@ -250,7 +250,7 @@ Resources:
           ENVIRONMENT: !Ref EnvironmentName
           SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTable
           ANALYTICS_TABLE_NAME: !Ref EmailAnalyticsTable
-          MAIL_FROM_ADDRESS: !Ref FromEmail
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
       Timeout: 30
       MemorySize: 256
       Tags:
@@ -276,7 +276,7 @@ Resources:
         Variables:
           ENVIRONMENT: !Ref EnvironmentName
           ANALYTICS_TABLE_NAME: !Ref EmailAnalyticsTable
-          MAIL_FROM_ADDRESS: !Ref FromEmail
+          MAIL_FROM_ADDRESS: !Ref MailSendingAddress
       Timeout: 30
       MemorySize: 256
       Tags:

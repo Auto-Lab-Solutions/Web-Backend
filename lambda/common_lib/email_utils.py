@@ -10,8 +10,8 @@ import response_utils as resp
 ses_client = boto3.client('ses')
 
 # Environment variables
-NO_REPLY_EMAIL = os.environ.get('MAIL_FROM_ADDRESS')
-MAIL_FROM_ADDRESS = os.environ.get('NO_REPLY_EMAIL')
+NO_REPLY_EMAIL = os.environ.get('NO_REPLY_EMAIL')
+MAIL_FROM_ADDRESS = os.environ.get('MAIL_FROM_ADDRESS')
 FRONTEND_URL = os.environ.get('FRONTEND_ROOT_URL')
 ENVIRONMENT = os.environ.get('ENVIRONMENT')
 

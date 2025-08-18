@@ -81,7 +81,7 @@ Parameters:
     Description: Frontend root URL for email links
     Default: "https://autolabsolutions.com"
 
-  FromEmail:
+  MailSendingAddress:
     Type: String
     Description: SES verified email address for sending notifications
     Default: "noreply@autolabsolutions.com"
@@ -92,7 +92,7 @@ Parameters:
     Default: "ap-southeast-2"
 
   # Email Storage Parameters
-  ToEmail:
+  MailReceivingAddress:
     Type: String
     Description: Email address for receiving emails (environment-specific)
     Default: "mail@autolabsolutions.com"
@@ -234,13 +234,13 @@ Resources:
         WebSocketNotificationQueueUrl: ""
         FirebaseNotificationQueueUrl: ""
         InvoiceGenerationQueueUrl: !GetAtt InvoiceQueueStack.Outputs.InvoiceGenerationQueueUrl
-        FromEmail: !Ref FromEmail
+        MailSendingAddress: !Ref MailSendingAddress
         SesRegion: !Ref SesRegion
         EmailSuppressionTableName: !GetAtt SESBounceComplaintStack.Outputs.EmailSuppressionTableName
         EmailAnalyticsTableName: !GetAtt SESBounceComplaintStack.Outputs.EmailAnalyticsTableName
         EmailStorageBucket: !GetAtt SESEmailStorageStack.Outputs.EmailStorageBucket
         EmailMetadataTable: !GetAtt SESEmailStorageStack.Outputs.EmailMetadataTable
-        ToEmail: !Ref ToEmail
+        MailReceivingAddress: !Ref MailReceivingAddress
 
   # API Gateway
   ApiGatewayStack:
@@ -355,7 +355,7 @@ Resources:
         ReportsBucketName: !GetAtt S3CloudFrontStack.Outputs.ReportsBucketName
         CloudFrontDomain: !If [ShouldEnableReportsCustomDomain, !Ref ReportsDomainName, !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName]
         FrontendRootUrl: !Ref FrontendRootUrl
-        FromEmail: !Ref FromEmail
+        MailSendingAddress: !Ref MailSendingAddress
         WebSocketApiId: !GetAtt WebSocketStack.Outputs.WebSocketApiId
         EnableFirebaseNotifications: !Ref EnableFirebaseNotifications
         FirebaseProjectId: !If [ShouldEnableFirebase, !Ref FirebaseProjectId, ""]
@@ -413,7 +413,7 @@ Resources:
       TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/ses-bounce-complaint-system.yaml'
       Parameters:
         EnvironmentName: !Ref Environment
-        FromEmail: !Ref FromEmail
+        MailSendingAddress: !Ref MailSendingAddress
         SesRegion: !Ref SesRegion
         CloudFormationBucket: !Ref CloudFormationBucket
 
@@ -428,7 +428,7 @@ Resources:
         EmailMetadataTableName: !Ref EmailMetadataTableName
         SesRegion: !Ref SesRegion
         CloudFormationBucket: !Ref CloudFormationBucket
-        ToEmail: !Ref ToEmail
+        MailReceivingAddress: !Ref MailReceivingAddress
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -640,8 +640,8 @@ Outputs:
     Export:
       Name: !Sub '${AWS::StackName}-EmailProcessorFunctionArn'
 
-  ToEmailAddress:
+  MailReceivingAddress:
     Description: Email address for receiving emails in this environment
-    Value: !GetAtt SESEmailStorageStack.Outputs.ToEmailAddress
+    Value: !GetAtt SESEmailStorageStack.Outputs.MailReceivingAddress
     Export:
-      Name: !Sub '${AWS::StackName}-ToEmailAddress'
+      Name: !Sub '${AWS::StackName}-MailReceivingAddress'

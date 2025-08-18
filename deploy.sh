@@ -614,9 +614,9 @@ deploy_stack() {
             FrontendAcmCertificateArn="$FRONTEND_ACM_CERTIFICATE_ARN" \
             EnableCustomDomain=$ENABLE_CUSTOM_DOMAIN \
             FrontendRootUrl="$FRONTEND_ROOT_URL" \
-            FromEmail="$NO_REPLY_EMAIL" \
+            MailSendingAddress="$NO_REPLY_EMAIL" \
             SesRegion="$SES_REGION" \
-            ToEmail="$MAIL_FROM_ADDRESS" \
+            MailReceivingAddress="$MAIL_FROM_ADDRESS" \
             EmailStorageBucketName="$EMAIL_STORAGE_BUCKET" \
             EmailMetadataTableName="$EMAIL_METADATA_TABLE" \
             EnableFirebaseNotifications="${ENABLE_FIREBASE_NOTIFICATIONS:-false}" \
@@ -992,26 +992,16 @@ configure_ses_dns_records() {
     print_status "  Email receiving address: $email_to_receive"
     print_status "  Email sending address: $NO_REPLY_EMAIL"
     
-    # Add domain to SES
+    # Add domain to SES (this covers all email addresses under the domain)
     print_status "Adding domain to SES: $domain"
     if aws ses verify-domain-identity --domain "$domain" --region "$SES_REGION" &>/dev/null; then
         print_success "Domain added to SES: $domain"
+        print_status "✅ This automatically verifies ALL @$domain email addresses"
+        print_status "  - $email_to_receive (receiving)"
+        print_status "  - $NO_REPLY_EMAIL (sending)"
+        print_status "  - Any other @$domain addresses"
     else
         print_warning "Domain may already be in SES: $domain"
-    fi
-    
-    # Add email addresses to SES
-    print_status "Adding email addresses to SES..."
-    if aws ses verify-email-identity --email-address "$email_to_receive" --region "$SES_REGION" &>/dev/null; then
-        print_success "Receiving email added to SES: $email_to_receive"
-    else
-        print_warning "Receiving email may already be in SES: $email_to_receive"
-    fi
-    
-    if aws ses verify-email-identity --email-address "$NO_REPLY_EMAIL" --region "$SES_REGION" &>/dev/null; then
-        print_success "Sending email added to SES: $NO_REPLY_EMAIL"
-    else
-        print_warning "Sending email may already be in SES: $NO_REPLY_EMAIL"
     fi
     
     # Get domain verification token
