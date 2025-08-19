@@ -42,6 +42,52 @@ Resources:
         MailFromDomain: !Sub 'mail.${DomainName}'
         BehaviorOnMxFailure: USE_DEFAULT_VALUE
 
+  # DOMAIN VERIFICATION RECORD - This is what's missing!
+  SESDomainVerificationRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: HasHostedZone
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Sub '_amazonses.${DomainName}'
+      Type: TXT
+      TTL: 300
+      ResourceRecords:
+        - !GetAtt SESDomainIdentity.DkimDNSTokenValue1
+
+  # DKIM CNAME Records for email authentication
+  SESDKIMRecord1:
+    Type: AWS::Route53::RecordSet
+    Condition: HasHostedZone
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !GetAtt SESDomainIdentity.DkimDNSTokenName1
+      Type: CNAME
+      TTL: 300
+      ResourceRecords:
+        - !GetAtt SESDomainIdentity.DkimDNSTokenValue1
+
+  SESDKIMRecord2:
+    Type: AWS::Route53::RecordSet
+    Condition: HasHostedZone
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !GetAtt SESDomainIdentity.DkimDNSTokenName2
+      Type: CNAME
+      TTL: 300
+      ResourceRecords:
+        - !GetAtt SESDomainIdentity.DkimDNSTokenValue2
+
+  SESDKIMRecord3:
+    Type: AWS::Route53::RecordSet
+    Condition: HasHostedZone
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !GetAtt SESDomainIdentity.DkimDNSTokenName3
+      Type: CNAME
+      TTL: 300
+      ResourceRecords:
+        - !GetAtt SESDomainIdentity.DkimDNSTokenValue3
+
   # SES Configuration Set for tracking
   SESConfigurationSet:
     Type: AWS::SES::ConfigurationSet

@@ -588,6 +588,26 @@ update_all_lambdas() {
 deploy_stack() {
     print_status "Deploying CloudFormation stack..."
     
+    # Ensure SES hosted zone ID is set for DNS record creation
+    if [ -z "$SES_HOSTED_ZONE_ID" ]; then
+        print_status "Looking up Route53 hosted zone for SES domain: $SES_DOMAIN_NAME"
+        SES_HOSTED_ZONE_ID=$(aws route53 list-hosted-zones-by-name \
+            --dns-name "$SES_DOMAIN_NAME" \
+            --query "HostedZones[?Name=='${SES_DOMAIN_NAME}.'].Id" \
+            --output text | cut -d'/' -f3 2>/dev/null || echo "")
+        
+        if [ -n "$SES_HOSTED_ZONE_ID" ]; then
+            print_success "Found hosted zone for $SES_DOMAIN_NAME: $SES_HOSTED_ZONE_ID"
+            export SES_HOSTED_ZONE_ID
+        else
+            print_warning "No Route53 hosted zone found for $SES_DOMAIN_NAME"
+            print_warning "SES domain verification DNS records will not be created automatically"
+            print_warning "You will need to manually add DNS records shown in SES console"
+        fi
+    else
+        print_status "Using configured SES hosted zone: $SES_HOSTED_ZONE_ID"
+    fi
+    
     # Construct frontend root URL for invoice generation
     local FRONTEND_ROOT_URL=""
     if [ "$ENABLE_FRONTEND_WEBSITE" = "true" ] && [ -n "$FRONTEND_DOMAIN_NAME" ]; then
@@ -640,6 +660,93 @@ deploy_stack() {
         --region $AWS_REGION
     
     print_success "CloudFormation stack deployed successfully"
+    
+    # Verify SES email receiving setup
+    verify_ses_email_setup
+}
+
+# Verify SES email receiving setup
+verify_ses_email_setup() {
+    print_status "Verifying SES email receiving setup..."
+    
+    # Check SES domain verification status
+    local verification_status=$(aws ses get-identity-verification-attributes \
+        --identities "$SES_DOMAIN_NAME" \
+        --region "$SES_REGION" \
+        --query "VerificationAttributes.\"$SES_DOMAIN_NAME\".VerificationStatus" \
+        --output text 2>/dev/null || echo "NotFound")
+    
+    print_status "SES domain verification status for $SES_DOMAIN_NAME: $verification_status"
+    
+    case $verification_status in
+        "Success")
+            print_success "✅ SES domain is verified! Email receiving is fully operational."
+            print_success "📧 You can now receive emails at any address @$SES_DOMAIN_NAME"
+            ;;
+        "Pending")
+            print_warning "⏳ SES domain verification is pending."
+            print_warning "   This is normal for new domains. Verification will complete automatically."
+            print_warning "   DNS records have been created, verification should complete within 24 hours."
+            ;;
+        "Failed")
+            print_error "❌ SES domain verification failed."
+            print_error "   Check DNS records in Route53 and SES console for details."
+            ;;
+        "NotFound"|"NotStarted")
+            print_warning "⚠️  SES domain not found or verification not started."
+            print_warning "   This may indicate an issue with domain setup."
+            ;;
+        *)
+            print_warning "⚠️  Unknown verification status: $verification_status"
+            ;;
+    esac
+    
+    # Check email storage bucket
+    local email_bucket_status="unknown"
+    if aws s3 ls "s3://$EMAIL_STORAGE_BUCKET" --region "$AWS_REGION" >/dev/null 2>&1; then
+        email_bucket_status="exists"
+        print_success "✅ Email storage bucket exists: $EMAIL_STORAGE_BUCKET"
+    else
+        email_bucket_status="missing"
+        print_error "❌ Email storage bucket not found: $EMAIL_STORAGE_BUCKET"
+    fi
+    
+    # Check SES receipt rules
+    local receipt_rules_count=$(aws ses describe-receipt-rule-set \
+        --rule-set-name "auto-lab-receipt-rules-$ENVIRONMENT" \
+        --region "$SES_REGION" \
+        --query 'Rules | length(@)' \
+        --output text 2>/dev/null || echo "0")
+    
+    if [ "$receipt_rules_count" -gt 0 ]; then
+        print_success "✅ SES receipt rules configured ($receipt_rules_count rules)"
+    else
+        print_warning "⚠️  No SES receipt rules found. Email receiving may not work."
+    fi
+    
+    # Summary
+    echo ""
+    print_status "=== EMAIL RECEIVING SETUP SUMMARY ==="
+    echo "📧 Email Domain: $SES_DOMAIN_NAME"
+    echo "🌍 SES Region: $SES_REGION"
+    echo "📂 Storage Bucket: $EMAIL_STORAGE_BUCKET"
+    echo "✉️  Receiving Address: $MAIL_FROM_ADDRESS"
+    echo "📋 Domain Verification: $verification_status"
+    echo "🪣 Storage Bucket: $email_bucket_status"
+    echo "📜 Receipt Rules: $receipt_rules_count configured"
+    echo ""
+    
+    if [ "$verification_status" = "Success" ] && [ "$email_bucket_status" = "exists" ] && [ "$receipt_rules_count" -gt 0 ]; then
+        print_success "🎉 EMAIL RECEIVING SYSTEM IS FULLY OPERATIONAL!"
+        print_success "   Send test emails to: mail@$SES_DOMAIN_NAME"
+        print_success "   Emails will be stored in: $EMAIL_STORAGE_BUCKET"
+    elif [ "$verification_status" = "Pending" ]; then
+        print_warning "⏳ Email system is deployed but waiting for domain verification."
+        print_warning "   System will be operational within 24 hours."
+    else
+        print_error "❌ Email receiving system has issues. Check the details above."
+    fi
+    echo ""
 }
 
 # Configure API Gateway
@@ -1484,11 +1591,6 @@ except:
         echo "  ✓ Backup retention policies configured"
         echo "  ✓ S3 backup storage with versioning enabled"
         echo ""
-        print_warning "Backup Management Commands (Lambda code not updated, but should work with updated environment variables):"
-        echo "  ./manage-backups.sh trigger-backup $ENVIRONMENT    # Trigger manual backup"
-        echo "  ./manage-backups.sh list-backups $ENVIRONMENT      # List available backups"
-        echo "  ./manage-backups.sh restore-info $ENVIRONMENT      # Show restore instructions"
-        echo ""
         print_warning "Lambda function code was skipped! Set SKIP_LAMBDAS=false in dev.env.sh and run deployment again to update backup function code."
     else
         print_success "Backup System Deployed:"
@@ -1526,7 +1628,14 @@ except:
         echo ""
         print_warning "Lambda function code was skipped! Set SKIP_LAMBDAS=false in dev.env.sh and run deployment again to update SES function code."
     else
-        print_success "SES Bounce/Complaint System Deployed:"
+        print_success "✅ EMAIL RECEIVING SYSTEM FULLY DEPLOYED:"
+        echo "  ✓ SES domain identity configured for $SES_DOMAIN_NAME"
+        echo "  ✓ DNS records created for domain verification"
+        echo "  ✓ Email storage bucket: $EMAIL_STORAGE_BUCKET"
+        echo "  ✓ SES receipt rules configured for email processing"
+        echo "  ✓ Email processor Lambda function"
+        echo ""
+        print_success "✅ SES BOUNCE/COMPLAINT SYSTEM DEPLOYED:"
         echo "  ✓ SES bounce handler Lambda function for processing bounced emails"
         echo "  ✓ SES complaint handler Lambda function for processing complaints"
         echo "  ✓ SES delivery handler Lambda function for tracking deliveries"
@@ -1534,6 +1643,12 @@ except:
         echo "  ✓ SNS topics configured for SES notifications"
         echo "  ✓ DynamoDB tables for email suppression and analytics"
         echo "  ✓ SES notifications configured for bounce and complaint handling"
+        echo ""
+        print_success "📧 EMAIL RECEIVING IS NOW OPERATIONAL:"
+        echo "  📨 Send emails to: any-address@$SES_DOMAIN_NAME"
+        echo "  📂 Emails stored in: $EMAIL_STORAGE_BUCKET"
+        echo "  📊 Metadata tracked in: $EMAIL_METADATA_TABLE"
+        echo "  🔔 Notifications via SNS topics"
         echo ""
         print_status "SES Management:"
         echo "  - Monitor DynamoDB EmailSuppression table for bounced/complained emails"

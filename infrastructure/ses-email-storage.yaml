@@ -236,7 +236,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub 'ses-ruleset-activator-${EnvironmentName}'
-      Runtime: python3.9
+      Runtime: python3.13
       Handler: index.lambda_handler
       Timeout: 60
       Role: !GetAtt SESRuleSetActivatorRole.Arn
