@@ -55,33 +55,33 @@ Resources:
     Condition: HasHostedZone
     Properties:
       HostedZoneId: !Ref HostedZoneId
-      Name: !Sub '${SESDomainIdentity.DkimDNSTokenName1}._domainkey.${DomainName}'
+      Name: !GetAtt SESDomainIdentity.DkimDNSTokenName1
       Type: CNAME
       TTL: 300
       ResourceRecords:
-        - !Sub '${SESDomainIdentity.DkimDNSTokenName1}.dkim.amazonses.com'
+        - !GetAtt SESDomainIdentity.DkimDNSTokenValue1
 
   DkimRecord2:
     Type: AWS::Route53::RecordSet
     Condition: HasHostedZone
     Properties:
       HostedZoneId: !Ref HostedZoneId
-      Name: !Sub '${SESDomainIdentity.DkimDNSTokenName2}._domainkey.${DomainName}'
+      Name: !GetAtt SESDomainIdentity.DkimDNSTokenName2
       Type: CNAME
       TTL: 300
       ResourceRecords:
-        - !Sub '${SESDomainIdentity.DkimDNSTokenName2}.dkim.amazonses.com'
+        - !GetAtt SESDomainIdentity.DkimDNSTokenValue2
 
   DkimRecord3:
     Type: AWS::Route53::RecordSet
     Condition: HasHostedZone
     Properties:
       HostedZoneId: !Ref HostedZoneId
-      Name: !Sub '${SESDomainIdentity.DkimDNSTokenName3}._domainkey.${DomainName}'
+      Name: !GetAtt SESDomainIdentity.DkimDNSTokenName3
       Type: CNAME
       TTL: 300
       ResourceRecords:
-        - !Sub '${SESDomainIdentity.DkimDNSTokenName3}.dkim.amazonses.com'
+        - !GetAtt SESDomainIdentity.DkimDNSTokenValue3
 
   # MX Record for Email Receiving
   EmailReceivingMXRecord:
