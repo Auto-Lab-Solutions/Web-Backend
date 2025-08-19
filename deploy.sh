@@ -344,50 +344,6 @@ update_lambda_code() {
     return 0
 }
 
-# Update Notification Processor Lambda function code (managed by NotificationQueueStack)
-update_notification_processor_lambda() {
-    local lambda_name=$1
-    local full_function_name="${lambda_name}-${ENVIRONMENT}"
-    local zip_file="dist/lambda/$lambda_name.zip"
-
-    if [ ! -f "$zip_file" ]; then
-        print_error "ZIP file not found: $zip_file"
-        return 1
-    fi
-    
-    # Skip Firebase notification processor if Firebase is not enabled
-    if [[ "$lambda_name" == "sqs-process-firebase-notification-queue" ]]; then
-        if [[ "${ENABLE_FIREBASE_NOTIFICATIONS:-false}" != "true" ]]; then
-            print_warning "Skipping Firebase notification processor - Firebase notifications are disabled"
-            return 0
-        fi
-    fi
-    
-    # Check if function exists
-    if ! aws lambda get-function --function-name "$full_function_name" --region $AWS_REGION &>/dev/null; then
-        print_error "Lambda function '$full_function_name' does not exist in AWS"
-        print_warning "Please deploy infrastructure first using ./deploy.sh $ENVIRONMENT"
-        return 1
-    fi
-    
-    print_status "Updating Notification Processor Lambda function code: $full_function_name"
-    
-    # Update function code
-    aws lambda update-function-code \
-        --function-name "$full_function_name" \
-        --zip-file "fileb://$zip_file" \
-        --region $AWS_REGION > /dev/null
-    
-    # Wait for update to complete
-    print_status "Waiting for update to complete..."
-    aws lambda wait function-updated \
-        --function-name "$full_function_name" \
-        --region $AWS_REGION
-    
-    print_success "Updated $full_function_name"
-    return 0
-}
-
 # Update Invoice Processor Lambda function code (managed by InvoiceQueueStack)
 update_invoice_processor_lambda() {
     local lambda_name=$1
@@ -475,78 +431,6 @@ update_backup_lambda() {
     return 0
 }
 
-# Update SES Lambda function code (managed by SESBounceComplaintStack)
-update_ses_lambda() {
-    local lambda_name=$1
-    local full_function_name="${lambda_name}-${ENVIRONMENT}"
-    local zip_file="dist/lambda/$lambda_name.zip"
-
-    if [ ! -f "$zip_file" ]; then
-        print_error "ZIP file not found: $zip_file"
-        return 1
-    fi
-    
-    # Check if function exists
-    if ! aws lambda get-function --function-name "$full_function_name" --region $AWS_REGION &>/dev/null; then
-        print_error "Lambda function '$full_function_name' does not exist in AWS"
-        print_warning "Please deploy infrastructure first using ./deploy.sh $ENVIRONMENT"
-        return 1
-    fi
-    
-    print_status "Updating SES Lambda function code: $full_function_name"
-    
-    # Update function code
-    aws lambda update-function-code \
-        --function-name "$full_function_name" \
-        --zip-file "fileb://$zip_file" \
-        --region $AWS_REGION > /dev/null
-    
-    # Wait for update to complete
-    print_status "Waiting for update to complete..."
-    aws lambda wait function-updated \
-        --function-name "$full_function_name" \
-        --region $AWS_REGION
-    
-    print_success "Updated $full_function_name"
-    return 0
-}
-
-# Update Email Processor Lambda function code (managed by SESEmailStorageStack)
-update_email_processor_lambda() {
-    local lambda_name=$1
-    local full_function_name="${lambda_name}-${ENVIRONMENT}"
-    local zip_file="dist/lambda/$lambda_name.zip"
-
-    if [ ! -f "$zip_file" ]; then
-        print_error "ZIP file not found: $zip_file"
-        return 1
-    fi
-    
-    # Check if function exists
-    if ! aws lambda get-function --function-name "$full_function_name" --region $AWS_REGION &>/dev/null; then
-        print_error "Lambda function '$full_function_name' does not exist in AWS"
-        print_warning "Please deploy infrastructure first using ./deploy.sh $ENVIRONMENT"
-        return 1
-    fi
-    
-    print_status "Updating Email Processor Lambda function code: $full_function_name"
-    
-    # Update function code
-    aws lambda update-function-code \
-        --function-name "$full_function_name" \
-        --zip-file "fileb://$zip_file" \
-        --region $AWS_REGION > /dev/null
-    
-    # Wait for update to complete
-    print_status "Waiting for update to complete..."
-    aws lambda wait function-updated \
-        --function-name "$full_function_name" \
-        --region $AWS_REGION
-    
-    print_success "Updated $full_function_name"
-    return 0
-}
-
 update_all_lambdas() {
     print_status "Updating all Lambda functions..."
     
@@ -555,26 +439,17 @@ update_all_lambdas() {
         if [ -d "$lambda_dir" ]; then
             lambda_name=$(basename "$lambda_dir")
             
-            # Handle notification processing lambdas differently since they're managed by NotificationQueueStack
-            if [[ "$lambda_name" == sqs-process-*-notification-queue ]]; then
-                print_status "Updating $lambda_name (managed by NotificationQueueStack)..."
-                update_notification_processor_lambda "$lambda_name"
             # Handle invoice processing lambda differently since it's managed by InvoiceQueueStack
-            elif [ "$lambda_name" = "sqs-process-invoice-queue" ]; then
+            if [ "$lambda_name" = "sqs-process-invoice-queue" ]; then
                 print_status "Updating $lambda_name (managed by InvoiceQueueStack)..."
                 update_invoice_processor_lambda "$lambda_name"
             # Handle backup/restore lambdas differently since they're managed by BackupSystemStack
             elif [[ "$lambda_name" == "backup-restore" || "$lambda_name" == "api-backup-restore" ]]; then
                 print_status "Updating $lambda_name (managed by BackupSystemStack)..."
                 update_backup_lambda "$lambda_name"
-            # Handle SES bounce/complaint lambdas differently since they're managed by SESBounceComplaintStack
-            elif [[ "$lambda_name" =~ ^ses- ]]; then
-                print_status "Updating $lambda_name (managed by SESBounceComplaintStack)..."
-                update_ses_lambda "$lambda_name"
-            # Handle email processor lambda differently since it's managed by SESEmailStorageStack
-            elif [ "$lambda_name" = "email-processor" ]; then
-                print_status "Updating $lambda_name (managed by SESEmailStorageStack)..."
-                update_email_processor_lambda "$lambda_name"
+            # Skip notification, SES processing, and email processor lambdas - we only do simple email receiving now
+            elif [[ "$lambda_name" =~ ^ses- ]] || [[ "$lambda_name" == "email-processor" ]] || [[ "$lambda_name" == *-notification-queue ]]; then
+                print_warning "Skipping $lambda_name - notification/processing functions removed for simple email receiving"
             else
                 update_lambda_code "$lambda_name"
             fi
@@ -656,6 +531,7 @@ deploy_stack() {
             ReportsAcmCertificateArn="${REPORTS_ACM_CERTIFICATE_ARN:-}" \
             SESHostedZoneId="${SES_HOSTED_ZONE_ID:-}" \
             SESDomainName="${SES_DOMAIN_NAME:-autolabsolutions.com}" \
+            SESVerificationToken="${SES_VERIFICATION_TOKEN:-}" \
         --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
         --region $AWS_REGION
     
@@ -665,16 +541,49 @@ deploy_stack() {
     verify_ses_email_setup
 }
 
-# Verify SES email receiving setup
+# Verify SES email receiving setup and handle two-step verification
 verify_ses_email_setup() {
     print_status "Verifying SES email receiving setup..."
     
-    # Check SES domain verification status
-    local verification_status=$(aws ses get-identity-verification-attributes \
+    # Check if domain identity exists in SES
+    local identity_exists="false"
+    if aws ses get-identity-verification-attributes \
+        --identities "$SES_DOMAIN_NAME" \
+        --region "$SES_REGION" >/dev/null 2>&1; then
+        identity_exists="true"
+    fi
+    
+    if [ "$identity_exists" = "false" ]; then
+        print_warning "⚠️  SES domain identity not found. This suggests the CloudFormation stack didn't deploy correctly."
+        print_warning "   Check the CloudFormation console for errors in the SESIdentitiesStack nested stack."
+        return 1
+    fi
+    
+    # Get domain verification status and token
+    local verification_response=$(aws ses get-identity-verification-attributes \
         --identities "$SES_DOMAIN_NAME" \
         --region "$SES_REGION" \
-        --query "VerificationAttributes.\"$SES_DOMAIN_NAME\".VerificationStatus" \
-        --output text 2>/dev/null || echo "NotFound")
+        --output json 2>/dev/null || echo '{}')
+    
+    local verification_status=$(echo "$verification_response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    status = data.get('VerificationAttributes', {}).get('$SES_DOMAIN_NAME', {}).get('VerificationStatus', 'NotFound')
+    print(status)
+except:
+    print('NotFound')
+" 2>/dev/null || echo "NotFound")
+    
+    local verification_token=$(echo "$verification_response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    token = data.get('VerificationAttributes', {}).get('$SES_DOMAIN_NAME', {}).get('VerificationToken', '')
+    print(token)
+except:
+    print('')
+" 2>/dev/null || echo "")
     
     print_status "SES domain verification status for $SES_DOMAIN_NAME: $verification_status"
     
@@ -685,16 +594,37 @@ verify_ses_email_setup() {
             ;;
         "Pending")
             print_warning "⏳ SES domain verification is pending."
-            print_warning "   This is normal for new domains. Verification will complete automatically."
-            print_warning "   DNS records have been created, verification should complete within 24 hours."
+            if [ -n "$verification_token" ] && [ -z "$SES_VERIFICATION_TOKEN" ]; then
+                print_status ""
+                print_status "🔧 NEXT STEPS TO COMPLETE VERIFICATION:"
+                print_status "1. Set the verification token and redeploy:"
+                print_status "   export SES_VERIFICATION_TOKEN=\"$verification_token\""
+                print_status "   ./deploy.sh $ENVIRONMENT"
+                print_status ""
+                print_status "2. Or manually create DNS record:"
+                print_status "   Type: TXT"
+                print_status "   Name: _amazonses.$SES_DOMAIN_NAME"
+                print_status "   Value: $verification_token"
+                print_status ""
+                print_status "   DNS records will be created automatically after the verification token is set."
+            elif [ -n "$SES_VERIFICATION_TOKEN" ]; then
+                print_status "   Verification token provided - DNS record should be created."
+                print_status "   Verification will complete automatically within 24 hours."
+            else
+                print_warning "   No verification token available yet. Wait a moment and redeploy."
+            fi
             ;;
         "Failed")
             print_error "❌ SES domain verification failed."
             print_error "   Check DNS records in Route53 and SES console for details."
+            if [ -n "$verification_token" ]; then
+                print_error "   Current verification token: $verification_token"
+                print_error "   Ensure DNS TXT record _amazonses.$SES_DOMAIN_NAME = $verification_token"
+            fi
             ;;
         "NotFound"|"NotStarted")
             print_warning "⚠️  SES domain not found or verification not started."
-            print_warning "   This may indicate an issue with domain setup."
+            print_warning "   This may indicate an issue with domain setup in CloudFormation."
             ;;
         *)
             print_warning "⚠️  Unknown verification status: $verification_status"
@@ -734,6 +664,11 @@ verify_ses_email_setup() {
     echo "📋 Domain Verification: $verification_status"
     echo "🪣 Storage Bucket: $email_bucket_status"
     echo "📜 Receipt Rules: $receipt_rules_count configured"
+    
+    # Show verification token if available and not set
+    if [ -n "$verification_token" ] && [ -z "$SES_VERIFICATION_TOKEN" ]; then
+        echo "🔑 Verification Token: $verification_token"
+    fi
     echo ""
     
     if [ "$verification_status" = "Success" ] && [ "$email_bucket_status" = "exists" ] && [ "$receipt_rules_count" -gt 0 ]; then
@@ -742,7 +677,13 @@ verify_ses_email_setup() {
         print_success "   Emails will be stored in: $EMAIL_STORAGE_BUCKET"
     elif [ "$verification_status" = "Pending" ]; then
         print_warning "⏳ Email system is deployed but waiting for domain verification."
-        print_warning "   System will be operational within 24 hours."
+        if [ -n "$verification_token" ] && [ -z "$SES_VERIFICATION_TOKEN" ]; then
+            print_warning "   Set verification token and redeploy to create DNS records automatically:"
+            print_warning "   export SES_VERIFICATION_TOKEN=\"$verification_token\""
+            print_warning "   ./deploy.sh $ENVIRONMENT"
+        else
+            print_warning "   System will be operational within 24 hours."
+        fi
     else
         print_error "❌ Email receiving system has issues. Check the details above."
     fi

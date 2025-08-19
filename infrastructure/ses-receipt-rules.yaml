@@ -1,0 +1,57 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'SES Receipt Rules - Store Emails in S3 Only (No Notifications)'
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: Environment name
+    Default: production
+
+  SESVerifiedEmail:
+    Type: String
+    Description: SES verified email/domain identity
+    Default: "autolabsolutions.com"
+
+  EmailStorageBucket:
+    Type: String
+    Description: S3 bucket for storing emails
+
+  DomainName:
+    Type: String
+    Description: Domain name for email receiving
+    Default: "autolabsolutions.com"
+
+Resources:
+  # SES Receipt Rule Set
+  SESReceiptRuleSet:
+    Type: AWS::SES::ReceiptRuleSet
+    Properties:
+      RuleSetName: !Sub 'auto-lab-email-rules-${EnvironmentName}'
+
+  # SES Receipt Rule - Store emails in S3 ONLY
+  SESReceiptRule:
+    Type: AWS::SES::ReceiptRule
+    Properties:
+      RuleSetName: !Ref SESReceiptRuleSet
+      Rule:
+        Name: !Sub 'store-emails-${EnvironmentName}'
+        Enabled: true
+        Recipients:
+          - !Ref DomainName
+        Actions:
+          - S3Action:
+              BucketName: !Ref EmailStorageBucket
+              ObjectKeyPrefix: !Sub 'emails/${EnvironmentName}/'
+
+Outputs:
+  SESReceiptRuleSet:
+    Description: SES Receipt Rule Set name
+    Value: !Ref SESReceiptRuleSet
+    Export:
+      Name: !Sub '${AWS::StackName}-SESReceiptRuleSet'
+
+  EmailStorageLocation:
+    Description: Where emails are stored in S3
+    Value: !Sub 's3://${EmailStorageBucket}/emails/${EnvironmentName}/'
+    Export:
+      Name: !Sub '${AWS::StackName}-EmailStorageLocation'

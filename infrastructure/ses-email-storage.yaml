@@ -1,53 +1,62 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'AWS SES Email Receiving and S3 Storage System for Auto Lab Solutions'
+Description: 'SES Email Storage - S3 Only (No Notifications, No Processing)'
 
 Parameters:
   EnvironmentName:
     Type: String
-    Description: Environment name (development, production)
+    Description: Environment name
     Default: production
-    AllowedValues:
-      - development
-      - production
 
   EmailStorageBucketName:
     Type: String
     Description: S3 bucket name for storing received emails
     Default: "auto-lab-email-storage"
 
-  SesRegion:
-    Type: String
-    Description: AWS SES region
-    Default: "ap-southeast-2"
-
-  CloudFormationBucket:
-    Type: String
-    Description: S3 bucket containing CloudFormation templates and Lambda packages
-    Default: "auto-lab-cloudformation-templates"
-
-  MailReceivingAddress:
-    Type: String
-    Description: Email address for receiving emails (environment-specific)
-    Default: "mail@autolabsolutions.com"
-
-  EmailMetadataTableName:
-    Type: String
-    Description: DynamoDB table name for email metadata (including environment suffix)
-    Default: "EmailMetadata-production"
-
 Resources:
-  # DynamoDB Table to store email metadata for quick queries (no dependencies)
-  EmailMetadataTable:
-    Type: AWS::DynamoDB::Table
+  # S3 Bucket for storing received emails - SIMPLE STORAGE ONLY
+  EmailStorageBucket:
+    Type: AWS::S3::Bucket
     Properties:
-      TableName: !Ref EmailMetadataTableName
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: message_id
-          AttributeType: S
-        - AttributeName: to_email
-          AttributeType: S
-        - AttributeName: timestamp
+      BucketName: !Sub '${EmailStorageBucketName}-${EnvironmentName}'
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      NotificationConfiguration: {}
+      
+  # S3 Bucket Policy to allow SES to write emails
+  EmailStorageBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref EmailStorageBucket
+      PolicyDocument:
+        Statement:
+          - Sid: AllowSESToWriteEmails
+            Effect: Allow
+            Principal:
+              Service: ses.amazonaws.com
+            Action:
+              - s3:PutObject
+            Resource: !Sub '${EmailStorageBucket}/*'
+            Condition:
+              StringEquals:
+                'aws:Referer': !Ref 'AWS::AccountId'
+
+Outputs:
+  EmailStorageBucket:
+    Description: S3 bucket for storing received emails
+    Value: !Ref EmailStorageBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-EmailStorageBucket'
+      
+  EmailStorageBucketArn:
+    Description: S3 bucket ARN for storing received emails
+    Value: !GetAtt EmailStorageBucket.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-EmailStorageBucketArn'
           AttributeType: N
         - AttributeName: from_email
           AttributeType: S

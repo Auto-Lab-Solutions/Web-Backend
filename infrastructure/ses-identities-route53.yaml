@@ -1,14 +1,11 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Auto Lab Solutions - SES Domain/Email Identities and Route53 DNS Records'
+Description: 'Auto Lab Solutions - SES Email Receiving Only (No Notifications)'
 
 Parameters:
   EnvironmentName:
     Type: String
-    Description: Environment name (development, production)
+    Description: Environment name
     Default: production
-    AllowedValues:
-      - development
-      - production
 
   SesRegion:
     Type: String
@@ -17,48 +14,41 @@ Parameters:
 
   HostedZoneId:
     Type: String
-    Description: Route53 hosted zone ID for the domain
+    Description: Route53 hosted zone ID
     Default: ""
 
   DomainName:
     Type: String
-    Description: The base domain name (e.g., autolabsolutions.com or dev.autolabsolutions.com)
+    Description: Domain name for email receiving
     Default: "autolabsolutions.com"
+
+  VerificationToken:
+    Type: String
+    Description: SES domain verification token
+    Default: ""
 
 Conditions:
   HasHostedZone: !Not [!Equals [!Ref HostedZoneId, ""]]
+  HasVerificationToken: !Not [!Equals [!Ref VerificationToken, ""]]
 
 Resources:
-  # SES Domain Identity for email receiving - CORRECT RESOURCE TYPE
+  # SES Email Identity for domain - EMAIL RECEIVING ONLY
   SESDomainIdentity:
-    Type: AWS::SES::VerifiedEmailAddress
+    Type: AWS::SES::EmailIdentity
     Properties:
-      EmailAddress: !Sub 'noreply@${DomainName}'
+      EmailIdentity: !Ref DomainName
 
-  # SES Domain Identity (using correct resource type)
-  SESDomainVerification:
-    Type: AWS::SES::DomainIdentity
-    Properties:
-      Domain: !Ref DomainName
-
-  # SES Configuration Set for tracking
-  SESConfigurationSet:
-    Type: AWS::SES::ConfigurationSet
-    Properties:
-      Name: !Sub 'auto-lab-config-set-${EnvironmentName}'
-
-  # Route53 DNS Records (only if hosted zone is provided)
-  # Domain Verification Record
+  # Route53 DNS Records for email receiving
   DomainVerificationRecord:
     Type: AWS::Route53::RecordSet
-    Condition: HasHostedZone
+    Condition: HasVerificationToken
     Properties:
       HostedZoneId: !Ref HostedZoneId
       Name: !Sub '_amazonses.${DomainName}'
       Type: TXT
       TTL: 300
       ResourceRecords:
-        - !Sub '"${SESDomainVerification}"'
+        - !Sub '"${VerificationToken}"'
 
   # MX Record for Email Receiving
   EmailReceivingMXRecord:
@@ -72,48 +62,18 @@ Resources:
       ResourceRecords:
         - !Sub '10 inbound-smtp.${SesRegion}.amazonses.com'
 
-  # MAIL FROM Domain MX Record (for improved deliverability)
-  MailFromMXRecord:
-    Type: AWS::Route53::RecordSet
-    Condition: HasHostedZone
-    Properties:
-      HostedZoneId: !Ref HostedZoneId
-      Name: !Sub 'mail.${DomainName}'
-      Type: MX
-      TTL: 300
-      ResourceRecords:
-        - !Sub '10 feedback-smtp.${SesRegion}.amazonses.com'
-
-  # SPF Record for MAIL FROM Domain
-  MailFromSPFRecord:
-    Type: AWS::Route53::RecordSet
-    Condition: HasHostedZone
-    Properties:
-      HostedZoneId: !Ref HostedZoneId
-      Name: !Sub 'mail.${DomainName}'
-      Type: TXT
-      TTL: 300
-      ResourceRecords:
-        - '"v=spf1 include:amazonses.com ~all"'
-
 Outputs:
   SESDomainIdentity:
     Description: SES Domain Identity for email receiving
-    Value: !Ref SESDomainVerification
+    Value: !Ref SESDomainIdentity
     Export:
       Name: !Sub '${AWS::StackName}-SESDomainIdentity'
 
   SESVerifiedEmail:
-    Description: SES Verified Email Address
+    Description: SES Email Identity (same as domain identity)
     Value: !Ref SESDomainIdentity
     Export:
       Name: !Sub '${AWS::StackName}-SESVerifiedEmail'
-
-  SESConfigurationSet:
-    Description: SES Configuration Set
-    Value: !Ref SESConfigurationSet
-    Export:
-      Name: !Sub '${AWS::StackName}-SESConfigurationSet'
 
   DomainName:
     Description: The domain name configured for SES

@@ -98,21 +98,6 @@ Parameters:
     Description: API Gateway stage name
     Default: "prod"
 
-  EmailNotificationQueueUrl:
-    Type: String
-    Description: SQS Queue URL for email notifications
-    Default: ""
-
-  WebSocketNotificationQueueUrl:
-    Type: String
-    Description: SQS Queue URL for WebSocket notifications
-    Default: ""
-
-  FirebaseNotificationQueueUrl:
-    Type: String
-    Description: SQS Queue URL for Firebase push notifications
-    Default: ""
-
   InvoiceGenerationQueueUrl:
     Type: String
     Description: SQS Queue URL for invoice generation
@@ -140,16 +125,6 @@ Parameters:
   InvoiceQueueUrl:
     Type: String
     Description: SQS Queue URL for asynchronous invoice processing
-    Default: ""
-
-  EmailSuppressionTableName:
-    Type: String
-    Description: Email suppression DynamoDB table name
-    Default: ""
-
-  EmailAnalyticsTableName:
-    Type: String
-    Description: Email analytics DynamoDB table name
     Default: ""
 
   EmailStorageBucket:
@@ -223,12 +198,6 @@ Resources:
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${PaymentsTable}/index/*'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InvoicesTable}'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InvoicesTable}/index/*'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailSuppressionTableName}'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailSuppressionTableName}/index/*'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailAnalyticsTableName}'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailAnalyticsTableName}/index/*'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailMetadataTable}'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailMetadataTable}/index/*'
         - PolicyName: S3Access
           PolicyDocument:
             Version: '2012-10-17'
@@ -267,14 +236,6 @@ Resources:
                   - ses:SendRawEmail
                   - ses:GetSendQuota
                   - ses:GetSendStatistics
-                  - ses:VerifyEmailIdentity
-                  - ses:ListVerifiedEmailAddresses
-                  - ses:PutSuppressedDestination
-                  - ses:DeleteSuppressedDestination
-                  - ses:GetSuppressedDestination
-                  - ses:ListSuppressedDestinations
-                  - ses:PutAccountSuppressionAttributes
-                  - ses:GetAccountSuppressionAttributes
                 Resource: '*'
         - PolicyName: S3EmailStorageAccess
           PolicyDocument:
@@ -1073,31 +1034,6 @@ Resources:
         - Key: Environment
           Value: !Ref Environment
 
-  # Email Suppression Manager API Function
-  ApiEmailSuppressionManager:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: !Sub 'api-email-suppression-manager-${Environment}'
-      Runtime: python3.13
-      Handler: main.lambda_handler
-      Role: !GetAtt LambdaExecutionRole.Arn
-      Environment:
-        Variables:
-          ENVIRONMENT: !Ref Environment
-          SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
-          ANALYTICS_TABLE_NAME: !Ref EmailAnalyticsTableName
-          SHARED_KEY: !Ref SharedKey
-      Code:
-        S3Bucket: !Ref CloudFormationBucket
-        S3Key: 'lambda/api-email-suppression-manager.zip'
-      Tags:
-        - Key: Environment
-          Value: !Ref Environment
-        - Key: Project
-          Value: AutoLabSolutions
-        - Key: Purpose
-          Value: EmailSuppressionAPI
-
   # API Get Emails Function
   ApiGetEmails:
     Type: AWS::Lambda::Function
@@ -1293,12 +1229,6 @@ Outputs:
   ApiGenerateInvoiceArn:
     Description: Generate Invoice Lambda ARN
     Value: !GetAtt ApiGenerateInvoice.Arn
-
-  ApiEmailSuppressionManagerArn:
-    Description: Email Suppression Manager API Lambda ARN
-    Value: !GetAtt ApiEmailSuppressionManager.Arn
-    Export:
-      Name: !Sub '${AWS::StackName}-ApiEmailSuppressionManagerArn'
 
   ApiGetEmailsArn:
     Description: Get Emails API Lambda ARN
