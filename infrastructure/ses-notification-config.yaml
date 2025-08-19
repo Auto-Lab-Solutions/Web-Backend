@@ -34,32 +34,24 @@ Parameters:
     Default: ""
 
 Resources:
-  # Lambda function to configure SES identity notifications (enhanced with better error handling)
+  # Simple Lambda function to configure SES notifications
   SESNotificationConfiguratorFunction:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub 'ses-notification-configurator-${EnvironmentName}'
       Runtime: python3.9
       Handler: index.lambda_handler
-      Timeout: 300
+      Timeout: 60
       Role: !GetAtt SESNotificationConfiguratorRole.Arn
       Code:
         ZipFile: |
           import boto3
           import cfnresponse
           import json
-          import time
-          import traceback
           
           def lambda_handler(event, context):
               try:
                   print(f'Received event: {json.dumps(event, default=str)}')
-                  
-                  # Validate required parameters
-                  required_params = ['Domain', 'BounceTopicArn', 'ComplaintTopicArn', 'Region']
-                  for param in required_params:
-                      if param not in event.get('ResourceProperties', {}):
-                          raise ValueError(f'Missing required parameter: {param}')
                   
                   domain = event['ResourceProperties']['Domain']
                   bounce_topic = event['ResourceProperties']['BounceTopicArn']
@@ -68,186 +60,57 @@ Resources:
                   region = event['ResourceProperties']['Region']
                   
                   print(f'Configuring notifications for domain: {domain}')
-                  print(f'Bounce topic: {bounce_topic}')
-                  print(f'Complaint topic: {complaint_topic}')
-                  print(f'Delivery topic: {delivery_topic}')
-                  print(f'Region: {region}')
                   
-                  # Validate parameter values
-                  if not domain:
-                      raise ValueError('Domain parameter is empty')
-                  if not bounce_topic.startswith('arn:aws:sns:'):
-                      raise ValueError(f'Invalid bounce topic ARN format: {bounce_topic}')
-                  if not complaint_topic.startswith('arn:aws:sns:'):
-                      raise ValueError(f'Invalid complaint topic ARN format: {complaint_topic}')
-                  if delivery_topic and not delivery_topic.startswith('arn:aws:sns:'):
-                      raise ValueError(f'Invalid delivery topic ARN format: {delivery_topic}')
-                  
-                  # Create SES client in the specified region
                   ses_client = boto3.client('ses', region_name=region)
-                  sns_client = boto3.client('sns', region_name=region)
                   
-                  if event['RequestType'] == 'Create' or event['RequestType'] == 'Update':
-                      # First verify SNS topics exist and are accessible
-                      try:
-                          print('Verifying SNS topics exist...')
-                          sns_client.get_topic_attributes(TopicArn=bounce_topic)
-                          print(f'Bounce topic verified: {bounce_topic}')
-                          
-                          sns_client.get_topic_attributes(TopicArn=complaint_topic)
-                          print(f'Complaint topic verified: {complaint_topic}')
-                          
-                          if delivery_topic:
-                              sns_client.get_topic_attributes(TopicArn=delivery_topic)
-                              print(f'Delivery topic verified: {delivery_topic}')
-                      except Exception as sns_error:
-                          error_msg = f'SNS topic verification failed: {str(sns_error)}'
-                          print(error_msg)
-                          cfnresponse.send(event, context, cfnresponse.FAILED, {'Message': error_msg})
-                          return
+                  if event['RequestType'] in ['Create', 'Update']:
+                      # Configure bounce notifications
+                      ses_client.put_identity_notification_attributes(
+                          Identity=domain,
+                          NotificationType='Bounce',
+                          SnsTopic=bounce_topic,
+                          Enabled=True
+                      )
+                      print('Bounce notifications configured')
                       
-                      # Check if domain is verified
-                      domain_verified = False
-                      try:
-                          print(f'Checking domain verification status for: {domain}')
-                          verification_attrs = ses_client.get_identity_verification_attributes(
-                              Identities=[domain]
+                      # Configure complaint notifications
+                      ses_client.put_identity_notification_attributes(
+                          Identity=domain,
+                          NotificationType='Complaint',
+                          SnsTopic=complaint_topic,
+                          Enabled=True
+                      )
+                      print('Complaint notifications configured')
+                      
+                      # Configure delivery notifications (if provided)
+                      if delivery_topic:
+                          ses_client.put_identity_notification_attributes(
+                              Identity=domain,
+                              NotificationType='Delivery',
+                              SnsTopic=delivery_topic,
+                              Enabled=True
                           )
-                          
-                          domain_attrs = verification_attrs.get('VerificationAttributes', {}).get(domain, {})
-                          verification_status = domain_attrs.get('VerificationStatus', 'NotStarted')
-                          
-                          print(f'Domain {domain} verification status: {verification_status}')
-                          
-                          if verification_status == 'Success':
-                              domain_verified = True
-                              print(f'Domain {domain} is verified - proceeding with notification configuration')
-                          elif verification_status == 'Failed':
-                              error_msg = f'Domain {domain} verification failed permanently. Please re-verify the domain.'
-                              print(error_msg)
-                              cfnresponse.send(event, context, cfnresponse.FAILED, {'Message': error_msg})
-                              return
-                          else:
-                              print(f'Domain {domain} is not yet verified (status: {verification_status})')
-                              print('Will skip notification configuration for now')
-                              # Return success but indicate domain needs verification
-                              cfnresponse.send(event, context, cfnresponse.SUCCESS, {
-                                  'Message': f'Domain {domain} not yet verified. Notifications will be configured when domain verification completes.',
-                                  'DomainVerified': 'false',
-                                  'VerificationStatus': verification_status
-                              })
-                              return
-                              
-                      except Exception as verification_error:
-                          print(f'Error checking domain verification: {str(verification_error)}')
-                          # If domain doesn't exist in SES, suggest adding it
-                          if 'NotFound' in str(verification_error):
-                              error_msg = f'Domain {domain} not found in SES. Please add and verify the domain first.'
-                              print(error_msg)
-                              cfnresponse.send(event, context, cfnresponse.FAILED, {'Message': error_msg})
-                              return
-                          else:
-                              print('Proceeding with notification configuration attempt despite verification check error')
+                          print('Delivery notifications configured')
                       
-                      # Only configure notifications if domain is verified
-                      if domain_verified:
-                          try:
-                              # Configure bounce notifications
-                              print(f'Configuring bounce notifications for {domain}...')
-                              ses_client.put_identity_notification_attributes(
-                                  Identity=domain,
-                                  NotificationType='Bounce',
-                                  SnsTopic=bounce_topic
-                              )
-                              
-                              ses_client.put_identity_notification_attributes(
-                                  Identity=domain,
-                                  NotificationType='Bounce',
-                                  Enabled=True
-                              )
-                              print('Bounce notifications configured successfully')
-                              
-                              # Configure complaint notifications
-                              print(f'Configuring complaint notifications for {domain}...')
-                              ses_client.put_identity_notification_attributes(
-                                  Identity=domain,
-                                  NotificationType='Complaint',
-                                  SnsTopic=complaint_topic
-                              )
-                              
-                              ses_client.put_identity_notification_attributes(
-                                  Identity=domain,
-                                  NotificationType='Complaint',
-                                  Enabled=True
-                              )
-                              print('Complaint notifications configured successfully')
-                              
-                              # Configure delivery notifications (if provided)
-                              if delivery_topic:
-                                  print(f'Configuring delivery notifications for {domain}...')
-                                  ses_client.put_identity_notification_attributes(
-                                      Identity=domain,
-                                      NotificationType='Delivery',
-                                      SnsTopic=delivery_topic
-                                  )
-                                  
-                                  ses_client.put_identity_notification_attributes(
-                                      Identity=domain,
-                                      NotificationType='Delivery',
-                                      Enabled=True
-                                  )
-                                  print('Delivery notifications configured successfully')
-                              else:
-                                  print('No delivery topic provided, skipping delivery notifications')
-                              
-                              cfnresponse.send(event, context, cfnresponse.SUCCESS, {
-                                  'Message': f'Successfully configured notifications for domain: {domain}',
-                                  'DomainVerified': 'true'
-                              })
-                              
-                          except Exception as config_error:
-                              error_message = str(config_error)
-                              print(f'Configuration error: {error_message}')
-                              print(f'Full traceback: {traceback.format_exc()}')
-                              
-                              # Check for specific error types and provide helpful messages
-                              if 'MessageRejected' in error_message:
-                                  if 'not verified' in error_message.lower():
-                                      msg = f'Domain {domain} is not verified for sending. Please verify the domain in SES console.'
-                                  else:
-                                      msg = f'SES rejected the configuration: {error_message}'
-                              elif 'InvalidParameter' in error_message:
-                                  msg = f'Invalid parameter provided: {error_message}'
-                              elif 'AccessDenied' in error_message:
-                                  msg = f'Access denied - check IAM permissions: {error_message}'
-                              elif 'Throttling' in error_message:
-                                  msg = f'API throttling detected: {error_message}'
-                              else:
-                                  msg = f'Unexpected configuration error: {error_message}'
-                              
-                              print(f'Sending failure response: {msg}')
-                              cfnresponse.send(event, context, cfnresponse.FAILED, {'Message': msg})
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {
+                          'Message': f'Successfully configured notifications for domain: {domain}'
+                      })
                   
                   elif event['RequestType'] == 'Delete':
-                      # Don't disable notifications on delete to avoid breaking other environments
-                      print('Delete request - leaving notifications configured')
-                      cfnresponse.send(event, context, cfnresponse.SUCCESS, 
-                                     {'Message': 'Notification configuration preserved on delete'})
+                      # Leave notifications configured on delete
+                      print('Delete request - preserving notification configuration')
+                      cfnresponse.send(event, context, cfnresponse.SUCCESS, {
+                          'Message': 'Notification configuration preserved'
+                      })
                   
               except Exception as e:
                   error_message = str(e)
-                  print(f'Unexpected error: {error_message}')
-                  print(f'Full traceback: {traceback.format_exc()}')
-                  print(f'Event: {json.dumps(event, default=str)}')
-                  
-                  # Provide detailed error information
+                  print(f'Error: {error_message}')
                   cfnresponse.send(event, context, cfnresponse.FAILED, {
-                      'Message': f'Failed to configure SES notifications: {error_message}',
-                      'Error': str(e),
-                      'Traceback': traceback.format_exc()
+                      'Message': f'Failed to configure SES notifications: {error_message}'
                   })
 
-  # Enhanced IAM Role for the SES notification configurator function
+  # IAM Role for the SES notification configurator function
   SESNotificationConfiguratorRole:
     Type: AWS::IAM::Role
     Properties:
@@ -269,23 +132,9 @@ Resources:
                 Action:
                   - ses:PutIdentityNotificationAttributes
                   - ses:GetIdentityNotificationAttributes
-                  - ses:SetIdentityNotificationTopic
-                  - ses:GetIdentityVerificationAttributes
-                  - ses:ListIdentities
-                Resource: '*'
-              - Effect: Allow
-                Action:
-                  - sns:GetTopicAttributes
-                  - sns:ListTopics
-                Resource: '*'
-              - Effect: Allow
-                Action:
-                  - logs:CreateLogGroup
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
                 Resource: '*'
 
-  # Custom resource to configure SES identity notifications for the domain
+  # Custom resource to configure SES identity notifications
   SESIdentityNotificationConfiguration:
     Type: AWS::CloudFormation::CustomResource
     Properties:
@@ -295,8 +144,7 @@ Resources:
       ComplaintTopicArn: !Ref SESComplaintTopicArn
       DeliveryTopicArn: !Ref SESDeliveryTopicArn
       Region: !Ref SesRegion
-      # Add a version to force updates when needed
-      Version: "2025-08-19-v2"
+      Version: "2025-08-19-v3"
 
 Outputs:
   SESNotificationConfigured:
@@ -304,9 +152,3 @@ Outputs:
     Value: !Ref SESIdentityNotificationConfiguration
     Export:
       Name: !Sub '${AWS::StackName}-SESNotificationConfigured'
-
-  SESNotificationFunction:
-    Description: SES notification configurator function ARN
-    Value: !GetAtt SESNotificationConfiguratorFunction.Arn
-    Export:
-      Name: !Sub '${AWS::StackName}-SESNotificationFunction'
