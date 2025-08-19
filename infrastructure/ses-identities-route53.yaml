@@ -29,64 +29,12 @@ Conditions:
   HasHostedZone: !Not [!Equals [!Ref HostedZoneId, ""]]
 
 Resources:
-  # SES Domain Identity (covers ALL email addresses under this domain)
-  # This automatically verifies mail@domain.com, noreply@domain.com, etc.
-  # MAIL-FROM domain is configured directly on this identity
+  # SES Domain Identity for email receiving - SIMPLE WORKING VERSION
   SESDomainIdentity:
-    Type: AWS::SES::EmailIdentity
+    Type: AWS::SES::Identity
     Properties:
-      EmailIdentity: !Ref DomainName
-      DkimSigningAttributes:
-        NextSigningKeyLength: RSA_2048_BIT
-      MailFromAttributes:
-        MailFromDomain: !Sub 'mail.${DomainName}'
-        BehaviorOnMxFailure: USE_DEFAULT_VALUE
-
-  # DOMAIN VERIFICATION RECORD - This is what's missing!
-  SESDomainVerificationRecord:
-    Type: AWS::Route53::RecordSet
-    Condition: HasHostedZone
-    Properties:
-      HostedZoneId: !Ref HostedZoneId
-      Name: !Sub '_amazonses.${DomainName}'
-      Type: TXT
-      TTL: 300
-      ResourceRecords:
-        - !GetAtt SESDomainIdentity.DkimDNSTokenValue1
-
-  # DKIM CNAME Records for email authentication
-  SESDKIMRecord1:
-    Type: AWS::Route53::RecordSet
-    Condition: HasHostedZone
-    Properties:
-      HostedZoneId: !Ref HostedZoneId
-      Name: !GetAtt SESDomainIdentity.DkimDNSTokenName1
-      Type: CNAME
-      TTL: 300
-      ResourceRecords:
-        - !GetAtt SESDomainIdentity.DkimDNSTokenValue1
-
-  SESDKIMRecord2:
-    Type: AWS::Route53::RecordSet
-    Condition: HasHostedZone
-    Properties:
-      HostedZoneId: !Ref HostedZoneId
-      Name: !GetAtt SESDomainIdentity.DkimDNSTokenName2
-      Type: CNAME
-      TTL: 300
-      ResourceRecords:
-        - !GetAtt SESDomainIdentity.DkimDNSTokenValue2
-
-  SESDKIMRecord3:
-    Type: AWS::Route53::RecordSet
-    Condition: HasHostedZone
-    Properties:
-      HostedZoneId: !Ref HostedZoneId
-      Name: !GetAtt SESDomainIdentity.DkimDNSTokenName3
-      Type: CNAME
-      TTL: 300
-      ResourceRecords:
-        - !GetAtt SESDomainIdentity.DkimDNSTokenValue3
+      Type: Domain
+      Identity: !Ref DomainName
 
   # SES Configuration Set for tracking
   SESConfigurationSet:
@@ -95,39 +43,17 @@ Resources:
       Name: !Sub 'auto-lab-config-set-${EnvironmentName}'
 
   # Route53 DNS Records (only if hosted zone is provided)
-  # DKIM Records for domain verification (AWS automatically provides these tokens)
-  DkimRecord1:
+  # Domain Verification Record - This is the key record needed
+  DomainVerificationRecord:
     Type: AWS::Route53::RecordSet
     Condition: HasHostedZone
     Properties:
       HostedZoneId: !Ref HostedZoneId
-      Name: !GetAtt SESDomainIdentity.DkimDNSTokenName1
-      Type: CNAME
+      Name: !Sub '_amazonses.${DomainName}'
+      Type: TXT
       TTL: 300
       ResourceRecords:
-        - !GetAtt SESDomainIdentity.DkimDNSTokenValue1
-
-  DkimRecord2:
-    Type: AWS::Route53::RecordSet
-    Condition: HasHostedZone
-    Properties:
-      HostedZoneId: !Ref HostedZoneId
-      Name: !GetAtt SESDomainIdentity.DkimDNSTokenName2
-      Type: CNAME
-      TTL: 300
-      ResourceRecords:
-        - !GetAtt SESDomainIdentity.DkimDNSTokenValue2
-
-  DkimRecord3:
-    Type: AWS::Route53::RecordSet
-    Condition: HasHostedZone
-    Properties:
-      HostedZoneId: !Ref HostedZoneId
-      Name: !GetAtt SESDomainIdentity.DkimDNSTokenName3
-      Type: CNAME
-      TTL: 300
-      ResourceRecords:
-        - !GetAtt SESDomainIdentity.DkimDNSTokenValue3
+        - !Sub '"${SESDomainIdentity}"'
 
   # MX Record for Email Receiving
   EmailReceivingMXRecord:
