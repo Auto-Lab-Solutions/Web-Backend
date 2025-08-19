@@ -136,14 +136,41 @@ delete_stack() {
                     
                     # Check for remaining S3 buckets
                     print_status "Checking for remaining S3 objects..."
+                    
+                    # Define critical buckets that should NEVER be touched
+                    local critical_buckets=(
+                        "auto-lab-cloudformation-templates"  # CloudFormation bucket name starting prefix
+                        "auto-lab-backups"                   # Backup bucket name starting prefix
+                    )
+                    
                     aws s3 ls | grep -E "(auto-lab|${ENVIRONMENT})" | while read -r line; do
                         local bucket=$(echo "$line" | awk '{print $3}')
                         if [ -n "$bucket" ]; then
-                            local obj_count=$(aws s3 ls "s3://$bucket" --recursive | wc -l)
-                            if [ "$obj_count" -gt 0 ]; then
-                                print_warning "Bucket $bucket still has $obj_count objects"
-                                # Force empty the bucket
-                                empty_s3_bucket "$bucket"
+                            # Skip critical buckets
+                            local is_critical=false
+                            for critical_bucket in "${critical_buckets[@]}"; do
+                                if [[ "$bucket" == "$critical_bucket"* ]]; then
+                                    print_status "Skipping critical bucket: $bucket (shared infrastructure)"
+                                    is_critical=true
+                                    break
+                                fi
+                            done
+                            
+                            # Only process environment-specific buckets
+                            if [ "$is_critical" = false ]; then
+                                # Check if bucket is environment-specific (contains environment name)
+                                if [[ "$bucket" == *"-${ENVIRONMENT}" ]] || \
+                                   [[ "$bucket" == *"-${ENVIRONMENT}-"* ]] || \
+                                   [[ "$bucket" == *"${ENVIRONMENT}-"* ]]; then
+                                    local obj_count=$(aws s3 ls "s3://$bucket" --recursive | wc -l)
+                                    if [ "$obj_count" -gt 0 ]; then
+                                        print_warning "Environment-specific bucket $bucket still has $obj_count objects"
+                                        # Force empty the environment-specific bucket
+                                        empty_s3_bucket "$bucket"
+                                    fi
+                                else
+                                    print_status "Skipping non-environment-specific bucket: $bucket"
+                                fi
                             fi
                         fi
                     done
