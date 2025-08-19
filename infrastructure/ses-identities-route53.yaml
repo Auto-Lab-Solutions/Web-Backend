@@ -29,12 +29,17 @@ Conditions:
   HasHostedZone: !Not [!Equals [!Ref HostedZoneId, ""]]
 
 Resources:
-  # SES Domain Identity for email receiving - SIMPLE WORKING VERSION
+  # SES Domain Identity for email receiving - CORRECT RESOURCE TYPE
   SESDomainIdentity:
-    Type: AWS::SES::Identity
+    Type: AWS::SES::VerifiedEmailAddress
     Properties:
-      Type: Domain
-      Identity: !Ref DomainName
+      EmailAddress: !Sub 'noreply@${DomainName}'
+
+  # SES Domain Identity (using correct resource type)
+  SESDomainVerification:
+    Type: AWS::SES::DomainIdentity
+    Properties:
+      Domain: !Ref DomainName
 
   # SES Configuration Set for tracking
   SESConfigurationSet:
@@ -43,7 +48,7 @@ Resources:
       Name: !Sub 'auto-lab-config-set-${EnvironmentName}'
 
   # Route53 DNS Records (only if hosted zone is provided)
-  # Domain Verification Record - This is the key record needed
+  # Domain Verification Record
   DomainVerificationRecord:
     Type: AWS::Route53::RecordSet
     Condition: HasHostedZone
@@ -53,7 +58,7 @@ Resources:
       Type: TXT
       TTL: 300
       ResourceRecords:
-        - !Sub '"${SESDomainIdentity}"'
+        - !Sub '"${SESDomainVerification}"'
 
   # MX Record for Email Receiving
   EmailReceivingMXRecord:
@@ -93,10 +98,16 @@ Resources:
 
 Outputs:
   SESDomainIdentity:
-    Description: SES Domain Identity (includes MAIL FROM configuration)
-    Value: !Ref SESDomainIdentity
+    Description: SES Domain Identity for email receiving
+    Value: !Ref SESDomainVerification
     Export:
       Name: !Sub '${AWS::StackName}-SESDomainIdentity'
+
+  SESVerifiedEmail:
+    Description: SES Verified Email Address
+    Value: !Ref SESDomainIdentity
+    Export:
+      Name: !Sub '${AWS::StackName}-SESVerifiedEmail'
 
   SESConfigurationSet:
     Description: SES Configuration Set
