@@ -233,8 +233,8 @@ cleanup_additional_resources() {
     
     # Define critical buckets that should NEVER be touched
     local critical_buckets=(
-        "auto-lab-cloudformation-templates"  # Production CloudFormation bucket
-        "auto-lab-backups"                   # Production backup bucket
+        "auto-lab-cloudformation-templates"  # CloudFormation bucket name starting prefix
+        "auto-lab-backups"                   # Backup bucket name starting prefix
     )
     
     aws s3 ls | while read -r line; do
@@ -243,7 +243,7 @@ cleanup_additional_resources() {
             # Skip critical buckets
             local is_critical=false
             for critical_bucket in "${critical_buckets[@]}"; do
-                if [[ "$bucket_name" == "$critical_bucket" ]]; then
+                if [[ "$bucket_name" == "$critical_bucket"* ]]; then
                     print_status "Skipping critical bucket: $bucket_name (shared infrastructure)"
                     is_critical=true
                     break
@@ -291,8 +291,8 @@ empty_all_buckets() {
     
     # Define critical buckets that should NEVER be deleted (shared infrastructure)
     local critical_buckets=(
-        "auto-lab-cloudformation-templates"  # Production CloudFormation bucket
-        "auto-lab-backups"                   # Production backup bucket
+        "auto-lab-cloudformation-templates"  # CloudFormation bucket name starting prefix
+        "auto-lab-backups"                   # Backup bucket name starting prefix
     )
     
     # Get all buckets and filter for ones that are environment-specific
@@ -306,7 +306,7 @@ empty_all_buckets() {
                 # Skip critical buckets that should never be deleted
                 local is_critical=false
                 for critical_bucket in "${critical_buckets[@]}"; do
-                    if [[ "$bucket_name" == "$critical_bucket" ]]; then
+                    if [[ "$bucket_name" == "$critical_bucket"* ]]; then
                         print_status "Skipping critical bucket: $bucket_name (shared infrastructure)"
                         is_critical=true
                         break
