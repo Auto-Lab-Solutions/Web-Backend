@@ -1435,11 +1435,13 @@ Resources:
   ApiBasePathMapping:
     Type: AWS::ApiGateway::BasePathMapping
     Condition: ShouldEnableCustomDomain
-    DependsOn: ApiDeploymentV2
+    DependsOn: 
+      - ApiDeploymentV2
+      - ApiStage
     Properties:
       DomainName: !Ref ApiCustomDomain
       RestApiId: !Ref RestApi
-      Stage: !Ref Environment
+      Stage: !Ref ApiStage
 
   # Route53 Record for REST API
   ApiRoute53Record:
