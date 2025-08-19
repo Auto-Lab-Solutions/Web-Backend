@@ -57,9 +57,6 @@ Outputs:
     Value: !GetAtt EmailStorageBucket.Arn
     Export:
       Name: !Sub '${AWS::StackName}-EmailStorageBucketArn'
-          AttributeType: N
-        - AttributeName: from_email
-          AttributeType: S
       KeySchema:
         - AttributeName: message_id
           KeyType: HASH
