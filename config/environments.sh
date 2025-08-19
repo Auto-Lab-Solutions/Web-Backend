@@ -71,8 +71,8 @@ get_env_config() {
             # SES Configuration
             export SES_DOMAIN_NAME="dev.autolabsolutions.com"
             export SES_HOSTED_ZONE_ID="$HOSTED_ZONE_ID"
-            export MAIL_FROM_ADDRESS="noreply@dev.autolabsolutions.com"
-            export NO_REPLY_EMAIL="mail@dev.autolabsolutions.com"
+            export MAIL_FROM_ADDRESS="mail@dev.autolabsolutions.com"
+            export NO_REPLY_EMAIL="noreply@dev.autolabsolutions.com"
             export SES_REGION="${AWS_REGION}"
 
             # Firebase Configuration (Optional)
@@ -116,8 +116,8 @@ get_env_config() {
             # SES Configuration
             export SES_DOMAIN_NAME="autolabsolutions.com"
             export SES_HOSTED_ZONE_ID="$HOSTED_ZONE_ID"
-            export MAIL_FROM_ADDRESS="noreply@autolabsolutions.com"
-            export NO_REPLY_EMAIL="mail@autolabsolutions.com"
+            export MAIL_FROM_ADDRESS="mail@autolabsolutions.com"
+            export NO_REPLY_EMAIL="noreply@autolabsolutions.com"
             export SES_REGION="${AWS_REGION}"
             
             # Firebase Configuration (Optional)
