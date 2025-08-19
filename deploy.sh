@@ -1093,7 +1093,7 @@ configure_s3_email_notifications() {
     # Configure S3 bucket notification
     local notification_config=$(cat <<EOF
 {
-    "LambdaConfigurations": [
+    "LambdaFunctionConfigurations": [
         {
             "Id": "EmailProcessorTrigger",
             "LambdaFunctionArn": "$lambda_arn",
