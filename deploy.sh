@@ -61,7 +61,6 @@ show_usage() {
     echo "Post-deployment:"
     echo "  • Check SES status: ./check-ses-status.sh [environment]"
     echo "  • Validate deployment: ./validate-deployment.sh [environment]"
-}
     echo ""
     echo "Pipeline/Automated Execution:"
     echo "  export AUTO_CONFIRM=true    # Skip all confirmation prompts"
