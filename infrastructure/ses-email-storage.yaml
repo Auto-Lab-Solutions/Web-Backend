@@ -60,7 +60,9 @@ Resources:
               Service: ses.amazonaws.com
             Action:
               - s3:PutObject
-            Resource: !Sub '${EmailStorageBucket}/*'
+            Resource: !Sub 
+              - '${BucketArn}/*'
+              - BucketArn: !GetAtt EmailStorageBucket.Arn
             Condition:
               StringEquals:
                 'aws:Referer': !Ref 'AWS::AccountId'
