@@ -30,6 +30,9 @@ Parameters:
 Conditions:
   HasHostedZone: !Not [!Equals [!Ref HostedZoneId, ""]]
   HasVerificationToken: !Not [!Equals [!Ref VerificationToken, ""]]
+  HasBothHostedZoneAndToken: !And 
+    - !Condition HasHostedZone
+    - !Condition HasVerificationToken
 
 Resources:
   # SES Configuration Set for email handling
@@ -42,9 +45,7 @@ Resources:
   # Note: VerificationToken must be obtained manually from AWS Console/CLI
   DomainVerificationRecord:
     Type: AWS::Route53::RecordSet
-    Condition: !And
-      - !Condition HasHostedZone
-      - !Condition HasVerificationToken
+    Condition: HasBothHostedZoneAndToken
     Properties:
       HostedZoneId: !Ref HostedZoneId
       Name: !Sub '_amazonses.${DomainName}'
@@ -86,18 +87,14 @@ Outputs:
   DNSRecordsCreated:
     Description: Whether DNS records were automatically created
     Value: !If 
-      - !And
-        - !Condition HasHostedZone
-        - !Condition HasVerificationToken
+      - HasBothHostedZoneAndToken
       - 'true'
       - 'false'
 
   VerificationStatus:
     Description: Status of the domain verification process
     Value: !If 
-      - !And
-        - !Condition HasHostedZone
-        - !Condition HasVerificationToken
+      - HasBothHostedZoneAndToken
       - 'DNS records created automatically'
       - 'Manual DNS configuration required'
 
