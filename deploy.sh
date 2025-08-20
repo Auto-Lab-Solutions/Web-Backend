@@ -510,9 +510,9 @@ deploy_stack() {
     cf_params="$cf_params ParameterKey=SESDomainName,ParameterValue=${SES_DOMAIN_NAME:-autolabsolutions.com}"
     
     # # Firebase Notifications (Optional)
-    # cf_params="$cf_params ParameterKey=EnableFirebaseNotifications,ParameterValue=${ENABLE_FIREBASE_NOTIFICATIONS:-false}"
-    # cf_params="$cf_params ParameterKey=FirebaseProjectId,ParameterValue=${FIREBASE_PROJECT_ID:-}"
-    # cf_params="$cf_params ParameterKey=FirebaseServiceAccountKey,ParameterValue=${FIREBASE_SERVICE_ACCOUNT_KEY:-}"
+    cf_params="$cf_params ParameterKey=EnableFirebaseNotifications,ParameterValue=${ENABLE_FIREBASE_NOTIFICATIONS:-false}"
+    cf_params="$cf_params ParameterKey=FirebaseProjectId,ParameterValue=${FIREBASE_PROJECT_ID:-}"
+    cf_params="$cf_params ParameterKey=FirebaseServiceAccountKey,ParameterValue=${FIREBASE_SERVICE_ACCOUNT_KEY:-}"
     
     # API Custom Domains (Optional)
     cf_params="$cf_params ParameterKey=EnableApiCustomDomains,ParameterValue=${ENABLE_API_CUSTOM_DOMAINS:-false}"
