@@ -195,12 +195,6 @@ Outputs:
     Export:
       Name: !Sub '${AWS::StackName}-EmailStorageBucket'
 
-  EmailMetadataTable:
-    Description: DynamoDB table for email metadata
-    Value: !Ref EmailMetadataTable
-    Export:
-      Name: !Sub '${AWS::StackName}-EmailMetadataTable'
-
   EmailProcessorFunctionArn:
     Description: Email processor Lambda function ARN
     Value: !GetAtt EmailProcessorFunction.Arn
