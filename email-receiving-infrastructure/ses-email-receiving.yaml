@@ -1,0 +1,252 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: AWS SES Email Receiving Configuration for Auto Lab Solutions
+
+Parameters:
+  DomainName:
+    Type: String
+    Description: The domain name for which to receive emails (e.g., example.com)
+    Default: autolabsolutions.com
+  S3BucketName:
+    Type: String
+    Description: The S3 bucket where received emails will be stored
+    Default: auto-lab-email-storage
+  LambdaFunctionName:
+    Type: String
+    Description: The name of the Lambda function to trigger on email receipt
+    Default: auto-lab-email-processor
+  Environment:
+    Type: String
+    Description: Environment name (dev, staging, prod)
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - prod
+
+Resources:
+  # SES Receipt Rule Set
+  SESReceiptRuleSet:
+    Type: AWS::SES::ReceiptRuleSet
+    Properties:
+      RuleSetName: !Sub "${Environment}-${DomainName}-ReceiptRuleSet"
+
+  # S3 Bucket for Email Storage
+  EmailStorageBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${Environment}-${S3BucketName}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldEmails
+            Status: Enabled
+            ExpirationInDays: 90
+            NoncurrentVersionExpirationInDays: 30
+
+  # Bucket Policy for SES to write to S3
+  EmailStorageBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref EmailStorageBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowSESPuts
+            Effect: Allow
+            Principal:
+              Service: ses.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub "${EmailStorageBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                "aws:Referer": !Ref "AWS::AccountId"
+
+  # SNS Topic for Email Notifications
+  EmailNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "${Environment}-email-notifications"
+      DisplayName: Email Receipt Notifications
+      KmsMasterKeyId: alias/aws/sns
+
+  # Lambda Function for Email Processing
+  EmailProcessorLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${Environment}-${LambdaFunctionName}"
+      Handler: index.handler
+      Runtime: nodejs18.x
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref EmailStorageBucket
+          ENVIRONMENT: !Ref Environment
+          DOMAIN_NAME: !Ref DomainName
+      Code:
+        ZipFile: |
+          const AWS = require('aws-sdk');
+          const s3 = new AWS.S3();
+
+          exports.handler = async (event) => {
+            console.log('Received SES email event:', JSON.stringify(event, null, 2));
+            
+            try {
+              // Extract email details from SES event
+              const sesRecord = event.Records[0].ses;
+              const messageId = sesRecord.mail.messageId;
+              const timestamp = sesRecord.mail.timestamp;
+              const source = sesRecord.mail.source;
+              const destination = sesRecord.mail.destination;
+              
+              console.log(`Processing email ${messageId} from ${source} to ${destination.join(', ')}`);
+              
+              // If email was stored in S3, you can retrieve it here
+              if (sesRecord.receipt && sesRecord.receipt.action && sesRecord.receipt.action.type === 's3') {
+                const bucketName = sesRecord.receipt.action.bucketName;
+                const objectKey = sesRecord.receipt.action.objectKey;
+                
+                console.log(`Email stored in S3: s3://${bucketName}/${objectKey}`);
+                
+                // Example: Read email content from S3
+                // const emailObject = await s3.getObject({
+                //   Bucket: bucketName,
+                //   Key: objectKey
+                // }).promise();
+                // const emailContent = emailObject.Body.toString();
+              }
+              
+              // Add your email processing logic here
+              // For example: parse email, extract attachments, forward to internal systems, etc.
+              
+              return {
+                statusCode: 200,
+                body: JSON.stringify({
+                  message: 'Email processed successfully',
+                  messageId: messageId
+                })
+              };
+            } catch (error) {
+              console.error('Error processing email:', error);
+              throw error;
+            }
+          };
+      Role: !GetAtt LambdaExecutionRole.Arn
+
+  # IAM Role for Lambda Execution
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${Environment}-${LambdaFunctionName}-execution-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3EmailAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "${EmailStorageBucket.Arn}/*"
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !Ref EmailStorageBucket
+        - PolicyName: SNSPublish
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref EmailNotificationTopic
+
+  # Lambda Permission for SES to invoke the function
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref EmailProcessorLambda
+      Action: lambda:InvokeFunction
+      Principal: ses.amazonaws.com
+      SourceAccount: !Ref "AWS::AccountId"
+
+  # SES Receipt Rule
+  SESReceiptRule:
+    Type: AWS::SES::ReceiptRule
+    DependsOn: 
+      - EmailStorageBucketPolicy
+      - LambdaInvokePermission
+    Properties:
+      RuleSetName: !Ref SESReceiptRuleSet
+      Rule:
+        Name: !Sub "${Environment}-${DomainName}-ReceiptRule"
+        Enabled: true
+        ScanEnabled: true
+        TlsPolicy: Require
+        Recipients:
+          - !Ref DomainName
+          - !Sub "*.${DomainName}"
+        Actions:
+          - S3Action:
+              BucketName: !Ref EmailStorageBucket
+              ObjectKeyPrefix: !Sub "incoming-emails/${Environment}/"
+              TopicArn: !Ref EmailNotificationTopic
+          - LambdaAction:
+              FunctionArn: !GetAtt EmailProcessorLambda.Arn
+              InvocationType: Event
+              TopicArn: !Ref EmailNotificationTopic
+
+  # Set the rule set as active (this can only be done once per account)
+  # Comment out if you already have an active rule set
+  # SESActiveRuleSet:
+  #   Type: AWS::SES::ReceiptRuleSet
+  #   Properties:
+  #     RuleSetName: !Ref SESReceiptRuleSet
+
+Outputs:
+  SESReceiptRuleSetName:
+    Description: The name of the SES Receipt Rule Set
+    Value: !Ref SESReceiptRuleSet
+    Export:
+      Name: !Sub "${AWS::StackName}-SESReceiptRuleSetName"
+  
+  EmailStorageBucketName:
+    Description: The name of the S3 bucket for email storage
+    Value: !Ref EmailStorageBucket
+    Export:
+      Name: !Sub "${AWS::StackName}-EmailStorageBucketName"
+  
+  EmailStorageBucketArn:
+    Description: The ARN of the S3 bucket for email storage
+    Value: !GetAtt EmailStorageBucket.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-EmailStorageBucketArn"
+  
+  LambdaFunctionArn:
+    Description: The ARN of the email processor Lambda function
+    Value: !GetAtt EmailProcessorLambda.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-LambdaFunctionArn"
+  
+  SNSTopicArn:
+    Description: The ARN of the SNS topic for email notifications
+    Value: !Ref EmailNotificationTopic
+    Export:
+      Name: !Sub "${AWS::StackName}-SNSTopicArn"
