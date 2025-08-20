@@ -195,12 +195,6 @@ Outputs:
     Export:
       Name: !Sub '${AWS::StackName}-EmailStorageBucket'
 
-  EmailProcessorFunctionArn:
-    Description: Email processor Lambda function ARN
-    Value: !GetAtt EmailProcessorFunction.Arn
-    Export:
-      Name: !Sub '${AWS::StackName}-EmailProcessorFunctionArn'
-
   SESReceiptRuleSet:
     Description: SES receipt rule set name
     Value: !Ref SESReceiptRuleSet
