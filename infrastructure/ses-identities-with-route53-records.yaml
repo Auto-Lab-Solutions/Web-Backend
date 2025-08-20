@@ -62,7 +62,7 @@ Resources:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: !Sub '${AWS::StackName}-ses-verification'
-      Runtime: python3.9
+      Runtime: python3.11
       Handler: index.handler
       Role: !GetAtt SESVerificationRole.Arn
       Timeout: 300
@@ -228,46 +228,3 @@ Outputs:
       2. Add MX record: ${DomainName} = 10 inbound-smtp.${SesRegion}.amazonses.com
       3. Wait for DNS propagation (up to 72 hours)
       4. Check SES console for verification status
-Outputs:
-  SESDomainIdentity:
-    Description: SES Domain Identity for email receiving  
-    Value: !Ref DomainName
-    Export:
-      Name: !Sub '${AWS::StackName}-SESDomainIdentity'
-
-  SESConfigurationSet:
-    Description: SES Configuration Set for email handling
-    Value: !Ref SESConfigurationSet
-    Export:
-      Name: !Sub '${AWS::StackName}-SESConfigurationSet'
-
-  DomainName:
-    Description: The domain name configured for SES
-    Value: !Ref DomainName
-    Export:
-      Name: !Sub '${AWS::StackName}-DomainName'
-
-  VerificationToken:
-    Description: SES domain verification token
-    Value: !GetAtt SESVerificationCustomResource.VerificationToken
-
-  VerificationStatus:
-    Description: Status of the domain verification process
-    Value: !GetAtt SESVerificationCustomResource.VerificationStatus
-
-  DNSRecordsCreated:
-    Description: Whether DNS records were automatically created
-    Value: !GetAtt SESVerificationCustomResource.DNSRecordsCreated
-
-  SetupSummary:
-    Description: Summary of the SES domain verification setup
-    Value: !Sub |
-      Domain: ${DomainName}
-      Verification Status: ${SESVerificationCustomResource.VerificationStatus}
-      DNS Records Created: ${SESVerificationCustomResource.DNSRecordsCreated}
-      Hosted Zone: ${HostedZoneId}
-      
-      If verification is still pending:
-      1. Check Route53 console for DNS records
-      2. Wait up to 72 hours for DNS propagation
-      3. Check SES console for verification status
