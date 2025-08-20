@@ -436,7 +436,7 @@ Resources:
   # Notification Queue Stack for Email, WebSocket, and Firebase notifications
   NotificationQueueStack:
     Type: AWS::CloudFormation::Stack
-    DependsOn: [DynamoDBStack, S3CloudFrontStack, WebSocketStack, SESBounceComplaintStack]
+    DependsOn: [DynamoDBStack, S3CloudFrontStack, SESBounceComplaintStack]
     Properties:
       TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/notification-queue.yaml'
       Parameters:
@@ -459,10 +459,15 @@ Resources:
         CloudFrontDomain: !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName
         FrontendRootUrl: !Ref FrontendRootUrl
         MailSendingAddress: !Ref MailSendingAddress
-        WebSocketApiId: !GetAtt WebSocketStack.Outputs.WebSocketApiId
+        WebSocketApiId: ""
         EnableFirebaseNotifications: !Ref EnableFirebaseNotifications
         FirebaseProjectId: !Ref FirebaseProjectId
         FirebaseServiceAccountKey: !Ref FirebaseServiceAccountKey
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: NotificationQueue
       Tags:
         - Key: Environment
           Value: !Ref Environment

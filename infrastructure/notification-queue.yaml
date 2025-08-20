@@ -87,6 +87,7 @@ Parameters:
   WebSocketApiId:
     Type: String
     Description: WebSocket API Gateway ID for sending WebSocket notifications
+    Default: ""
 
   # Firebase Parameters (Optional)
   EnableFirebaseNotifications:
@@ -229,6 +230,7 @@ Resources:
           PAYMENTS_TABLE: !Ref PaymentsTable
           INVOICES_TABLE: !Ref InvoicesTable
           WEBSOCKET_API_ID: !Ref WebSocketApiId
+          AWS_REGION: !Ref 'AWS::Region'
           ENVIRONMENT: !Ref EnvironmentName
 
   # Lambda function to process Firebase notification queue (conditional)
