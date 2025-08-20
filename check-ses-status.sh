@@ -179,7 +179,7 @@ except:
         if [ "$verification_token" != "Unknown" ]; then
             print_status "   Required records:"
             print_status "   TXT: _amazonses.$domain = $verification_token"
-            print_status "   MX:  $domain = 10 inbound-smtp.$SES_REGION.amazonses.com"
+            print_status "   MX:  $domain = 10 inbound-smtp.$SES_REGION.amazonaws.com"
         fi
     fi
     echo ""

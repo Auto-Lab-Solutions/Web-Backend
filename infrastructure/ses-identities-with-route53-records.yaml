@@ -178,7 +178,7 @@ Resources:
                                       'Name': domain,
                                       'Type': 'MX',
                                       'TTL': 300,
-                                      'ResourceRecords': [{'Value': f'10 inbound-smtp.{ses_region}.amazonses.com'}]
+                                      'ResourceRecords': [{'Value': f'10 inbound-smtp.{ses_region}.amazonaws.com'}]
                                   }
                               },
                               # SPF record for email authentication
@@ -371,7 +371,7 @@ Outputs:
          TXT record: _amazonses.${DomainName} = ${SESVerification.VerificationToken}
       
       2. Email Receiving (MX):
-         MX record: ${DomainName} = 10 inbound-smtp.${SesRegion}.amazonses.com
+         MX record: ${DomainName} = 10 inbound-smtp.${SesRegion}.amazonaws.com
       
       3. SPF Record:
          TXT record: ${DomainName} = "v=spf1 include:amazonses.com ~all"

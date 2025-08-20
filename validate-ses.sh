@@ -253,7 +253,7 @@ check_dns_requirements() {
         echo ""
         echo "2. MX Record for Email Receiving:"
         echo "   Name: $domain"
-        echo "   Value: 10 inbound-smtp.$SES_REGION.amazonses.com"
+        echo "   Value: 10 inbound-smtp.$SES_REGION.amazonaws.com"
         echo ""
         echo "3. Optional MAIL FROM Domain (Recommended):"
         echo "   MX Record:"
@@ -342,7 +342,7 @@ You need to add these DNS records to dev.autolabsolutions.com:
 2. Email Receiving (MX Record):
    Type: MX
    Name: dev.autolabsolutions.com
-   Value: 10 inbound-smtp.ap-southeast-2.amazonses.com
+   Value: 10 inbound-smtp.ap-southeast-2.amazonaws.com
    Priority: 10
 
 3. MAIL FROM Domain (Recommended):
@@ -399,6 +399,9 @@ Support Links:
 - SES Console: https://console.aws.amazon.com/ses/
 - SES Documentation: https://docs.aws.amazon.com/ses/
 - DNS Verification: https://docs.aws.amazon.com/ses/latest/dg/verify-domain-procedure.html
+
+2. MAIL FROM MX Record:
+   Name: mail.$domain
    Value: 10 feedback-smtp.$SES_REGION.amazonses.com
 
 3. MAIL FROM TXT Record:
