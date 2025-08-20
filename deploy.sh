@@ -806,7 +806,13 @@ main() {
     if ! load_environment "$1"; then
         exit 1
     fi
-    
+
+    echo "=========================================="
+    echo "=========================================="
+    echo "Bucket: $CLOUDFORMATION_BUCKET"
+    echo "=========================================="
+    echo "=========================================="
+
     # Initialize variables
     local SKIP_LAMBDAS=false
     
