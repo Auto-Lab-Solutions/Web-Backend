@@ -377,6 +377,6 @@ Outputs:
          For each DKIM token, create:
          CNAME record: [token]._domainkey.${DomainName} = [token].dkim.amazonses.com
          
-      DKIM Tokens: ${SESVerification.DkimTokens}
+      Check the DkimTokens output for the specific token values.
       
       Wait for DNS propagation (up to 72 hours) and check SES console for verification status.
