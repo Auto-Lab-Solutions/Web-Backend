@@ -61,7 +61,7 @@ Resources:
   SESVerificationFunction:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub '${AWS::StackName}-ses-verification'
+      FunctionName: !Sub '${EnvironmentName}-ses-verify'
       Runtime: python3.11
       Handler: index.handler
       Role: !GetAtt SESVerificationRole.Arn
