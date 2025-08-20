@@ -35,6 +35,12 @@ Conditions:
     - !Condition HasVerificationToken
 
 Resources:
+  # SES Domain Identity
+  SESDomainIdentity:
+    Type: AWS::SES::EmailIdentity
+    Properties:
+      EmailIdentity: !Ref DomainName
+
   # SES Configuration Set for email handling
   SESConfigurationSet:
     Type: AWS::SES::ConfigurationSet
@@ -67,6 +73,12 @@ Resources:
         - !Sub '10 inbound-smtp.${SesRegion}.amazonses.com'
 
 Outputs:
+  SESDomainIdentity:
+    Description: SES Domain Identity for email receiving
+    Value: !Ref SESDomainIdentity
+    Export:
+      Name: !Sub '${AWS::StackName}-SESDomainIdentity'
+
   SESConfigurationSet:
     Description: SES Configuration Set for email handling
     Value: !Ref SESConfigurationSet
