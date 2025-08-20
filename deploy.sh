@@ -546,10 +546,63 @@ deploy_stack() {
     fi
     
     print_status "Waiting for CloudFormation stack operation to complete..."
-    aws cloudformation wait stack-update-complete --stack-name "$STACK_NAME" --region "$AWS_REGION" 2>/dev/null || \
-    aws cloudformation wait stack-create-complete --stack-name "$STACK_NAME" --region "$AWS_REGION"
     
-    print_success "CloudFormation stack deployed successfully"
+    # Check current stack status
+    local stack_status
+    stack_status=$(aws cloudformation describe-stacks \
+        --stack-name "$STACK_NAME" \
+        --region "$AWS_REGION" \
+        --query 'Stacks[0].StackStatus' \
+        --output text 2>/dev/null || echo "STACK_NOT_FOUND")
+    
+    print_status "Current stack status: $stack_status"
+    
+    # Only wait if stack is in a transitional state
+    case "$stack_status" in
+        "CREATE_IN_PROGRESS")
+            print_status "Stack creation in progress, waiting for completion..."
+            aws cloudformation wait stack-create-complete --stack-name "$STACK_NAME" --region "$AWS_REGION"
+            ;;
+        "UPDATE_IN_PROGRESS")
+            print_status "Stack update in progress, waiting for completion..."
+            aws cloudformation wait stack-update-complete --stack-name "$STACK_NAME" --region "$AWS_REGION"
+            ;;
+        "CREATE_COMPLETE"|"UPDATE_COMPLETE")
+            print_status "Stack is already in a complete state, no waiting needed."
+            ;;
+        "CREATE_FAILED"|"UPDATE_FAILED"|"UPDATE_ROLLBACK_COMPLETE"|"ROLLBACK_COMPLETE")
+            print_error "Stack is in a failed state: $stack_status"
+            print_error "Please check the CloudFormation console for details and resolve any issues."
+            exit 1
+            ;;
+        "DELETE_IN_PROGRESS"|"DELETE_COMPLETE")
+            print_error "Stack is being deleted or has been deleted: $stack_status"
+            exit 1
+            ;;
+        *)
+            print_warning "Unexpected stack status: $stack_status"
+            print_status "Attempting generic wait operation..."
+            aws cloudformation wait stack-update-complete --stack-name "$STACK_NAME" --region "$AWS_REGION" 2>/dev/null || \
+            aws cloudformation wait stack-create-complete --stack-name "$STACK_NAME" --region "$AWS_REGION"
+            ;;
+    esac
+    
+    # Verify final status
+    final_status=$(aws cloudformation describe-stacks \
+        --stack-name "$STACK_NAME" \
+        --region "$AWS_REGION" \
+        --query 'Stacks[0].StackStatus' \
+        --output text)
+    
+    case "$final_status" in
+        "CREATE_COMPLETE"|"UPDATE_COMPLETE")
+            print_success "CloudFormation stack deployed successfully (Status: $final_status)"
+            ;;
+        *)
+            print_error "Stack deployment failed with status: $final_status"
+            exit 1
+            ;;
+    esac
 }
 
 # Check SES verification status
