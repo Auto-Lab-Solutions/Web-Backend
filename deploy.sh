@@ -472,33 +472,60 @@ deploy_stack() {
     print_status "Deploying CloudFormation stack..."
     
     # Prepare CloudFormation parameters
-    local cf_params="ParameterKey=Environment,ParameterValue=$ENVIRONMENT"
+    local cf_params=""
+    
+    # Core Environment Configuration
+    cf_params="$cf_params ParameterKey=Environment,ParameterValue=$ENVIRONMENT"
+    cf_params="$cf_params ParameterKey=SharedKey,ParameterValue=$SHARED_KEY"
+    
+    # S3 Bucket Configuration
+    cf_params="$cf_params ParameterKey=S3BucketName,ParameterValue=$REPORTS_BUCKET_NAME"
+    cf_params="$cf_params ParameterKey=CloudFormationBucket,ParameterValue=$CLOUDFORMATION_BUCKET"
+    cf_params="$cf_params ParameterKey=BackupBucketName,ParameterValue=$BACKUP_BUCKET_NAME"
+    cf_params="$cf_params ParameterKey=ReportsBucketName,ParameterValue=$REPORTS_BUCKET_NAME"
+    
+    # Payment Integration (Stripe)
     cf_params="$cf_params ParameterKey=StripeSecretKey,ParameterValue=$STRIPE_SECRET_KEY"
     cf_params="$cf_params ParameterKey=StripeWebhookSecret,ParameterValue=$STRIPE_WEBHOOK_SECRET"
-    cf_params="$cf_params ParameterKey=SharedKey,ParameterValue=$SHARED_KEY"
-    cf_params="$cf_params ParameterKey=SESRegion,ParameterValue=$SES_REGION"
-    cf_params="$cf_params ParameterKey=SESFromEmail,ParameterValue=$NO_REPLY_EMAIL"
-    cf_params="$cf_params ParameterKey=SESToEmail,ParameterValue=$MAIL_FROM_ADDRESS"
-    cf_params="$cf_params ParameterKey=SESEmailStorageBucket,ParameterValue=$EMAIL_STORAGE_BUCKET"
-    cf_params="$cf_params ParameterKey=SESEmailMetadataTable,ParameterValue=$EMAIL_METADATA_TABLE"
     
-    # Add SES domain name parameter
-    local ses_domain="${MAIL_FROM_ADDRESS##*@}"
-    cf_params="$cf_params ParameterKey=SESDomainName,ParameterValue=$ses_domain"
+    # Authentication (Auth0)
+    cf_params="$cf_params ParameterKey=Auth0Domain,ParameterValue=$AUTH0_DOMAIN"
+    cf_params="$cf_params ParameterKey=Auth0Audience,ParameterValue=$AUTH0_AUDIENCE"
     
-    # Add SES hosted zone ID if provided
-    if [[ -n "$SES_HOSTED_ZONE_ID" ]]; then
-        cf_params="$cf_params ParameterKey=SESHostedZoneId,ParameterValue=$SES_HOSTED_ZONE_ID"
-    fi
+    # Frontend Website Configuration
+    cf_params="$cf_params ParameterKey=EnableFrontendWebsite,ParameterValue=$ENABLE_FRONTEND_WEBSITE"
+    cf_params="$cf_params ParameterKey=FrontendDomainName,ParameterValue=$FRONTEND_DOMAIN_NAME"
+    cf_params="$cf_params ParameterKey=FrontendHostedZoneId,ParameterValue=$FRONTEND_HOSTED_ZONE_ID"
+    cf_params="$cf_params ParameterKey=FrontendAcmCertificateArn,ParameterValue=$FRONTEND_ACM_CERTIFICATE_ARN"
+    cf_params="$cf_params ParameterKey=EnableCustomDomain,ParameterValue=$ENABLE_CUSTOM_DOMAIN"
+    cf_params="$cf_params ParameterKey=FrontendRootUrl,ParameterValue=$FRONTEND_ROOT_URL"
     
-    # Add Firebase parameters if enabled
-    if [[ "${ENABLE_FIREBASE_NOTIFICATIONS:-false}" == "true" ]]; then
-        cf_params="$cf_params ParameterKey=EnableFirebaseNotifications,ParameterValue=true"
-        cf_params="$cf_params ParameterKey=FirebaseProjectId,ParameterValue=$FIREBASE_PROJECT_ID"
-        cf_params="$cf_params ParameterKey=FirebaseServiceAccountKey,ParameterValue=$FIREBASE_SERVICE_ACCOUNT_KEY"
-    else
-        cf_params="$cf_params ParameterKey=EnableFirebaseNotifications,ParameterValue=false"
-    fi
+    # Email Service (SES) Configuration
+    cf_params="$cf_params ParameterKey=MailSendingAddress,ParameterValue=$NO_REPLY_EMAIL"
+    cf_params="$cf_params ParameterKey=SesRegion,ParameterValue=$SES_REGION"
+    cf_params="$cf_params ParameterKey=MailReceivingAddress,ParameterValue=$MAIL_FROM_ADDRESS"
+    cf_params="$cf_params ParameterKey=EmailStorageBucketName,ParameterValue=$EMAIL_STORAGE_BUCKET"
+    cf_params="$cf_params ParameterKey=EmailMetadataTableName,ParameterValue=$EMAIL_METADATA_TABLE"
+    cf_params="$cf_params ParameterKey=SESHostedZoneId,ParameterValue=${SES_HOSTED_ZONE_ID:-}"
+    cf_params="$cf_params ParameterKey=SESDomainName,ParameterValue=${SES_DOMAIN_NAME:-autolabsolutions.com}"
+    
+    # Firebase Notifications (Optional)
+    cf_params="$cf_params ParameterKey=EnableFirebaseNotifications,ParameterValue=${ENABLE_FIREBASE_NOTIFICATIONS:-false}"
+    cf_params="$cf_params ParameterKey=FirebaseProjectId,ParameterValue=${FIREBASE_PROJECT_ID:-}"
+    cf_params="$cf_params ParameterKey=FirebaseServiceAccountKey,ParameterValue=${FIREBASE_SERVICE_ACCOUNT_KEY:-}"
+    
+    # API Custom Domains (Optional)
+    cf_params="$cf_params ParameterKey=EnableApiCustomDomains,ParameterValue=${ENABLE_API_CUSTOM_DOMAINS:-false}"
+    cf_params="$cf_params ParameterKey=ApiDomainName,ParameterValue=${API_DOMAIN_NAME:-}"
+    cf_params="$cf_params ParameterKey=WebSocketDomainName,ParameterValue=${WEBSOCKET_DOMAIN_NAME:-}"
+    cf_params="$cf_params ParameterKey=ApiHostedZoneId,ParameterValue=${API_HOSTED_ZONE_ID:-}"
+    cf_params="$cf_params ParameterKey=ApiAcmCertificateArn,ParameterValue=${API_ACM_CERTIFICATE_ARN:-}"
+    
+    # Reports Custom Domain (Optional)
+    cf_params="$cf_params ParameterKey=EnableReportsCustomDomain,ParameterValue=${ENABLE_REPORTS_CUSTOM_DOMAIN:-false}"
+    cf_params="$cf_params ParameterKey=ReportsDomainName,ParameterValue=${REPORTS_DOMAIN_NAME:-}"
+    cf_params="$cf_params ParameterKey=ReportsHostedZoneId,ParameterValue=${REPORTS_HOSTED_ZONE_ID:-}"
+    cf_params="$cf_params ParameterKey=ReportsAcmCertificateArn,ParameterValue=${REPORTS_ACM_CERTIFICATE_ARN:-}"
     
     # Check if stack exists
     if aws cloudformation describe-stacks --stack-name "$STACK_NAME" &> /dev/null; then
