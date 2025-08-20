@@ -949,12 +949,28 @@ main() {
         update_all_lambdas
     fi
     
+    # Configure S3 bucket notifications for email processing
+    print_status "Configuring S3 bucket notifications for email processing..."
+    if [[ -f "configure-s3-email-notification.sh" ]]; then
+        if ./configure-s3-email-notification.sh "$ENVIRONMENT"; then
+            print_success "✅ S3 email notification configuration completed successfully"
+        else
+            print_error "❌ S3 email notification configuration failed"
+            print_error "Email processing may not work correctly until this is resolved"
+            exit 1
+        fi
+    else
+        print_error "❌ configure-s3-email-notification.sh script not found"
+        print_error "Email processing will not work without S3 bucket notification configuration"
+        exit 1
+    fi
+    
     configure_api_gateway
     
-    # SES email receiving verification (handled by CloudFormation)
+    # SES email receiving verification (handled by CloudFormation and post-deployment scripts)
     print_status "Verifying SES email receiving setup..."
     print_success "✅ SES identities and DNS records are managed by CloudFormation"
-    print_success "✅ S3 bucket notifications are managed by CloudFormation"
+    print_success "✅ S3 bucket notifications configured by post-deployment script"
     print_success "✅ Bounce/complaint notifications are managed by CloudFormation"
     
     # Check verification status
@@ -1026,6 +1042,7 @@ except:
     print_status "  1. Wait for SES verification to complete"
     print_status "  2. Send test email to: $MAIL_FROM_ADDRESS"
     print_status "  3. Check S3 bucket and DynamoDB for stored email"
+    print_status "  4. Run validation: ./validate-email-processing.sh $ENVIRONMENT"
     print_status "=========================================="
 
     # Print important endpoints
@@ -1050,15 +1067,17 @@ except:
         echo "  ✓ SES domain identity configured for $SES_DOMAIN_NAME"
         echo "  ✓ DNS records created automatically for domain verification"
         echo "  ✓ Email storage bucket with proper permissions"
-        echo "  ✓ SES receipt rules configured for email processing"
-        echo "  ✓ Email processor Lambda function"
+        echo "  ✓ SES receipt rules configured for S3 email storage"
+        echo "  ✓ S3 bucket notifications configured for Lambda triggers"
+        echo "  ✓ Email processor Lambda function (S3-triggered, no duplicates)"
         echo "  ✓ Bounce/complaint handlers for email deliverability"
         echo ""
-        print_success "📧 EMAIL RECEIVING IS NOW OPERATIONAL:"
-        echo "  📨 Send emails to: any-address@$SES_DOMAIN_NAME"
-        echo "  📂 Emails stored automatically in S3"
-        echo "  📊 Metadata tracked in DynamoDB"
-        echo "  🔔 Notifications via SNS topics"
+        print_success "📧 EMAIL RECEIVING PROCESSING FLOW:"
+        echo "  📨 1. Email sent to any-address@$SES_DOMAIN_NAME"
+        echo "  📂 2. SES stores email in S3 bucket automatically"
+        echo "  🚀 3. S3 ObjectCreated event triggers email processor Lambda"
+        echo "  📊 4. Lambda parses email and stores metadata in DynamoDB"
+        echo "  🔔 5. Notifications sent via SNS/SQS for further processing"
         echo ""
         print_success "✅ ASYNC PROCESSING SYSTEM DEPLOYED:"
         echo "  ✓ SQS queues for invoice, email, and WebSocket notifications"

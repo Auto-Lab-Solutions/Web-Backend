@@ -133,16 +133,10 @@ Resources:
                   - dynamodb:Scan
                 Resource: !GetAtt EmailMetadataTable.Arn
 
-  # Permission for S3 to invoke the Lambda function
-  EmailProcessorS3InvokePermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !Ref EmailProcessorLambda
-      Action: lambda:InvokeFunction
-      Principal: s3.amazonaws.com
-      SourceArn: !Sub 'arn:aws:s3:::${EmailStorageBucketName}-${AWS::AccountId}-${EnvironmentName}'
+  # Permission for S3 to invoke the Lambda function (will be managed by bash script)
+  # Note: This permission is now handled by configure-s3-email-notification.sh script
 
-  # S3 Bucket for storing received emails - SIMPLE STORAGE ONLY
+  # S3 Bucket for storing received emails
   EmailStorageBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -165,113 +159,6 @@ Resources:
           Value: !Ref EnvironmentName
         - Key: Purpose
           Value: EmailStorage
-
-  # Custom resource to configure S3 bucket notification (avoids circular dependency)
-  S3NotificationCustomResource:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: !Sub 's3-notification-configurator-${EnvironmentName}'
-      Runtime: python3.13
-      Handler: index.lambda_handler
-      Timeout: 60
-      Role: !GetAtt S3NotificationCustomResourceRole.Arn
-      Code:
-        ZipFile: |
-          import boto3
-          import cfnresponse
-          import json
-          
-          def lambda_handler(event, context):
-              try:
-                  s3_client = boto3.client('s3')
-                  
-                  if event['RequestType'] == 'Create' or event['RequestType'] == 'Update':
-                      bucket_name = event['ResourceProperties']['BucketName']
-                      lambda_arn = event['ResourceProperties']['LambdaArn']
-                      prefix = event['ResourceProperties']['Prefix']
-                      
-                      # Configure bucket notification
-                      notification_config = {
-                          'LambdaConfigurations': [
-                              {
-                                  'Id': 'EmailProcessorNotification',
-                                  'LambdaFunctionArn': lambda_arn,
-                                  'Events': ['s3:ObjectCreated:*'],
-                                  'Filter': {
-                                      'Key': {
-                                          'FilterRules': [
-                                              {
-                                                  'Name': 'prefix',
-                                                  'Value': prefix
-                                              }
-                                          ]
-                                      }
-                                  }
-                              }
-                          ]
-                      }
-                      
-                      s3_client.put_bucket_notification_configuration(
-                          Bucket=bucket_name,
-                          NotificationConfiguration=notification_config
-                      )
-                      
-                      cfnresponse.send(event, context, cfnresponse.SUCCESS, 
-                                     {'Message': f'Successfully configured notification for bucket: {bucket_name}'})
-                  
-                  elif event['RequestType'] == 'Delete':
-                      bucket_name = event['ResourceProperties']['BucketName']
-                      
-                      # Remove bucket notification
-                      try:
-                          s3_client.put_bucket_notification_configuration(
-                              Bucket=bucket_name,
-                              NotificationConfiguration={}
-                          )
-                      except Exception as delete_error:
-                          print(f'Warning during delete: {str(delete_error)}')
-                      
-                      cfnresponse.send(event, context, cfnresponse.SUCCESS, 
-                                     {'Message': f'Successfully removed notification for bucket: {bucket_name}'})
-                  
-              except Exception as e:
-                  print(f'Error: {str(e)}')
-                  cfnresponse.send(event, context, cfnresponse.FAILED, 
-                                 {'Message': f'Failed to configure bucket notification: {str(e)}'})
-
-  # IAM Role for the S3 notification custom resource
-  S3NotificationCustomResourceRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: S3NotificationAccess
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - s3:PutBucketNotification
-                  - s3:GetBucketNotification
-                Resource: !GetAtt EmailStorageBucket.Arn
-
-  # Configure S3 bucket notification using custom resource
-  EmailStorageBucketNotificationConfig:
-    Type: AWS::CloudFormation::CustomResource
-    DependsOn: EmailProcessorS3InvokePermission
-    Properties:
-      ServiceToken: !GetAtt S3NotificationCustomResource.Arn
-      BucketName: !Ref EmailStorageBucket
-      LambdaArn: !GetAtt EmailProcessorLambda.Arn
-      Prefix: !Sub 'emails/${EnvironmentName}/'
 
   # S3 Bucket Policy to allow SES to write emails
   EmailStorageBucketPolicy:
