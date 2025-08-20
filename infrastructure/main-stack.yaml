@@ -102,6 +102,11 @@ Parameters:
     Description: The domain name for SES (e.g., autolabsolutions.com or dev.autolabsolutions.com)
     Default: "autolabsolutions.com"
 
+  SESMailFromDomain:
+    Type: String
+    Description: Custom MAIL FROM domain for SES (subdomain of SESDomainName, e.g., mail.autolabsolutions.com)
+    Default: ""
+
   # Email Storage Parameters
   MailReceivingAddress:
     Type: String
@@ -390,6 +395,7 @@ Resources:
         SesRegion: !Ref SesRegion
         HostedZoneId: !Ref SESHostedZoneId
         DomainName: !Ref SESDomainName
+        MailFromDomain: !Ref SESMailFromDomain
       Tags:
         - Key: Environment
           Value: !Ref Environment
