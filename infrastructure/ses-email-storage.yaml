@@ -186,7 +186,7 @@ Resources:
       ServiceToken: !GetAtt SESRuleSetActivatorFunction.Arn
       RuleSetName: !Ref SESReceiptRuleSet
       Region: !Ref SesRegion
-      MailFromAddress: !Ref MailFromAddress
+      MailFromAddress: !Ref MailReceivingAddress
 
 Outputs:
   EmailStorageBucket:
