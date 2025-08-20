@@ -113,11 +113,6 @@ Parameters:
     Description: S3 bucket name for storing received emails
     Default: "auto-lab-email-storage"
 
-  EmailMetadataTableName:
-    Type: String
-    Description: DynamoDB table name for email metadata (including environment suffix)
-    Default: "EmailMetadata-production"
-
   # Frontend Website Parameters
   EnableFrontendWebsite:
     Type: String
@@ -213,6 +208,7 @@ Resources:
       - S3CloudFrontStack
       - InvoiceQueueStack
       - SESEmailStorageStack
+      - SESBounceComplaintStack
       - NotificationQueueStack
     Properties:
       TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/lambda-functions.yaml'
@@ -245,6 +241,8 @@ Resources:
         SesRegion: !Ref SesRegion
         EmailStorageBucket: !GetAtt SESEmailStorageStack.Outputs.EmailStorageBucket
         MailReceivingAddress: !Ref MailReceivingAddress
+        EmailSuppressionTableName: !GetAtt SESBounceComplaintStack.Outputs.EmailSuppressionTableName
+        EmailMetadataTable: !GetAtt SESEmailStorageStack.Outputs.EmailMetadataTable
         EmailNotificationQueueUrl: !GetAtt NotificationQueueStack.Outputs.EmailNotificationQueueUrl
         WebSocketNotificationQueueUrl: !GetAtt NotificationQueueStack.Outputs.WebSocketNotificationQueueUrl
         FirebaseNotificationQueueUrl: !If [ShouldEnableFirebase, !GetAtt NotificationQueueStack.Outputs.FirebaseNotificationQueueUrl, '']

@@ -505,7 +505,6 @@ deploy_stack() {
     cf_params="$cf_params ParameterKey=SesRegion,ParameterValue=$SES_REGION"
     cf_params="$cf_params ParameterKey=MailReceivingAddress,ParameterValue=$MAIL_FROM_ADDRESS"
     cf_params="$cf_params ParameterKey=EmailStorageBucketName,ParameterValue=$EMAIL_STORAGE_BUCKET"
-    cf_params="$cf_params ParameterKey=EmailMetadataTableName,ParameterValue=$EMAIL_METADATA_TABLE"
     cf_params="$cf_params ParameterKey=SESHostedZoneId,ParameterValue=${SES_HOSTED_ZONE_ID:-}"
     cf_params="$cf_params ParameterKey=SESDomainName,ParameterValue=${SES_DOMAIN_NAME:-autolabsolutions.com}"
     

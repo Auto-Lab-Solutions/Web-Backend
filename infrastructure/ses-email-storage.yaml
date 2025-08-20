@@ -47,6 +47,36 @@ Resources:
         - Key: Purpose
           Value: EmailStorage
       
+  # DynamoDB Table for Email Metadata
+  EmailMetadataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'EmailMetadata-${EnvironmentName}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: messageId
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: N
+      KeySchema:
+        - AttributeName: messageId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: TimestampIndex
+          KeySchema:
+            - AttributeName: timestamp
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Purpose
+          Value: EmailMetadata
+
   # S3 Bucket Policy to allow SES to write emails
   EmailStorageBucketPolicy:
     Type: AWS::S3::BucketPolicy
@@ -196,6 +226,12 @@ Outputs:
     Value: !Ref EmailStorageBucket
     Export:
       Name: !Sub '${AWS::StackName}-EmailStorageBucket'
+
+  EmailMetadataTable:
+    Description: DynamoDB table for email metadata
+    Value: !Ref EmailMetadataTable
+    Export:
+      Name: !Sub '${AWS::StackName}-EmailMetadataTable'
 
   SESReceiptRuleSet:
     Description: SES receipt rule set name
