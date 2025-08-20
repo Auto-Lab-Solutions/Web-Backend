@@ -142,6 +142,22 @@ Parameters:
     Description: Email address for receiving emails (environment-specific)
     Default: "mail@autolabsolutions.com"
 
+  # Notification Queue Parameters
+  EmailNotificationQueueUrl:
+    Type: String
+    Description: SQS Queue URL for email notifications
+    Default: ""
+
+  WebSocketNotificationQueueUrl:
+    Type: String
+    Description: SQS Queue URL for WebSocket notifications
+    Default: ""
+
+  FirebaseNotificationQueueUrl:
+    Type: String
+    Description: SQS Queue URL for Firebase push notifications
+    Default: ""
+
 Conditions:
   IsProduction: !Equals [!Ref Environment, 'production']
 
