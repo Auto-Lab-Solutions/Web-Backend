@@ -1105,6 +1105,31 @@ Resources:
         - Key: Purpose
           Value: EmailAPI
 
+  # API Email Suppression Manager Function
+  ApiEmailSuppressionManager:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'api-email-suppression-manager-${Environment}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref Environment
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          STAFF_TABLE: !Ref StaffTable
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: 'lambda/api-email-suppression-manager.zip'
+      Timeout: 30
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: AutoLabSolutions
+        - Key: Purpose
+          Value: EmailSuppressionAPI
+
 Outputs:
   StaffAuthorizerArn:
     Description: Staff Authorizer Lambda ARN
@@ -1257,4 +1282,10 @@ Outputs:
     Value: !GetAtt ApiSendEmail.Arn
     Export:
       Name: !Sub '${AWS::StackName}-ApiSendEmailArn'
+
+  ApiEmailSuppressionManagerArn:
+    Description: Email Suppression Manager API Lambda ARN
+    Value: !GetAtt ApiEmailSuppressionManager.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiEmailSuppressionManagerArn'
 
