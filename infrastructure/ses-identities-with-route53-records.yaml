@@ -55,7 +55,8 @@ Resources:
                   - ses:VerifyDomainIdentity
                   - ses:GetIdentityVerificationAttributes
                   - ses:DeleteIdentity
-                  - ses:PutIdentityDkimAttributes
+                  - ses:VerifyDomainDkim
+                  - ses:SetIdentityDkimEnabled
                   - ses:GetIdentityDkimAttributes
                   - ses:SetIdentityMailFromDomain
                   - ses:GetIdentityMailFromDomainAttributes
@@ -109,30 +110,39 @@ Resources:
                       print(f"Verification token: {token}")
                       
                       # Enable DKIM for the domain
-                      print(f"Enabling DKIM for domain: {domain}")
+                      print(f"Setting up DKIM for domain: {domain}")
                       try:
-                          dkim_response = ses_client.put_identity_dkim_attributes(
+                          # First, verify domain for DKIM to get tokens
+                          dkim_verify_response = ses_client.verify_domain_dkim(Domain=domain)
+                          dkim_tokens = dkim_verify_response.get('DkimTokens', [])
+                          print(f"DKIM tokens received: {dkim_tokens}")
+                          
+                          # Then enable DKIM
+                          dkim_response = ses_client.set_identity_dkim_enabled(
                               Identity=domain,
                               DkimEnabled=True
                           )
                           print("DKIM enabled successfully")
                           
-                          # Get DKIM tokens
-                          dkim_tokens_response = ses_client.get_identity_dkim_attributes(
-                              Identities=[domain]
-                          )
+                          response_data['DkimTokens'] = dkim_tokens
+                          print(f"DKIM setup completed with {len(dkim_tokens)} tokens")
                           
-                          if domain in dkim_tokens_response['DkimAttributes']:
-                              dkim_tokens = dkim_tokens_response['DkimAttributes'][domain].get('DkimTokens', [])
-                              response_data['DkimTokens'] = dkim_tokens
-                              print(f"DKIM tokens: {dkim_tokens}")
-                          else:
-                              print("DKIM tokens not available yet")
-                              response_data['DkimTokens'] = []
-                              
                       except Exception as e:
                           print(f"DKIM setup error: {e}")
-                          response_data['DkimTokens'] = []
+                          # Still try to get existing DKIM attributes if available
+                          try:
+                              dkim_attrs_response = ses_client.get_identity_dkim_attributes(
+                                  Identities=[domain]
+                              )
+                              if domain in dkim_attrs_response['DkimAttributes']:
+                                  existing_tokens = dkim_attrs_response['DkimAttributes'][domain].get('DkimTokens', [])
+                                  response_data['DkimTokens'] = existing_tokens
+                                  print(f"Retrieved existing DKIM tokens: {existing_tokens}")
+                              else:
+                                  response_data['DkimTokens'] = []
+                          except Exception as inner_e:
+                              print(f"Failed to retrieve existing DKIM tokens: {inner_e}")
+                              response_data['DkimTokens'] = []
                       
                       # Set up custom MAIL FROM domain
                       print(f"Setting up MAIL FROM domain: {mail_from_domain}")
