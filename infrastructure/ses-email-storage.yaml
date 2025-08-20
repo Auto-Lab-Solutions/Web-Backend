@@ -22,7 +22,126 @@ Parameters:
     Description: Email address used for receiving emails
     Default: "mail@autolabsolutions.com"
 
+  CloudFormationBucket:
+    Type: String
+    Description: S3 bucket containing Lambda packages
+    Default: "auto-lab-cloudformation-templates"
+
 Resources:
+  # DynamoDB Table for Email Metadata
+  EmailMetadataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'EmailMetadata-${EnvironmentName}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: messageId
+          AttributeType: S
+        - AttributeName: receivedDate
+          AttributeType: S
+        - AttributeName: fromEmail
+          AttributeType: S
+        - AttributeName: toEmail
+          AttributeType: S
+      KeySchema:
+        - AttributeName: messageId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: ReceivedDateIndex
+          KeySchema:
+            - AttributeName: receivedDate
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: FromEmailIndex
+          KeySchema:
+            - AttributeName: fromEmail
+              KeyType: HASH
+            - AttributeName: receivedDate
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: ToEmailIndex
+          KeySchema:
+            - AttributeName: toEmail
+              KeyType: HASH
+            - AttributeName: receivedDate
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Purpose
+          Value: EmailMetadata
+
+  # Email Processor Lambda Function
+  EmailProcessorLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'email-processor-${EnvironmentName}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt EmailProcessorRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: 'lambda/email-processor.zip'
+      Environment:
+        Variables:
+          ENVIRONMENT: !Ref EnvironmentName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+      Timeout: 60
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Purpose
+          Value: EmailProcessing
+
+  # IAM Role for Email Processor Lambda
+  EmailProcessorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: EmailProcessorPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub 'arn:aws:s3:::${EmailStorageBucketName}-${AWS::AccountId}-${EnvironmentName}/*'
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource: !GetAtt EmailMetadataTable.Arn
+
+  # Permission for S3 to invoke the Lambda function
+  EmailProcessorS3InvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref EmailProcessorLambda
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub 'arn:aws:s3:::${EmailStorageBucketName}-${AWS::AccountId}-${EnvironmentName}'
+
   # S3 Bucket for storing received emails - SIMPLE STORAGE ONLY
   EmailStorageBucket:
     Type: AWS::S3::Bucket
@@ -41,41 +160,20 @@ Resources:
             Status: Enabled
             ExpirationInDays: 365  # Keep emails for 1 year
             NoncurrentVersionExpirationInDays: 30
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt EmailProcessorLambda.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: !Sub 'emails/${EnvironmentName}/'
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName
         - Key: Purpose
           Value: EmailStorage
-      
-  # DynamoDB Table for Email Metadata
-  EmailMetadataTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: !Sub 'EmailMetadata-${EnvironmentName}'
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: messageId
-          AttributeType: S
-        - AttributeName: timestamp
-          AttributeType: N
-      KeySchema:
-        - AttributeName: messageId
-          KeyType: HASH
-      GlobalSecondaryIndexes:
-        - IndexName: TimestampIndex
-          KeySchema:
-            - AttributeName: timestamp
-              KeyType: HASH
-          Projection:
-            ProjectionType: ALL
-      TimeToLiveSpecification:
-        AttributeName: ttl
-        Enabled: true
-      Tags:
-        - Key: Environment
-          Value: !Ref EnvironmentName
-        - Key: Purpose
-          Value: EmailMetadata
 
   # S3 Bucket Policy to allow SES to write emails
   EmailStorageBucketPolicy:
@@ -121,7 +219,6 @@ Resources:
               BucketName: !Ref EmailStorageBucket
               ObjectKeyPrefix: !Sub 'emails/${EnvironmentName}/'
         ScanEnabled: true
-
 
   # Lambda function to activate the SES receipt rule set (since CloudFormation doesn't support this directly)
   SESRuleSetActivatorFunction:
@@ -238,3 +335,15 @@ Outputs:
     Value: !Ref SESReceiptRuleSet
     Export:
       Name: !Sub '${AWS::StackName}-SESReceiptRuleSet'
+
+  EmailProcessorLambdaArn:
+    Description: ARN of the Email Processor Lambda function
+    Value: !GetAtt EmailProcessorLambda.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-EmailProcessorLambdaArn'
+
+  EmailProcessorLambdaName:
+    Description: Name of the Email Processor Lambda function
+    Value: !Ref EmailProcessorLambda
+    Export:
+      Name: !Sub '${AWS::StackName}-EmailProcessorLambdaName'

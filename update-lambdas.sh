@@ -291,7 +291,7 @@ update_backup_lambda() {
     return 0
 }
 
-# Function to update SES Lambda function code (managed by SESBounceComplaintStack)
+# Function to update SES Lambda function code (managed by SESBounceComplaintStack or SESEmailStorageStack)
 update_ses_lambda() {
     local lambda_name=$1
     local full_function_name="${lambda_name}-${ENVIRONMENT}"
@@ -359,8 +359,8 @@ update_functions() {
                 else
                     ((error_count++))
                 fi
-            elif [[ "$lambda_name" =~ ^ses- ]]; then
-                # SES bounce/complaint lambdas are managed by SESBounceComplaintStack
+            elif [[ "$lambda_name" =~ ^ses- ]] || [[ "$lambda_name" == "email-processor" ]]; then
+                # SES bounce/complaint lambdas and email processor are managed by SES stacks
                 if update_ses_lambda "$lambda_name"; then
                     ((success_count++))
                 else

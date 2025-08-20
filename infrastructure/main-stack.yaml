@@ -292,6 +292,7 @@ Resources:
         ApiEmailSuppressionManagerArn: !GetAtt LambdaStack.Outputs.ApiEmailSuppressionManagerArn
         ApiGetEmailsArn: !GetAtt LambdaStack.Outputs.ApiGetEmailsArn
         ApiSendEmailArn: !GetAtt LambdaStack.Outputs.ApiSendEmailArn
+        ApiBackupRestoreArn: !GetAtt BackupSystemStack.Outputs.ApiBackupRestoreArn
         EnableApiCustomDomains: !Ref EnableApiCustomDomains
         ApiDomainName: !Ref ApiDomainName
         ApiHostedZoneId: !Ref ApiHostedZoneId
@@ -413,6 +414,7 @@ Resources:
         EmailStorageBucketName: !Ref EmailStorageBucketName
         SesRegion: !Ref SesRegion
         MailReceivingAddress: !Ref MailReceivingAddress
+        CloudFormationBucket: !Ref CloudFormationBucket
       Tags:
         - Key: Environment
           Value: !Ref Environment

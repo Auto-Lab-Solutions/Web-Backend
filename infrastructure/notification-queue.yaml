@@ -207,7 +207,6 @@ Resources:
   # Lambda function to process WebSocket notification queue
   WebSocketNotificationProcessorLambda:
     Type: AWS::Lambda::Function
-    Condition: ShouldEnableWebSocket
     Properties:
       FunctionName: !Sub 'sqs-process-websocket-notification-queue-${EnvironmentName}'
       Runtime: python3.13
@@ -342,7 +341,6 @@ Resources:
   # IAM Role for WebSocket Notification Processor Lambda
   WebSocketNotificationProcessorRole:
     Type: AWS::IAM::Role
-    Condition: ShouldEnableWebSocket
     Properties:
       RoleName: !Sub 'WebSocketNotificationProcessorRole-${EnvironmentName}'
       AssumeRolePolicyDocument:
@@ -478,7 +476,6 @@ Resources:
   # Event Source Mapping for WebSocket Notification Queue
   WebSocketNotificationEventSourceMapping:
     Type: AWS::Lambda::EventSourceMapping
-    Condition: ShouldEnableWebSocket
     Properties:
       EventSourceArn: !GetAtt WebSocketNotificationQueue.Arn
       FunctionName: !Ref WebSocketNotificationProcessorLambda
