@@ -11,7 +11,7 @@ Parameters:
     Type: String
     Default: auto-lab-reports
     Description: S3 bucket name for reports
-  
+
   CloudFormationBucket:
     Type: String
     Default: auto-lab-cloudformation-templates
@@ -173,10 +173,28 @@ Parameters:
     Description: ARN of the ACM certificate for API domains (must be in the same region)
     Default: ''
 
+  EnableFirebaseNotifications:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+    Description: Whether to enable Firebase push notifications
+
+  FirebaseProjectId:
+    Type: String
+    Description: Firebase project ID for push notifications
+    Default: ''
+
+  FirebaseServiceAccountKey:
+    Type: String
+    NoEcho: true
+    Description: Firebase service account key JSON for push notifications
+    Default: ''
+
 Conditions:
   ShouldDeployFrontend: !Equals [!Ref EnableFrontendWebsite, 'true']
   ShouldEnableApiCustomDomains: !Equals [!Ref EnableApiCustomDomains, 'true']
   ShouldEnableReportsCustomDomain: !Equals [!Ref EnableReportsCustomDomain, 'true']
+  ShouldEnableFirebase: !Equals [!Ref EnableFirebaseNotifications, 'true']
 
 Resources:
   # DynamoDB Tables
@@ -195,6 +213,7 @@ Resources:
       - S3CloudFrontStack
       - InvoiceQueueStack
       - SESEmailStorageStack
+      - NotificationQueueStack
     Properties:
       TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/lambda-functions.yaml'
       Parameters:
@@ -226,6 +245,9 @@ Resources:
         SesRegion: !Ref SesRegion
         EmailStorageBucket: !GetAtt SESEmailStorageStack.Outputs.EmailStorageBucket
         MailReceivingAddress: !Ref MailReceivingAddress
+        EmailNotificationQueueUrl: !GetAtt NotificationQueueStack.Outputs.EmailNotificationQueueUrl
+        WebSocketNotificationQueueUrl: !GetAtt NotificationQueueStack.Outputs.WebSocketNotificationQueueUrl
+        FirebaseNotificationQueueUrl: !If [ShouldEnableFirebase, !GetAtt NotificationQueueStack.Outputs.FirebaseNotificationQueueUrl, '']
 
   # API Gateway
   ApiGatewayStack:
@@ -392,6 +414,36 @@ Resources:
           Value: !Ref Environment
         - Key: Component
           Value: EmailStorage
+
+  # Notification Queue Stack for Email, WebSocket, and Firebase notifications
+  NotificationQueueStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: [DynamoDBStack, S3CloudFrontStack]
+    Properties:
+      TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/notification-queue.yaml'
+      Parameters:
+        EnvironmentName: !Ref Environment
+        CloudFormationBucket: !Ref CloudFormationBucket
+        StaffTable: !GetAtt DynamoDBStack.Outputs.StaffTable
+        UsersTable: !GetAtt DynamoDBStack.Outputs.UsersTable
+        ConnectionsTable: !GetAtt DynamoDBStack.Outputs.ConnectionsTable
+        MessagesTable: !GetAtt DynamoDBStack.Outputs.MessagesTable
+        UnavailableSlotsTable: !GetAtt DynamoDBStack.Outputs.UnavailableSlotsTable
+        AppointmentsTable: !GetAtt DynamoDBStack.Outputs.AppointmentsTable
+        ServicePricesTable: !GetAtt DynamoDBStack.Outputs.ServicePricesTable
+        OrdersTable: !GetAtt DynamoDBStack.Outputs.OrdersTable
+        ItemPricesTable: !GetAtt DynamoDBStack.Outputs.ItemPricesTable
+        InquiriesTable: !GetAtt DynamoDBStack.Outputs.InquiriesTable
+        PaymentsTable: !GetAtt DynamoDBStack.Outputs.PaymentsTable
+        InvoicesTable: !GetAtt DynamoDBStack.Outputs.InvoicesTable
+        EnableFirebaseNotifications: !Ref EnableFirebaseNotifications
+        FirebaseProjectId: !Ref FirebaseProjectId
+        FirebaseServiceAccountKey: !Ref FirebaseServiceAccountKey
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: NotificationQueue
 
 
 Outputs:
