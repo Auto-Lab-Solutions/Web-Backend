@@ -373,7 +373,6 @@ Resources:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           SERVICE_PRICES_TABLE: !Ref ServicePricesTable
           ENVIRONMENT: !Ref Environment
-          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
@@ -401,7 +400,6 @@ Resources:
           SERVICE_PRICES_TABLE: !Ref ServicePricesTable
           USERS_TABLE: !Ref UsersTable
           ENVIRONMENT: !Ref Environment
-          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
@@ -487,7 +485,6 @@ Resources:
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           ITEM_PRICES_TABLE: !Ref ItemPricesTable
           ENVIRONMENT: !Ref Environment
-          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
@@ -515,7 +512,6 @@ Resources:
           ITEM_PRICES_TABLE: !Ref ItemPricesTable
           USERS_TABLE: !Ref UsersTable
           ENVIRONMENT: !Ref Environment
-          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
@@ -554,7 +550,6 @@ Resources:
           CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
-          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
           FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
@@ -614,7 +609,6 @@ Resources:
           CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
-          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
           FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
@@ -653,7 +647,6 @@ Resources:
           CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
-          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
           WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
           FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
@@ -1029,7 +1022,6 @@ Resources:
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
           SHARED_KEY: !Ref SharedKey
           ENVIRONMENT: !Ref Environment
-          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -1071,7 +1063,6 @@ Resources:
       Environment:
         Variables:
           ENVIRONMENT: !Ref Environment
-          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
           NO_REPLY_EMAIL: !Ref MailSendingAddress
           EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
           EMAIL_METADATA_TABLE: !Ref EmailMetadataTable

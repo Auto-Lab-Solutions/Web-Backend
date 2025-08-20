@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Auto Lab Solutions - SES Email Receiving Only (No Notifications)'
+Description: 'Auto Lab Solutions - SES Domain Verification (Simplified)'
 
 Parameters:
   EnvironmentName:
@@ -14,7 +14,7 @@ Parameters:
 
   HostedZoneId:
     Type: String
-    Description: Route53 hosted zone ID
+    Description: Route53 hosted zone ID (leave empty to skip DNS automation)
     Default: ""
 
   DomainName:
@@ -22,33 +22,27 @@ Parameters:
     Description: Domain name for email receiving
     Default: "autolabsolutions.com"
 
-  VerificationToken:
-    Type: String
-    Description: SES domain verification token
-    Default: ""
-
 Conditions:
   HasHostedZone: !Not [!Equals [!Ref HostedZoneId, ""]]
-  HasVerificationToken: !Not [!Equals [!Ref VerificationToken, ""]]
 
 Resources:
-  # SES Email Identity for domain - EMAIL RECEIVING ONLY
+  # SES Domain Identity - automatically gets verification token
   SESDomainIdentity:
-    Type: AWS::SES::EmailIdentity
+    Type: AWS::SES::DomainIdentity
     Properties:
-      EmailIdentity: !Ref DomainName
+      Domain: !Ref DomainName
 
-  # Route53 DNS Records for email receiving
+  # Route53 DNS Records for domain verification
   DomainVerificationRecord:
     Type: AWS::Route53::RecordSet
-    Condition: HasVerificationToken
+    Condition: HasHostedZone
     Properties:
       HostedZoneId: !Ref HostedZoneId
       Name: !Sub '_amazonses.${DomainName}'
       Type: TXT
       TTL: 300
       ResourceRecords:
-        - !Sub '"${VerificationToken}"'
+        - !Sub '"${SESDomainIdentity.VerificationToken}"'
 
   # MX Record for Email Receiving
   EmailReceivingMXRecord:
@@ -56,7 +50,7 @@ Resources:
     Condition: HasHostedZone
     Properties:
       HostedZoneId: !Ref HostedZoneId
-      Name: !Ref DomainName
+      Name: !Sub '${DomainName}.'
       Type: MX
       TTL: 300
       ResourceRecords:
@@ -80,3 +74,21 @@ Outputs:
     Value: !Ref DomainName
     Export:
       Name: !Sub '${AWS::StackName}-DomainName'
+
+  VerificationToken:
+    Description: SES domain verification token
+    Value: !GetAtt SESDomainIdentity.VerificationToken
+
+  DNSRecordsCreated:
+    Description: Whether DNS records were automatically created
+    Value: !If 
+      - HasHostedZone
+      - 'true'
+      - 'false'
+
+  VerificationStatus:
+    Description: Status of the domain verification process
+    Value: !If 
+      - HasHostedZone
+      - 'DNS records created automatically'
+      - 'Manual DNS configuration required'

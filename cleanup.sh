@@ -225,7 +225,7 @@ cleanup_additional_resources() {
     # 3. Try to delete any custom Lambda functions that might be stuck
     print_status "Checking for custom Lambda functions..."
     local lambda_functions
-    lambda_functions=$(aws lambda list-functions --query "Functions[?contains(FunctionName, 'ses-notification-configurator') || contains(FunctionName, 'ses-ruleset-activator') || contains(FunctionName, 's3-notification-configurator')].FunctionName" --output text 2>/dev/null || echo "")
+    lambda_functions=$(aws lambda list-functions --query "Functions[?contains(FunctionName, 'ses-ruleset-activator')].FunctionName" --output text 2>/dev/null || echo "")
     
     if [ -n "$lambda_functions" ]; then
         echo "$lambda_functions" | tr '\t' '\n' | while read -r func_name; do

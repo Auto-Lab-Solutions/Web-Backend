@@ -102,12 +102,6 @@ Parameters:
     Description: The domain name for SES (e.g., autolabsolutions.com or dev.autolabsolutions.com)
     Default: "autolabsolutions.com"
 
-  SESVerificationToken:
-    Type: String
-    Description: SES domain verification token (obtain from AWS Console or CLI after creating domain identity)
-    Default: ""
-    NoEcho: false
-
   # Email Storage Parameters
   MailReceivingAddress:
     Type: String
@@ -370,13 +364,12 @@ Resources:
   SESIdentitiesStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/ses-identities-route53.yaml'
+      TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/ses-identities-with-route53-records.yaml'
       Parameters:
         EnvironmentName: !Ref Environment
         SesRegion: !Ref SesRegion
         HostedZoneId: !Ref SESHostedZoneId
         DomainName: !Ref SESDomainName
-        VerificationToken: !Ref SESVerificationToken
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -392,30 +385,13 @@ Resources:
       Parameters:
         EnvironmentName: !Ref Environment
         EmailStorageBucketName: !Ref EmailStorageBucketName
+        SesRegion: !Ref SesRegion
+        MailReceivingAddress: !Ref MailReceivingAddress
       Tags:
         - Key: Environment
           Value: !Ref Environment
         - Key: Component
           Value: EmailStorage
-
-  # SES Receipt Rules - Store emails in S3 only
-  SESReceiptRulesStack:
-    Type: AWS::CloudFormation::Stack
-    DependsOn: 
-      - SESIdentitiesStack
-      - SESEmailStorageStack
-    Properties:
-      TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/ses-receipt-rules.yaml'
-      Parameters:
-        EnvironmentName: !Ref Environment
-        SESVerifiedEmail: !GetAtt SESIdentitiesStack.Outputs.SESDomainIdentity
-        EmailStorageBucket: !GetAtt SESEmailStorageStack.Outputs.EmailStorageBucket
-        DomainName: !Ref SESDomainName
-      Tags:
-        - Key: Environment
-          Value: !Ref Environment
-        - Key: Component
-          Value: SESReceiptRules
 
 
 Outputs:
@@ -572,18 +548,6 @@ Outputs:
     Value: !GetAtt SESEmailStorageStack.Outputs.EmailStorageBucket
     Export:
       Name: !Sub '${AWS::StackName}-EmailStorageBucket'
-
-  EmailStorageLocation:
-    Description: Email storage location in S3
-    Value: !GetAtt SESReceiptRulesStack.Outputs.EmailStorageLocation
-    Export:
-      Name: !Sub '${AWS::StackName}-EmailStorageLocation'
-
-  SESReceiptRuleSet:
-    Description: SES receipt rule set name
-    Value: !GetAtt SESReceiptRulesStack.Outputs.SESReceiptRuleSet
-    Export:
-      Name: !Sub '${AWS::StackName}-SESReceiptRuleSet'
 
   MailReceivingAddress:
     Description: Email address for receiving emails in this environment

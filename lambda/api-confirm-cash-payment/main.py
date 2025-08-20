@@ -62,6 +62,5 @@ def lambda_handler(event, context):
         )
     
     return resp.success_response(result)
-    return resp.success_response(result)
 
 
