@@ -685,38 +685,6 @@ except:
         print_warning "SES stack not found - this is expected for new deployments"
     fi
 }
-            return 0
-            ;;
-        "Pending")
-            print_warning "⏳ SES domain verification is pending."
-            if [ -n "$SES_HOSTED_ZONE_ID" ]; then
-                print_status "   DNS records are managed by CloudFormation."
-                print_status "   Verification typically completes within 30 minutes to 24 hours."
-            else
-                print_warning "   Manual DNS configuration required:"
-                print_warning "   1. Create TXT record: _amazonses.$domain"
-                print_warning "   2. Create MX record: $domain -> 10 inbound-smtp.$SES_REGION.amazonses.com"
-                print_warning "   3. Check AWS SES console for verification token value"
-            fi
-            return 0
-            ;;
-        "Failed")
-            print_error "❌ SES domain verification failed."
-            print_error "   Check DNS records and SES console for details."
-            return 1
-            ;;
-        "Unknown"|"NotFound")
-            print_warning "⚠️ SES domain not found or verification not started."
-            print_warning "   This may indicate an issue with CloudFormation SES identity creation."
-            return 1
-            ;;
-        *)
-            print_warning "⚠️ Unknown verification status: $domain_status"
-            print_warning "   Check AWS SES Console for detailed verification status."
-            return 1
-            ;;
-    esac
-}
 
 # Verify SES email setup
 verify_ses_email_setup() {
