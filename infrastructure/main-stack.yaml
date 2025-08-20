@@ -415,10 +415,28 @@ Resources:
         - Key: Component
           Value: EmailStorage
 
+  # SES Bounce and Complaint Handling System
+  SESBounceComplaintStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: SESIdentitiesStack
+    Properties:
+      TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/ses-bounce-complaint-system.yaml'
+      Parameters:
+        EnvironmentName: !Ref Environment
+        MailSendingAddress: !Ref MailSendingAddress
+        SesRegion: !Ref SesRegion
+        CloudFormationBucket: !Ref CloudFormationBucket
+        MailReceivingAddress: !Ref MailReceivingAddress
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: SESBounceComplaint
+
   # Notification Queue Stack for Email, WebSocket, and Firebase notifications
   NotificationQueueStack:
     Type: AWS::CloudFormation::Stack
-    DependsOn: [DynamoDBStack, S3CloudFrontStack]
+    DependsOn: [DynamoDBStack, S3CloudFrontStack, WebSocketStack, SESBounceComplaintStack]
     Properties:
       TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/notification-queue.yaml'
       Parameters:
@@ -436,6 +454,12 @@ Resources:
         InquiriesTable: !GetAtt DynamoDBStack.Outputs.InquiriesTable
         PaymentsTable: !GetAtt DynamoDBStack.Outputs.PaymentsTable
         InvoicesTable: !GetAtt DynamoDBStack.Outputs.InvoicesTable
+        EmailSuppressionTableName: !GetAtt SESBounceComplaintStack.Outputs.EmailSuppressionTableName
+        ReportsBucketName: !GetAtt S3CloudFrontStack.Outputs.ReportsBucketName
+        CloudFrontDomain: !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName
+        FrontendRootUrl: !Ref FrontendRootUrl
+        MailSendingAddress: !Ref MailSendingAddress
+        WebSocketApiId: !GetAtt WebSocketStack.Outputs.WebSocketApiId
         EnableFirebaseNotifications: !Ref EnableFirebaseNotifications
         FirebaseProjectId: !Ref FirebaseProjectId
         FirebaseServiceAccountKey: !Ref FirebaseServiceAccountKey
