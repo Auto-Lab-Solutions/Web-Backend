@@ -34,20 +34,34 @@ print_error() {
 
 # Function to show usage
 show_usage() {
-    echo "Usage: $0 [ENVIRONMENT]"
+    echo "Usage: $0 [ENVIRONMENT] [OPTIONS]"
     echo ""
     echo "Deploy Auto Lab Solutions backend infrastructure"
     echo ""
     echo "Arguments:"
     echo "  ENVIRONMENT    Target environment (development|dev|production|prod)"
     echo ""
-    echo "Examples:"
-    echo "  $0              # Deploy to default environment"
-    echo "  $0 dev          # Deploy to development"
-    echo "  $0 production   # Deploy to production"
+    echo "Options:"
+    echo "  --skip-confirmation  Skip deployment confirmation prompt"
+    echo "  --help, -h          Show this help message"
     echo ""
-    echo "Development Environment:"
-    echo "  Configure 'dev.env.sh' for development-specific settings like SKIP_LAMBDAS"
+    echo "Examples:"
+    echo "  $0                    # Deploy to default environment"
+    echo "  $0 dev               # Deploy to development"
+    echo "  $0 production        # Deploy to production"
+    echo "  $0 dev --skip-confirmation  # Deploy without confirmation prompt"
+    echo ""
+    echo "Features:"
+    echo "  • Automated SES domain verification with DNS setup"
+    echo "  • Lambda function deployment and updates"
+    echo "  • API Gateway configuration"
+    echo "  • S3 and CloudFront setup"
+    echo "  • DynamoDB table initialization"
+    echo ""
+    echo "Post-deployment:"
+    echo "  • Check SES status: ./check-ses-status.sh [environment]"
+    echo "  • Validate deployment: ./validate-deployment.sh [environment]"
+}
     echo ""
     echo "Pipeline/Automated Execution:"
     echo "  export AUTO_CONFIRM=true    # Skip all confirmation prompts"
@@ -605,68 +619,73 @@ deploy_stack() {
     esac
 }
 
-# Check SES verification status
+# Check SES verification status (simplified)
 check_ses_verification_status() {
     print_status "Checking SES verification status..."
     
     local domain="$SES_DOMAIN_NAME"
+    local ses_stack_name="${STACK_NAME}-SESIdentitiesStack"
     
-    # Check domain verification status
-    local domain_status=""
-    domain_status=$(aws ses get-identity-verification-attributes \
-        --identities "$domain" \
-        --region "$SES_REGION" \
-        --output json 2>/dev/null | \
-        python3 -c "
+    # Check if SES stack exists and get outputs
+    if aws cloudformation describe-stacks --stack-name "$ses_stack_name" --region "$AWS_REGION" &>/dev/null; then
+        local dns_created=$(aws cloudformation describe-stacks \
+            --stack-name "$ses_stack_name" \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].Outputs[?OutputKey==`DNSRecordsCreated`].OutputValue' \
+            --output text 2>/dev/null || echo "Unknown")
+        
+        local verification_token=$(aws cloudformation describe-stacks \
+            --stack-name "$ses_stack_name" \
+            --region "$AWS_REGION" \
+            --query 'Stacks[0].Outputs[?OutputKey==`VerificationToken`].OutputValue' \
+            --output text 2>/dev/null || echo "Unknown")
+        
+        print_status "SES Configuration:"
+        print_status "  Domain: $domain"
+        print_status "  DNS Records Created: $dns_created"
+        print_status "  Verification Token: ${verification_token:0:20}..."
+        
+        # Check actual SES verification status
+        local domain_status=$(aws ses get-identity-verification-attributes \
+            --identities "$domain" \
+            --region "$SES_REGION" \
+            --output json 2>/dev/null | \
+            python3 -c "
 import sys, json
 try:
     data = json.load(sys.stdin)
-    status = data.get('VerificationAttributes', {}).get('$domain', {}).get('VerificationStatus', 'Unknown')
+    status = data.get('VerificationAttributes', {}).get('$domain', {}).get('VerificationStatus', 'NotFound')
     print(status)
 except:
-    print('Unknown')
-" 2>/dev/null || echo "Unknown")
-    
-    print_status "SES Verification Status:"
-    print_status "  Domain ($domain): $domain_status"
-    
-    # Check DNS records if hosted zone is configured
-    if [ -n "$SES_HOSTED_ZONE_ID" ]; then
-        print_status "  DNS Records: Managed by CloudFormation (Route53 Hosted Zone: $SES_HOSTED_ZONE_ID)"
+    print('Error')
+" 2>/dev/null || echo "Error")
         
-        # Check if verification DNS record exists
-        local verification_record_exists="false"
-        if aws route53 list-resource-record-sets \
-            --hosted-zone-id "$SES_HOSTED_ZONE_ID" \
-            --query "ResourceRecordSets[?Name=='_amazonses.${domain}.' && Type=='TXT']" \
-            --output text 2>/dev/null | grep -q .; then
-            verification_record_exists="true"
-            print_status "  DNS TXT Record: ✅ Created (_amazonses.$domain)"
-        else
-            print_warning "  DNS TXT Record: ⚠️ Not found (_amazonses.$domain)"
-        fi
-        
-        # Check if MX record exists
-        local mx_record_exists="false"
-        if aws route53 list-resource-record-sets \
-            --hosted-zone-id "$SES_HOSTED_ZONE_ID" \
-            --query "ResourceRecordSets[?Name=='${domain}.' && Type=='MX']" \
-            --output text 2>/dev/null | grep -q "inbound-smtp"; then
-            mx_record_exists="true"
-            print_status "  DNS MX Record: ✅ Created ($domain)"
-        else
-            print_warning "  DNS MX Record: ⚠️ Not found ($domain)"
-        fi
+        case "$domain_status" in
+            "Success")
+                print_success "✅ SES domain is verified and ready!"
+                print_success "📧 You can send and receive emails for @$domain"
+                ;;
+            "Pending")
+                print_warning "⏳ SES domain verification is pending"
+                if [ "$dns_created" = "true" ]; then
+                    print_status "   DNS records created automatically - verification typically completes within 24 hours"
+                else
+                    print_warning "   Manual DNS setup required - check stack outputs for instructions"
+                fi
+                ;;
+            "Failed")
+                print_error "❌ SES domain verification failed"
+                print_error "   Check AWS SES console for detailed error information"
+                ;;
+            *)
+                print_warning "❓ Could not determine SES verification status: $domain_status"
+                print_status "   Check AWS SES console manually"
+                ;;
+        esac
     else
-        print_warning "  DNS Records: Manual configuration required (no hosted zone configured)"
-        print_warning "  Set SES_HOSTED_ZONE_ID for automatic DNS management"
+        print_warning "SES stack not found - this is expected for new deployments"
     fi
-    
-    # Provide status assessment and guidance
-    case $domain_status in
-        "Success")
-            print_success "✅ SES domain is verified and ready for email receiving!"
-            print_success "📧 You can send and receive emails for @$domain"
+}
             return 0
             ;;
         "Pending")
@@ -848,14 +867,41 @@ update_auth0_config() {
 
 # Main deployment function
 main() {
-    # Handle help flag
-    if [[ "$1" == "--help" || "$1" == "-h" ]]; then
-        show_usage
-        exit 0
+    # Initialize variables
+    local SKIP_CONFIRMATION=false
+    local environment_arg=""
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --help|-h)
+                show_usage
+                exit 0
+                ;;
+            --skip-confirmation)
+                SKIP_CONFIRMATION=true
+                shift
+                ;;
+            *)
+                if [ -z "$environment_arg" ]; then
+                    environment_arg="$1"
+                else
+                    print_error "Unknown argument: $1"
+                    show_usage
+                    exit 1
+                fi
+                shift
+                ;;
+        esac
+    done
+    
+    # Set AUTO_CONFIRM if skip confirmation flag is used
+    if [ "$SKIP_CONFIRMATION" = "true" ]; then
+        export AUTO_CONFIRM="true"
     fi
     
     # Load environment configuration
-    if ! load_environment "$1"; then
+    if ! load_environment "$environment_arg"; then
         exit 1
     fi
 
@@ -938,9 +984,9 @@ main() {
     
     configure_api_gateway
     
-    # SES email receiving verification (all managed by CloudFormation)
+    # SES email receiving verification (handled by CloudFormation)
     print_status "Verifying SES email receiving setup..."
-    print_success "✅ SES identities, DNS records, and receipt rules are managed by CloudFormation"
+    print_success "✅ SES identities and DNS records are managed by CloudFormation"
     print_success "✅ S3 bucket notifications are managed by CloudFormation"
     print_success "✅ Bounce/complaint notifications are managed by CloudFormation"
     

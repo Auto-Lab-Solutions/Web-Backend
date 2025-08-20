@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Auto Lab Solutions - SES Domain Verification (Simplified)'
+Description: 'Auto Lab Solutions - SES Domain Verification with Automatic DNS Setup'
 
 Parameters:
   EnvironmentName:
@@ -22,60 +22,216 @@ Parameters:
     Description: Domain name for email receiving
     Default: "autolabsolutions.com"
 
-  VerificationToken:
-    Type: String
-    Description: SES domain verification token (obtain from AWS Console/CLI)
-    Default: ""
-
 Conditions:
   HasHostedZone: !Not [!Equals [!Ref HostedZoneId, ""]]
-  HasVerificationToken: !Not [!Equals [!Ref VerificationToken, ""]]
-  HasBothHostedZoneAndToken: !And 
-    - !Condition HasHostedZone
-    - !Condition HasVerificationToken
 
 Resources:
-  # SES Domain Identity
-  SESDomainIdentity:
-    Type: AWS::SES::EmailIdentity
+  # Lambda execution role for SES verification
+  SESVerificationRole:
+    Type: AWS::IAM::Role
     Properties:
-      EmailIdentity: !Ref DomainName
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SESAndRoute53Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ses:VerifyDomainIdentity
+                  - ses:GetIdentityVerificationAttributes
+                  - ses:DeleteIdentity
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - route53:ChangeResourceRecordSets
+                  - route53:GetChange
+                  - route53:ListResourceRecordSets
+                Resource: '*'
 
-  # SES Configuration Set for email handling
+  # Lambda function for automated SES verification
+  SESVerificationFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-ses-verification'
+      Runtime: python3.9
+      Handler: index.handler
+      Role: !GetAtt SESVerificationRole.Arn
+      Timeout: 300
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import cfnresponse
+          import time
+          
+          def handler(event, context):
+              try:
+                  print(f"Event: {json.dumps(event)}")
+                  
+                  props = event['ResourceProperties']
+                  domain = props['DomainName']
+                  ses_region = props['SesRegion']
+                  hosted_zone_id = props.get('HostedZoneId', '')
+                  request_type = event['RequestType']
+                  
+                  ses_client = boto3.client('ses', region_name=ses_region)
+                  route53_client = boto3.client('route53')
+                  
+                  response_data = {'DomainName': domain}
+                  
+                  if request_type in ['Create', 'Update']:
+                      # Verify domain and get token
+                      print(f"Verifying domain: {domain}")
+                      verify_response = ses_client.verify_domain_identity(Domain=domain)
+                      token = verify_response['VerificationToken']
+                      
+                      response_data['VerificationToken'] = token
+                      print(f"Verification token: {token}")
+                      
+                      # Create DNS records if hosted zone provided
+                      if hosted_zone_id:
+                          print(f"Creating DNS records in zone: {hosted_zone_id}")
+                          
+                          route53_client.change_resource_record_sets(
+                              HostedZoneId=hosted_zone_id,
+                              ChangeBatch={
+                                  'Comment': f'SES verification for {domain}',
+                                  'Changes': [
+                                      {
+                                          'Action': 'UPSERT',
+                                          'ResourceRecordSet': {
+                                              'Name': f'_amazonses.{domain}',
+                                              'Type': 'TXT',
+                                              'TTL': 300,
+                                              'ResourceRecords': [{'Value': f'"{token}"'}]
+                                          }
+                                      },
+                                      {
+                                          'Action': 'UPSERT',
+                                          'ResourceRecordSet': {
+                                              'Name': domain,
+                                              'Type': 'MX',
+                                              'TTL': 300,
+                                              'ResourceRecords': [{'Value': f'10 inbound-smtp.{ses_region}.amazonses.com'}]
+                                          }
+                                      }
+                                  ]
+                              }
+                          )
+                          
+                          response_data['DNSRecordsCreated'] = 'true'
+                          print("DNS records created successfully")
+                      else:
+                          response_data['DNSRecordsCreated'] = 'false'
+                          print("No hosted zone provided - manual DNS setup required")
+                  
+                  elif request_type == 'Delete':
+                      # Clean up SES domain identity
+                      try:
+                          ses_client.delete_identity(Identity=domain)
+                          print(f"Deleted SES identity: {domain}")
+                      except Exception as e:
+                          print(f"SES cleanup error (non-fatal): {e}")
+                      
+                      # Clean up DNS records
+                      if hosted_zone_id:
+                          try:
+                              records = route53_client.list_resource_record_sets(
+                                  HostedZoneId=hosted_zone_id
+                              )
+                              
+                              changes = []
+                              for record in records['ResourceRecordSets']:
+                                  if record['Name'] == f'_amazonses.{domain}.' and record['Type'] == 'TXT':
+                                      changes.append({
+                                          'Action': 'DELETE',
+                                          'ResourceRecordSet': record
+                                      })
+                              
+                              if changes:
+                                  route53_client.change_resource_record_sets(
+                                      HostedZoneId=hosted_zone_id,
+                                      ChangeBatch={
+                                          'Comment': f'Cleanup SES verification for {domain}',
+                                          'Changes': changes
+                                      }
+                                  )
+                                  print("DNS cleanup completed")
+                          except Exception as e:
+                              print(f"DNS cleanup error (non-fatal): {e}")
+                  
+                  cfnresponse.send(event, context, cfnresponse.SUCCESS, response_data)
+                  
+              except Exception as e:
+                  print(f"Error: {str(e)}")
+                  cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+
+  # Custom resource to trigger SES verification
+  SESVerification:
+    Type: AWS::CloudFormation::CustomResource
+    Properties:
+      ServiceToken: !GetAtt SESVerificationFunction.Arn
+      DomainName: !Ref DomainName
+      SesRegion: !Ref SesRegion
+      HostedZoneId: !Ref HostedZoneId
+
+  # SES Configuration Set
   SESConfigurationSet:
     Type: AWS::SES::ConfigurationSet
     Properties:
       Name: !Sub '${AWS::StackName}-config-set'
 
-  # Route53 DNS Records for domain verification
-  # Note: VerificationToken must be obtained manually from AWS Console/CLI
-  DomainVerificationRecord:
-    Type: AWS::Route53::RecordSet
-    Condition: HasBothHostedZoneAndToken
-    Properties:
-      HostedZoneId: !Ref HostedZoneId
-      Name: !Sub '_amazonses.${DomainName}'
-      Type: TXT
-      TTL: 300
-      ResourceRecords:
-        - !Sub '"${VerificationToken}"'
-
-  # MX Record for Email Receiving
-  EmailReceivingMXRecord:
-    Type: AWS::Route53::RecordSet
-    Condition: HasHostedZone
-    Properties:
-      HostedZoneId: !Ref HostedZoneId
-      Name: !Sub '${DomainName}.'
-      Type: MX
-      TTL: 300
-      ResourceRecords:
-        - !Sub '10 inbound-smtp.${SesRegion}.amazonses.com'
-
 Outputs:
   SESDomainIdentity:
-    Description: SES Domain Identity for email receiving
-    Value: !Ref SESDomainIdentity
+    Description: SES Domain Identity
+    Value: !Ref DomainName
+    Export:
+      Name: !Sub '${AWS::StackName}-SESDomainIdentity'
+
+  SESConfigurationSet:
+    Description: SES Configuration Set
+    Value: !Ref SESConfigurationSet
+    Export:
+      Name: !Sub '${AWS::StackName}-SESConfigurationSet'
+
+  DomainName:
+    Description: Domain name configured for SES
+    Value: !Ref DomainName
+    Export:
+      Name: !Sub '${AWS::StackName}-DomainName'
+
+  VerificationToken:
+    Description: SES domain verification token
+    Value: !GetAtt SESVerification.VerificationToken
+
+  DNSRecordsCreated:
+    Description: Whether DNS records were created automatically
+    Value: !GetAtt SESVerification.DNSRecordsCreated
+
+  VerificationInstructions:
+    Description: Instructions for manual setup if needed
+    Value: !Sub |
+      Domain: ${DomainName}
+      DNS Records Created: ${SESVerification.DNSRecordsCreated}
+      
+      If DNS records were not created automatically:
+      1. Add TXT record: _amazonses.${DomainName} = ${SESVerification.VerificationToken}
+      2. Add MX record: ${DomainName} = 10 inbound-smtp.${SesRegion}.amazonses.com
+      3. Wait for DNS propagation (up to 72 hours)
+      4. Check SES console for verification status
+Outputs:
+  SESDomainIdentity:
+    Description: SES Domain Identity for email receiving  
+    Value: !Ref DomainName
     Export:
       Name: !Sub '${AWS::StackName}-SESDomainIdentity'
 
@@ -92,28 +248,26 @@ Outputs:
       Name: !Sub '${AWS::StackName}-DomainName'
 
   VerificationToken:
-    Description: SES domain verification token (if provided)
-    Value: !Ref VerificationToken
-    Condition: HasVerificationToken
-
-  DNSRecordsCreated:
-    Description: Whether DNS records were automatically created
-    Value: !If 
-      - HasBothHostedZoneAndToken
-      - 'true'
-      - 'false'
+    Description: SES domain verification token
+    Value: !GetAtt SESVerificationCustomResource.VerificationToken
 
   VerificationStatus:
     Description: Status of the domain verification process
-    Value: !If 
-      - HasBothHostedZoneAndToken
-      - 'DNS records created automatically'
-      - 'Manual DNS configuration required'
+    Value: !GetAtt SESVerificationCustomResource.VerificationStatus
 
-  ManualSteps:
-    Description: Manual steps required for SES domain verification
+  DNSRecordsCreated:
+    Description: Whether DNS records were automatically created
+    Value: !GetAtt SESVerificationCustomResource.DNSRecordsCreated
+
+  SetupSummary:
+    Description: Summary of the SES domain verification setup
     Value: !Sub |
-      1. Run: aws ses verify-domain-identity --domain ${DomainName} --region ${SesRegion}
-      2. Get verification token from the output
-      3. Update this stack with the VerificationToken parameter
-      4. Verify domain in SES console
+      Domain: ${DomainName}
+      Verification Status: ${SESVerificationCustomResource.VerificationStatus}
+      DNS Records Created: ${SESVerificationCustomResource.DNSRecordsCreated}
+      Hosted Zone: ${HostedZoneId}
+      
+      If verification is still pending:
+      1. Check Route53 console for DNS records
+      2. Wait up to 72 hours for DNS propagation
+      3. Check SES console for verification status
