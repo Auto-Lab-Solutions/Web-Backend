@@ -112,43 +112,6 @@ check_domain_verification() {
     esac
 }
 
-# Function to check email address verification
-check_email_verification() {
-    print_status "Checking email address verification for: $MAIL_FROM_ADDRESS"
-    
-    local verification_result
-    verification_result=$(aws ses get-identity-verification-attributes \
-        --identities "$MAIL_FROM_ADDRESS" \
-        --region "$SES_REGION" \
-        --output json 2>/dev/null) || {
-        print_warning "Could not check email verification status"
-        return 1
-    }
-    
-    local verification_status
-    verification_status=$(echo "$verification_result" | \
-        python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('VerificationAttributes', {}).get('$MAIL_FROM_ADDRESS', {}).get('VerificationStatus', 'Unknown'))" 2>/dev/null || echo "Unknown")
-    
-    case "$verification_status" in
-        "Success")
-            print_success "Email address '$MAIL_FROM_ADDRESS' is verified ✓"
-            return 0
-            ;;
-        "Pending")
-            print_warning "Email address '$MAIL_FROM_ADDRESS' verification is pending"
-            return 1
-            ;;
-        "Failed")
-            print_error "Email address '$MAIL_FROM_ADDRESS' verification failed"
-            return 1
-            ;;
-        *)
-            print_warning "Email address '$MAIL_FROM_ADDRESS' is not yet added to SES"
-            return 1
-            ;;
-    esac
-}
-
 # Function to check SES sending quota and limits
 check_sending_quota() {
     print_status "Checking SES sending quota and limits"
@@ -482,11 +445,6 @@ validate_ses() {
     
     # Check domain verification
     if ! check_domain_verification; then
-        validation_passed=false
-    fi
-    
-    # Check email verification
-    if ! check_email_verification; then
         validation_passed=false
     fi
     

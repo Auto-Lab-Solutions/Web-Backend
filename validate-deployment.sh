@@ -593,9 +593,9 @@ validate_deployment() {
     
     # Check backup system
     print_status "Checking backup system..."
-    local backup_stack_name="auto-lab-backup-system-${ENVIRONMENT}"
-    if aws cloudformation describe-stacks --stack-name "$backup_stack_name" --region $AWS_REGION &>/dev/null; then
-        local backup_stack_status=$(aws cloudformation describe-stacks --stack-name "$backup_stack_name" --region $AWS_REGION --query 'Stacks[0].StackStatus' --output text)
+    local backup_stack_name_prefix="${STACK_NAME}-BackupSystemStack"
+    if aws cloudformation describe-stacks --stack-name "$backup_stack_name_prefix" --region $AWS_REGION &>/dev/null; then
+        local backup_stack_status=$(aws cloudformation describe-stacks --stack-name "$backup_stack_name_prefix" --region $AWS_REGION --query 'Stacks[0].StackStatus' --output text)
         if [ "$backup_stack_status" = "CREATE_COMPLETE" ] || [ "$backup_stack_status" = "UPDATE_COMPLETE" ]; then
             print_success "✓ Backup system stack '$backup_stack_name' is in good state ($backup_stack_status)"
             
