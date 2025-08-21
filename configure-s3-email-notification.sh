@@ -163,7 +163,7 @@ configure_s3_notification() {
     # Create notification configuration JSON
     local notification_config=$(cat <<EOF
 {
-    "LambdaConfigurations": [
+    "LambdaFunctionConfigurations": [
         {
             "Id": "EmailProcessorNotification",
             "LambdaFunctionArn": "$lambda_arn",
