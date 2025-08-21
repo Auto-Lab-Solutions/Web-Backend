@@ -258,8 +258,18 @@ update_notification_processor_lambda() {
 # Function to update backup Lambda function code (managed by BackupSystemStack)
 update_backup_lambda() {
     local lambda_name=$1
-    local full_function_name="${lambda_name}-${ENVIRONMENT}"
     local zip_file="dist/lambda/$lambda_name.zip"
+    
+    # Map lambda directory names to actual function names (using sys- prefix)
+    local full_function_name
+    if [ "$lambda_name" = "backup-restore" ]; then
+        full_function_name="sys-backup-${ENVIRONMENT}"
+    elif [ "$lambda_name" = "api-backup-restore" ]; then
+        full_function_name="sys-manual-backup-${ENVIRONMENT}"
+    else
+        print_error "Unknown backup lambda: $lambda_name"
+        return 1
+    fi
 
     if [ ! -f "$zip_file" ]; then
         print_error "ZIP file not found: $zip_file"

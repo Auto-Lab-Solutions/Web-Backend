@@ -399,9 +399,8 @@ update_invoice_processor_lambda() {
 update_backup_lambda() {
     print_status "Updating Backup System Lambda..."
     
-    local automated_function_name="backup-automated-${ENVIRONMENT}"
-    local manual_function_name="backup-manual-${ENVIRONMENT}"
-    local api_function_name="api-backup-restore-${ENVIRONMENT}"
+    local automated_function_name="sys-backup-${ENVIRONMENT}"
+    local manual_function_name="sys-manual-backup-${ENVIRONMENT}"
     
     local automated_zip_file="lambda/tmp/backup-restore.zip"
     
@@ -410,7 +409,7 @@ update_backup_lambda() {
         return 0
     fi
     
-    # Update automated backup function
+    # Update automated backup function (sys-backup)
     if function_exists "$automated_function_name"; then
         print_status "Updating Automated Backup Lambda function: $automated_function_name"
         aws lambda update-function-code \
@@ -422,30 +421,18 @@ update_backup_lambda() {
         print_warning "Automated Backup Lambda function does not exist (will be created by CloudFormation): $automated_function_name"
     fi
     
-    # Update manual backup function
-    if function_exists "$manual_function_name"; then
-        print_status "Updating Manual Backup Lambda function: $manual_function_name"
-        aws lambda update-function-code \
-            --function-name "$manual_function_name" \
-            --zip-file "fileb://$automated_zip_file" > /dev/null
-        
-        print_success "✅ Manual Backup Lambda updated successfully"
-    else
-        print_warning "Manual Backup Lambda function does not exist (will be created by CloudFormation): $manual_function_name"
-    fi
-    
-    # Update API backup/restore function
-    local api_zip_file="lambda/tmp/api-backup-restore.zip"
-    if [[ -f "$api_zip_file" ]]; then
-        if function_exists "$api_function_name"; then
-            print_status "Updating API Backup/Restore Lambda function: $api_function_name"
+    # Update manual/API backup function (sys-manual-backup) - uses api-backup-restore.zip
+    local manual_zip_file="lambda/tmp/api-backup-restore.zip"
+    if [[ -f "$manual_zip_file" ]]; then
+        if function_exists "$manual_function_name"; then
+            print_status "Updating Manual/API Backup Lambda function: $manual_function_name"
             aws lambda update-function-code \
-                --function-name "$api_function_name" \
-                --zip-file "fileb://$api_zip_file" > /dev/null
+                --function-name "$manual_function_name" \
+                --zip-file "fileb://$manual_zip_file" > /dev/null
             
-            print_success "✅ API Backup/Restore Lambda updated successfully"
+            print_success "✅ Manual/API Backup Lambda updated successfully"
         else
-            print_warning "API Backup/Restore Lambda function does not exist (will be created by CloudFormation): $api_function_name"
+            print_warning "Manual/API Backup Lambda function does not exist (will be created by CloudFormation): $manual_function_name"
         fi
     fi
 }
