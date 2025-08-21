@@ -279,7 +279,7 @@ echo ""
 
 # Configuration variables
 EMAIL_PROCESSOR_FUNCTION="email-processor-$ENVIRONMENT"
-EMAIL_STORAGE_BUCKET="${EMAIL_STORAGE_BUCKET:-auto-lab-email-storage}"
+EMAIL_STORAGE_BUCKET="${EMAIL_STORAGE_BUCKET:-auto-lab-email-storage}-$AWS_ACCOUNT_ID-$ENVIRONMENT"
 S3_PREFIX="emails/$ENVIRONMENT/"
 PERMISSION_STATEMENT_ID="EmailProcessorS3Trigger-$ENVIRONMENT"
 
