@@ -145,7 +145,6 @@ def extract_email_metadata(bucket_name, object_key, object_size):
             'fromEmail': from_email.lower() if from_email else '',
             'fromName': from_name or '',
             'toEmails': [email.lower() for email in to_emails],
-            'toEmail': to_emails[0].lower() if to_emails else '',  # Primary recipient for GSI
             'ccEmails': [email.lower() for email in cc_emails],
             'bccEmails': [email.lower() for email in bcc_emails],
             'subject': email_message.get('Subject', ''),
@@ -233,7 +232,6 @@ def store_email_metadata(metadata):
             'messageId': {'S': metadata['messageId']},
             'fromEmail': {'S': metadata['fromEmail']},
             'fromName': {'S': metadata['fromName']},
-            'toEmail': {'S': metadata['toEmail']},
             'toEmails': {'SS': metadata['toEmails']} if metadata['toEmails'] else {'SS': ['']},
             'ccEmails': {'SS': metadata['ccEmails']} if metadata['ccEmails'] else {'SS': ['']},
             'bccEmails': {'SS': metadata['bccEmails']} if metadata['bccEmails'] else {'SS': ['']},

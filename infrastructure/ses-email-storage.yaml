@@ -41,8 +41,6 @@ Resources:
           AttributeType: S
         - AttributeName: fromEmail
           AttributeType: S
-        - AttributeName: toEmail
-          AttributeType: S
       KeySchema:
         - AttributeName: messageId
           KeyType: HASH
@@ -56,14 +54,6 @@ Resources:
         - IndexName: FromEmailIndex
           KeySchema:
             - AttributeName: fromEmail
-              KeyType: HASH
-            - AttributeName: receivedDate
-              KeyType: RANGE
-          Projection:
-            ProjectionType: ALL
-        - IndexName: ToEmailIndex
-          KeySchema:
-            - AttributeName: toEmail
               KeyType: HASH
             - AttributeName: receivedDate
               KeyType: RANGE

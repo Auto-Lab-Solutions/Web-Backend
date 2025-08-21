@@ -193,7 +193,6 @@ class EmailManager:
                 'messageId': email_result['message_id'],
                 'fromEmail': os.environ.get('NO_REPLY_EMAIL', ''),
                 'fromName': 'Auto Lab Solutions',
-                'toEmail': email_result['recipients'][0].lower() if email_result['recipients'] else '',
                 'toEmails': [email.lower() for email in email_result['recipients']],
                 'ccEmails': [],
                 'subject': 'Sent Email',  # Subject not available in email_result
@@ -375,7 +374,7 @@ class EmailManager:
                 'fromEmail': from_email.lower() if from_email else '',
                 'fromName': from_name or '',
                 'toEmails': [email.lower() for email in to_emails],
-                'toEmail': to_emails[0].lower() if to_emails else '',
+                'ccEmails': [email.lower() for email in cc_emails],
                 'ccEmails': [email.lower() for email in cc_emails],
                 'subject': email_message.get('Subject', ''),
                 'receivedDate': received_date,
@@ -462,7 +461,6 @@ class EmailManager:
                 'messageId': {'S': metadata['messageId']},
                 'fromEmail': {'S': metadata['fromEmail']},
                 'fromName': {'S': metadata.get('fromName', '')},
-                'toEmail': {'S': metadata['toEmail']},
                 'toEmails': {'SS': metadata['toEmails']} if metadata.get('toEmails') else {'SS': ['']},
                 'ccEmails': {'SS': metadata.get('ccEmails', [])} if metadata.get('ccEmails') else {'SS': ['']},
                 'subject': {'S': metadata.get('subject', '')},
@@ -511,9 +509,9 @@ class EmailManager:
             expression_attribute_names = {}
             
             if to_email:
-                filter_expression_parts.append('#toEmail = :toEmail')
-                expression_attribute_names['#toEmail'] = 'toEmail'
-                expression_attribute_values[':toEmail'] = {'S': to_email.lower()}
+                filter_expression_parts.append('contains(#toEmails, :toEmailValue)')
+                expression_attribute_names['#toEmails'] = 'toEmails'
+                expression_attribute_values[':toEmailValue'] = {'S': to_email.lower()}
             
             if from_email:
                 filter_expression_parts.append('#fromEmail = :fromEmail')
@@ -552,12 +550,11 @@ class EmailManager:
                 scan_params['ExpressionAttributeValues'] = expression_attribute_values
                 scan_params['ExpressionAttributeNames'] = expression_attribute_names
             
-            # If filtering by specific email, use the appropriate GSI
+            # Use appropriate query strategy based on filters
+            # If filtering by specific email, use scan with filters
             if to_email and not from_email:
-                scan_params['IndexName'] = 'ToEmailIndex'
-                # Convert to query
-                del scan_params['FilterExpression']
-                response = dynamodb.query(**scan_params)
+                # Use scan with contains filter for toEmails array
+                response = dynamodb.scan(**scan_params)
             elif from_email and not to_email:
                 scan_params['IndexName'] = 'FromEmailIndex'
                 # Convert to query
@@ -711,7 +708,6 @@ class EmailManager:
             'messageId': item.get('messageId', {}).get('S', ''),
             'fromEmail': item.get('fromEmail', {}).get('S', ''),
             'fromName': item.get('fromName', {}).get('S', ''),
-            'toEmail': item.get('toEmail', {}).get('S', ''),
             'toEmails': item.get('toEmails', {}).get('SS', []),
             'ccEmails': item.get('ccEmails', {}).get('SS', []),
             'bccEmails': item.get('bccEmails', {}).get('SS', []),
