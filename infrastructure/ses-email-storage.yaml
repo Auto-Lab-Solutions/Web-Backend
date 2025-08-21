@@ -27,6 +27,17 @@ Parameters:
     Description: S3 bucket containing Lambda packages
     Default: "auto-lab-cloudformation-templates"
 
+  FirebaseNotificationQueueUrl:
+    Type: String
+    Description: URL of the Firebase notification SQS queue
+    Default: ""
+
+  EnableFirebaseNotifications:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+    Description: Whether to enable Firebase push notifications
+
 Resources:
   # DynamoDB Table for Email Metadata
   EmailMetadataTable:
@@ -84,6 +95,9 @@ Resources:
           ENVIRONMENT: !Ref EnvironmentName
           EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
           EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+          ENABLE_FIREBASE_NOTIFICATIONS: !Ref EnableFirebaseNotifications
+          MAIL_RECEIVING_ADDRESS: !Ref MailReceivingAddress
       Timeout: 60
       Tags:
         - Key: Environment
@@ -122,6 +136,11 @@ Resources:
                   - dynamodb:Query
                   - dynamodb:Scan
                 Resource: !GetAtt EmailMetadataTable.Arn
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                  - sqs:GetQueueAttributes
+                Resource: "*"  # Using wildcard since we only have queue URL, not ARN
 
   # Permission for S3 to invoke the Lambda function (will be managed by bash script)
   # Note: This permission is now handled by configure-s3-email-notification.sh script

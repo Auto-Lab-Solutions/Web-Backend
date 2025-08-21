@@ -5,7 +5,19 @@ from datetime import datetime, timezone
 from email import message_from_string
 from email.utils import parsedate_to_datetime, parseaddr
 import hashlib
-import re
+
+try:
+    from notification_manager import NotificationManager
+except ImportError:
+    print("Warning: Could not import NotificationManager, Firebase notifications will be disabled")
+    NotificationManager = None
+
+# Try to import the specific function we need
+try:
+    from notification_manager import queue_email_received_firebase_notification
+except ImportError:
+    print("Warning: Could not import queue_email_received_firebase_notification")
+    queue_email_received_firebase_notification = None
 
 def lambda_handler(event, context):
     """
@@ -50,6 +62,9 @@ def process_s3_email_event(record):
         
         # Store metadata in DynamoDB
         store_email_metadata(email_metadata)
+        
+        # Send Firebase notification to staff about new email
+        send_new_email_notification(email_metadata)
         
         print(f"Successfully processed email: {email_metadata['messageId']}")
         
@@ -263,3 +278,116 @@ def store_email_metadata(metadata):
     except Exception as e:
         print(f"Error storing email metadata: {str(e)}")
         raise
+
+
+def send_new_email_notification(email_metadata):
+    """Send Firebase notification to staff about new email received"""
+    try:
+        # Check if Firebase notifications are enabled via environment variable
+        enable_firebase = os.environ.get('ENABLE_FIREBASE_NOTIFICATIONS', 'false').lower()
+        if enable_firebase != 'true':
+            print("Firebase notifications disabled via ENABLE_FIREBASE_NOTIFICATIONS setting, skipping notification")
+            return
+        
+        # Check if Firebase notifications are configured
+        firebase_queue_url = os.environ.get('FIREBASE_NOTIFICATION_QUEUE_URL', '')
+        if not firebase_queue_url:
+            print("Firebase notification queue URL not configured, skipping notification")
+            return
+        
+        # IMPORTANT: Verify this is an email RECEIVED at our receiving address (not sent by us)
+        receiving_address = os.environ.get('MAIL_RECEIVING_ADDRESS', 'mail@autolabsolutions.com').lower()
+        to_emails = email_metadata.get('toEmails', [])
+        cc_emails = email_metadata.get('ccEmails', [])
+        bcc_emails = email_metadata.get('bccEmails', [])
+        
+        # Check if our receiving address is in any of the recipient fields
+        all_recipients = to_emails + cc_emails + bcc_emails
+        is_received_email = any(receiving_address == email.lower() for email in all_recipients if email)
+        
+        if not is_received_email:
+            print(f"Email not addressed to receiving address ({receiving_address}), skipping Firebase notification")
+            print(f"Email recipients - To: {to_emails}, CC: {cc_emails}, BCC: {bcc_emails}")
+            return
+        
+        print(f"Confirmed: Email received at {receiving_address}, proceeding with Firebase notification")
+        
+        # Use the dedicated function if available
+        if queue_email_received_firebase_notification:
+            success = queue_email_received_firebase_notification(email_metadata)
+            if success:
+                print(f"Successfully queued Firebase notification for email from {email_metadata.get('fromEmail', 'unknown')}")
+            else:
+                print(f"Failed to queue Firebase notification for email from {email_metadata.get('fromEmail', 'unknown')}")
+            return
+        
+        # Fallback to using NotificationManager directly
+        if not NotificationManager:
+            print("NotificationManager not available, skipping Firebase notification")
+            return
+        
+        # Initialize notification manager
+        notification_manager = NotificationManager()
+        
+        # Extract email information for notification
+        from_email = email_metadata.get('fromEmail', 'Unknown sender')
+        from_name = email_metadata.get('fromName', '')
+        subject = email_metadata.get('subject', 'No subject')
+        is_important = email_metadata.get('isImportant', False)
+        tags = email_metadata.get('tags', [])
+        
+        # Create notification title and body
+        sender_display = from_name if from_name else from_email
+        title = "New Email Received"
+        body = f"From: {sender_display}"
+        
+        if subject:
+            body += f"\nSubject: {subject}"
+        
+        # Add urgency indicator if marked as important
+        if is_important:
+            title = "🔥 Urgent Email Received"
+            body = f"⚠️ {body}"
+        
+        # Determine target roles based on email tags and importance
+        target_roles = ['CUSTOMER_SUPPORT', 'CLERK']
+        
+        # If it's an appointment-related email, also notify mechanics
+        if 'appointment' in tags:
+            target_roles.append('MECHANIC')
+        
+        # If it's urgent or complaint, notify admin too
+        if is_important or 'complaint' in tags or 'urgent' in tags:
+            target_roles.append('ADMIN')
+        
+        # Prepare notification data
+        notification_data = {
+            'type': 'email_received',
+            'messageId': email_metadata.get('messageId'),
+            'fromEmail': from_email,
+            'fromName': from_name,
+            'subject': subject,
+            'isImportant': is_important,
+            'tags': tags,
+            'receivedDate': email_metadata.get('receivedDate'),
+            'timestamp': int(datetime.now(timezone.utc).timestamp())
+        }
+        
+        # Queue Firebase notification
+        success = notification_manager.queue_firebase_notification(
+            notification_type='email_received',
+            title=title,
+            body=body,
+            data=notification_data,
+            target_type='broadcast',
+            roles=target_roles
+        )
+        
+        if success:
+            print(f"Successfully queued Firebase notification for email from {from_email}")
+        else:
+            print(f"Failed to queue Firebase notification for email from {from_email}")
+            
+    except Exception as e:
+        print(f"Error sending Firebase notification: {str(e)}")
+        # Don't raise the exception to avoid failing the entire email processing

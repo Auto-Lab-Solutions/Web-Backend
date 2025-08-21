@@ -402,24 +402,6 @@ Resources:
         - Key: Component
           Value: SESIdentities
 
-  # SES Email Storage System - SIMPLE S3 STORAGE ONLY
-  SESEmailStorageStack:
-    Type: AWS::CloudFormation::Stack
-    DependsOn: SESIdentitiesStack
-    Properties:
-      TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/ses-email-storage.yaml'
-      Parameters:
-        EnvironmentName: !Ref Environment
-        EmailStorageBucketName: !Ref EmailStorageBucketName
-        SesRegion: !Ref SesRegion
-        MailReceivingAddress: !Ref MailReceivingAddress
-        CloudFormationBucket: !Ref CloudFormationBucket
-      Tags:
-        - Key: Environment
-          Value: !Ref Environment
-        - Key: Component
-          Value: EmailStorage
-
   # SES Bounce and Complaint Handling System
   SESBounceComplaintStack:
     Type: AWS::CloudFormation::Stack
@@ -479,6 +461,25 @@ Resources:
         - Key: Component
           Value: NotificationQueue
 
+  # SES Email Storage System - SIMPLE S3 STORAGE ONLY (deployed after notification queue for Firebase integration)
+  SESEmailStorageStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: [SESIdentitiesStack, NotificationQueueStack]
+    Properties:
+      TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/ses-email-storage.yaml'
+      Parameters:
+        EnvironmentName: !Ref Environment
+        EmailStorageBucketName: !Ref EmailStorageBucketName
+        SesRegion: !Ref SesRegion
+        MailReceivingAddress: !Ref MailReceivingAddress
+        CloudFormationBucket: !Ref CloudFormationBucket
+        FirebaseNotificationQueueUrl: !If [ShouldEnableFirebase, !GetAtt NotificationQueueStack.Outputs.FirebaseNotificationQueueUrl, '']
+        EnableFirebaseNotifications: !Ref EnableFirebaseNotifications
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: EmailStorage
 
 Outputs:
   RestApiId:
