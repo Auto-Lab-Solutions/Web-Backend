@@ -231,7 +231,6 @@ Resources:
           PAYMENTS_TABLE: !Ref PaymentsTable
           INVOICES_TABLE: !Ref InvoicesTable
           WEBSOCKET_API_ID: !Ref WebSocketApiId
-          AWS_REGION: !Ref 'AWS::Region'
           ENVIRONMENT: !Ref EnvironmentName
 
   # Lambda function to process Firebase notification queue (conditional)
