@@ -457,6 +457,8 @@ list_expected_functions() {
         "api-update-order-${ENVIRONMENT}"
         "api-create-inquiry-${ENVIRONMENT}"
         "api-generate-invoice-${ENVIRONMENT}"
+        "sys-backup-${ENVIRONMENT}"
+        "sys-manual-backup-${ENVIRONMENT}"
     )
     
     for func in "${lambda_functions[@]}"; do
