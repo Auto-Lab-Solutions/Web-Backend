@@ -292,7 +292,6 @@ Resources:
         ApiEmailSuppressionManagerArn: !GetAtt LambdaStack.Outputs.ApiEmailSuppressionManagerArn
         ApiGetEmailsArn: !GetAtt LambdaStack.Outputs.ApiGetEmailsArn
         ApiSendEmailArn: !GetAtt LambdaStack.Outputs.ApiSendEmailArn
-        ApiBackupRestoreArn: !GetAtt BackupSystemStack.Outputs.ApiBackupRestoreArn
         EnableApiCustomDomains: !Ref EnableApiCustomDomains
         ApiDomainName: !Ref ApiDomainName
         ApiHostedZoneId: !Ref ApiHostedZoneId
