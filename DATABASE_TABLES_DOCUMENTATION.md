@@ -50,9 +50,9 @@ The system uses 14 main DynamoDB tables plus 2 additional tables for email manag
 ### Sample Data
 ```json
 {
-  "userEmail": "janithadharmasuriya@gmail.com",
+  "userEmail": "staffUser1@example.com",
   "userId": "c712121f-c47f-47cb-a115-7e3ce1cf3877",
-  "userName": "Jani",
+  "userName": "Staff User 1",
   "contactNumber": "0451237048",
   "roles": ["ADMIN", "MECHANIC", "CUSTOMER_SUPPORT"]
 }

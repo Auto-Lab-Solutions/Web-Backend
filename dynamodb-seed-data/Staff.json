@@ -1,7 +1,7 @@
 [
   {
     "userEmail": {
-      "S": "janithadharmasuriya@gmail.com"
+      "S": "staffUser1@example.com"
     },
     "contactNumber": {
       "S": "0451237048"
@@ -23,12 +23,12 @@
       "S": "c712121f-c47f-47cb-a115-7e3ce1cf3877"
     },
     "userName": {
-      "S": "Jani"
+      "S": "Staff User 1"
     }
   },
   {
     "userEmail": {
-      "S": "sharadaw.21@cse.mrt.ac.lk"
+      "S": "staffUser2@example.com"
     },
     "contactNumber": {
       "S": "0451237048"
@@ -44,12 +44,12 @@
       "S": "3f8a9e7c-31c3-4db8-b1f0-857a5f2cbf3e"
     },
     "userName": {
-      "S": "Sharada M"
+      "S": "Staff User 2"
     }
   },
   {
     "userEmail": {
-      "S": "sharadashehan6@gmail.com"
+      "S": "staffUser3@example.com"
     },
     "contactNumber": {
       "S": "0451237048"
@@ -71,7 +71,7 @@
       "S": "d1bffd7e-90a7-4aa7-87f4-64090db149f0"
     },
     "userName": {
-      "S": "Sharada C"
+      "S": "Staff User 3"
     }
   }
 ]
