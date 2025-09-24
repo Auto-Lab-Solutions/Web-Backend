@@ -61,6 +61,10 @@ Parameters:
   InvoicesTable:
     Type: String
     Description: Invoices DynamoDB table name
+
+  EmailSuppressionTableName:
+    Type: String
+    Description: Email suppression DynamoDB table name
   
   ReportsBucketName:
     Type: String
@@ -74,6 +78,16 @@ Parameters:
   FrontendRootUrl:
     Type: String
     Description: Frontend root URL for invoice links and QR codes
+
+  MailSendingAddress:
+    Type: String
+    Description: SES verified email address for sending notifications
+    Default: "noreply@autolabsolutions.com"
+
+  MailReceivingAddress:
+    Type: String
+    Description: Email address for receiving emails (environment-specific)
+    Default: "mail@autolabsolutions.com"
 
 Resources:
   # SQS Queue for invoice generation requests
@@ -122,9 +136,12 @@ Resources:
           INQUIRIES_TABLE: !Ref InquiriesTable
           PAYMENTS_TABLE: !Ref PaymentsTable
           INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
           REPORTS_BUCKET: !Ref ReportsBucketName
           CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
       Role: !GetAtt InvoiceProcessorLambdaRole.Arn
 
   # IAM Role for Invoice Processor Lambda
@@ -174,6 +191,7 @@ Resources:
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InquiriesTable}'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${PaymentsTable}'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InvoicesTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailSuppressionTableName}'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${StaffTable}/index/*'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UsersTable}/index/*'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ConnectionsTable}/index/*'
@@ -186,6 +204,7 @@ Resources:
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InquiriesTable}/index/*'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${PaymentsTable}/index/*'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InvoicesTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailSuppressionTableName}/index/*'
               # S3 permissions (for invoice storage)
               - Effect: Allow
                 Action:
@@ -200,6 +219,15 @@ Resources:
                   - s3:GetObject
                 Resource:
                   - !Sub 'arn:aws:s3:::${CloudFormationBucket}/*'
+              # SES permissions (for email suppression and sending)
+              - Effect: Allow
+                Action:
+                  - ses:GetSuppressedDestination
+                  - ses:PutSuppressedDestination
+                  - ses:DeleteSuppressedDestination
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: '*'
 
   # SQS Event Source Mapping for Lambda
   InvoiceQueueEventSourceMapping:

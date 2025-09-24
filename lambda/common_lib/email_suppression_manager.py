@@ -7,6 +7,7 @@ import boto3
 import os
 import json
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from botocore.exceptions import ClientError
 
 import permission_utils as perm
@@ -155,7 +156,7 @@ class EmailSuppressionManager:
         """Check if an email address is suppressed with detailed status"""
         # Initialize AWS clients
         dynamodb = boto3.resource('dynamodb')
-        ses_client = boto3.client('ses')
+        sesv2_client = boto3.client('sesv2')
         
         # Environment variables
         SUPPRESSION_TABLE_NAME = os.environ.get('SUPPRESSION_TABLE_NAME')
@@ -184,7 +185,7 @@ class EmailSuppressionManager:
             ses_suppressed = False
             ses_reason = None
             try:
-                ses_response = ses_client.get_suppressed_destination(EmailAddress=email)
+                ses_response = sesv2_client.get_suppressed_destination(EmailAddress=email)
                 ses_suppressed = True
                 ses_reason = ses_response.get('SuppressedDestination', {}).get('Reason')
             except ClientError as e:
@@ -197,7 +198,7 @@ class EmailSuppressionManager:
                 'local_suppressions': local_suppressions,
                 'ses_suppressed': ses_suppressed,
                 'ses_reason': ses_reason,
-                'checked_at': datetime.utcnow().isoformat() + 'Z'
+                'checked_at': datetime.now(ZoneInfo('Australia/Perth')).isoformat()
             }
             
             return result
@@ -279,7 +280,7 @@ class EmailSuppressionManager:
                     Item={
                         'email': email.lower(),
                         'reason': 'manual_addition',
-                        'timestamp': datetime.utcnow().isoformat(),
+                        'timestamp': datetime.now(ZoneInfo('Australia/Perth')).isoformat(),
                         'status': 'suppressed'
                     }
                 )
@@ -344,7 +345,7 @@ class EmailSuppressionManager:
         """Add an email address to the suppression list due to bounce"""
         # Initialize AWS clients
         dynamodb = boto3.resource('dynamodb')
-        ses_client = boto3.client('ses')
+        sesv2_client = boto3.client('sesv2')
         
         # Environment variables
         SUPPRESSION_TABLE_NAME = os.environ.get('SUPPRESSION_TABLE_NAME')
@@ -358,8 +359,8 @@ class EmailSuppressionManager:
             
             mail_info = notification.get('mail', {})
             
-            current_time = datetime.utcnow()
-            iso_timestamp = current_time.isoformat() + 'Z'
+            current_time = datetime.now(ZoneInfo('Australia/Perth'))
+            iso_timestamp = current_time.isoformat()
             
             # TTL: keep suppressions for 1 year (can be extended if needed)
             ttl = int((current_time + timedelta(days=365)).timestamp())
@@ -383,7 +384,7 @@ class EmailSuppressionManager:
             
             # Also add to SES account-level suppression list
             try:
-                ses_client.put_suppressed_destination(
+                sesv2_client.put_suppressed_destination(
                     EmailAddress=email_address,
                     Reason='BOUNCE'
                 )
@@ -404,7 +405,7 @@ class EmailSuppressionManager:
         """Add an email address to the suppression list due to complaint"""
         # Initialize AWS clients
         dynamodb = boto3.resource('dynamodb')
-        ses_client = boto3.client('ses')
+        sesv2_client = boto3.client('sesv2')
         
         # Environment variables
         SUPPRESSION_TABLE_NAME = os.environ.get('SUPPRESSION_TABLE_NAME')
@@ -419,8 +420,8 @@ class EmailSuppressionManager:
             complaint_info = notification.get('complaint', {})
             mail_info = notification.get('mail', {})
             
-            current_time = datetime.utcnow()
-            iso_timestamp = current_time.isoformat() + 'Z'
+            current_time = datetime.now(ZoneInfo('Australia/Perth'))
+            iso_timestamp = current_time.isoformat()
             
             # TTL: keep suppressions for 2 years for complaints (more serious than bounces)
             ttl = int((current_time + timedelta(days=730)).timestamp())
@@ -447,7 +448,7 @@ class EmailSuppressionManager:
             
             # Also add to SES account-level suppression list
             try:
-                ses_client.put_suppressed_destination(
+                sesv2_client.put_suppressed_destination(
                     EmailAddress=email_address,
                     Reason='COMPLAINT'
                 )
@@ -482,8 +483,8 @@ class EmailSuppressionManager:
             mail_info = notification.get('mail', {})
             bounce_info = notification.get('bounce', {})
             
-            current_time = datetime.utcnow()
-            iso_timestamp = current_time.isoformat() + 'Z'
+            current_time = datetime.now(ZoneInfo('Australia/Perth'))
+            iso_timestamp = current_time.isoformat()
             
             # TTL: keep analytics for 2 years
             ttl = int((current_time + timedelta(days=730)).timestamp())
@@ -528,8 +529,8 @@ class EmailSuppressionManager:
             complaint_info = notification.get('complaint', {})
             mail_info = notification.get('mail', {})
             
-            current_time = datetime.utcnow()
-            iso_timestamp = current_time.isoformat() + 'Z'
+            current_time = datetime.now(ZoneInfo('Australia/Perth'))
+            iso_timestamp = current_time.isoformat()
             
             # TTL: keep analytics for 2 years
             ttl = int((current_time + timedelta(days=730)).timestamp())
@@ -576,8 +577,8 @@ class EmailSuppressionManager:
             
             analytics_table = dynamodb.Table(ANALYTICS_TABLE_NAME)
             
-            current_time = datetime.utcnow()
-            iso_timestamp = current_time.isoformat() + 'Z'
+            current_time = datetime.now(ZoneInfo('Australia/Perth'))
+            iso_timestamp = current_time.isoformat()
             
             # TTL: keep analytics for 1 year (less than bounce/complaint data)
             ttl = int((current_time + timedelta(days=365)).timestamp())

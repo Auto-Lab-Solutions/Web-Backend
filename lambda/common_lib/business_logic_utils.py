@@ -18,13 +18,14 @@ from websocket_utils import (
     get_connection_manager, get_user_init_manager, get_staff_init_manager, get_ping_manager
 )
 from data_access_utils import (
-    DataAccessManager, AnalyticsManager, InquiryManager, InvoiceManager as DataInvoiceManager,
+    DataAccessManager, InquiryManager, InvoiceManager as DataInvoiceManager,
     PriceManager, UserManager, MessageManager, StaffRoleManager,
-    get_analytics_manager, get_inquiry_manager, get_invoice_manager,
+    get_inquiry_manager, get_invoice_manager,
     get_price_manager, get_user_manager, get_message_manager, get_staff_role_manager
 )
+from analytics_manager import AnalyticsManager, get_analytics_manager
 from unavailable_slots_utils import UnavailableSlotManager, get_unavailable_slot_manager
-from report_upload_utils import ReportUploadManager, get_report_upload_manager
+from upload_utils import UploadManager, get_upload_manager
 from exceptions import BusinessLogicError
 
 
@@ -35,11 +36,16 @@ def handle_business_logic_error(func):
         try:
             return func(*args, **kwargs)
         except BusinessLogicError as e:
+            print(f"BusinessLogicError in {func.__name__}: {e.message} (status: {e.status_code})")
             import response_utils as resp
-            return resp.error_response(e.status_code, e.message)
+            return resp.error_response(e.message, e.status_code)
         except Exception as e:
+            print(f"Unexpected error in {func.__name__}: {str(e)}")
+            print(f"Error type: {type(e).__name__}")
+            import traceback
+            traceback.print_exc()
             import response_utils as resp
-            return resp.error_response(500, f"Internal server error: {str(e)}")
+            return resp.error_response(f"Internal server error: {str(e)}", 500)
     return wrapper
 
 
@@ -62,15 +68,15 @@ __all__ = [
     'StaffInitManager',
     'PingManager',
     'DataAccessManager',
-    'AnalyticsManager',
     'InquiryManager', 
     'DataInvoiceManager',
     'PriceManager',
     'UserManager',
     'MessageManager',
     'StaffRoleManager',
+    'AnalyticsManager',
     'UnavailableSlotManager',
-    'ReportUploadManager',
+    'UploadManager',
     
     # Factory functions
     'get_backup_restore_manager',
@@ -78,15 +84,15 @@ __all__ = [
     'get_user_init_manager',
     'get_staff_init_manager',
     'get_ping_manager',
-    'get_analytics_manager',
     'get_inquiry_manager',
     'get_invoice_manager',
     'get_price_manager',
     'get_user_manager',
     'get_message_manager',
     'get_staff_role_manager',
+    'get_analytics_manager',
     'get_unavailable_slot_manager',
-    'get_report_upload_manager',
+    'get_upload_manager',
     
     # Exception and decorator
     'BusinessLogicError',

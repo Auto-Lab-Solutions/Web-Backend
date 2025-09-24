@@ -32,17 +32,18 @@ validate_environment() {
 # Function to get environment configuration
 get_env_config() {
     local env=$1
-    local CERTIFICATE_ARN_USEAST1="arn:aws:acm:us-east-1:899704476492:certificate/808b1a88-c14d-46f2-a9d2-e34ac47c0838"
-    local CERTIFICATE_ARN_APSOUTHEAST2="arn:aws:acm:ap-southeast-2:899704476492:certificate/51d6ed1a-d6c8-4165-bf4d-b219034ad4b4"
+    # Certificate ARNs for SSL domains
+    local CERTIFICATE_ARN_USEAST1="arn:aws:acm:us-east-1:${AWS_ACCOUNT_ID}:certificate/808b1a88-c14d-46f2-a9d2-e34ac47c0838"
+    local CERTIFICATE_ARN_APSOUTHEAST2="arn:aws:acm:ap-southeast-2:${AWS_ACCOUNT_ID}:certificate/51d6ed1a-d6c8-4165-bf4d-b219034ad4b4"
     local HOSTED_ZONE_ID="Z060497817EUO8PSJGQHQ"
     
     case $env in
         development)
             # Development Environment Configuration
             export ENVIRONMENT="development"
-            export AWS_REGION="ap-southeast-2"
+            export AWS_REGION="us-east-1"
             export STACK_NAME="auto-lab-backend-dev"
-            export CLOUDFORMATION_BUCKET="auto-lab-cloudformation-templates-dev-$AWS_ACCOUNT_ID"
+            export CLOUDFORMATION_BUCKET="auto-lab-cf-templates-dev-$AWS_ACCOUNT_ID"
             export BACKUP_BUCKET_NAME="auto-lab-backups-dev-$AWS_ACCOUNT_ID"
             export LOG_LEVEL="DEBUG"
             export LAMBDA_TIMEOUT="30"
@@ -54,13 +55,14 @@ get_env_config() {
             export FRONTEND_ACM_CERTIFICATE_ARN="$CERTIFICATE_ARN_USEAST1"
             export ENABLE_CUSTOM_DOMAIN="true"
             export ENABLE_FRONTEND_WEBSITE="true"
+            export FRONTEND_ROOT_URL="$FRONTEND_DOMAIN_NAME"
 
             # API Gateway Custom Domain Configuration
             export ENABLE_API_CUSTOM_DOMAINS="true"
             export API_DOMAIN_NAME="api-dev.autolabsolutions.com"
             export WEBSOCKET_DOMAIN_NAME="ws-dev.autolabsolutions.com"
             export API_HOSTED_ZONE_ID="$HOSTED_ZONE_ID"
-            export API_ACM_CERTIFICATE_ARN="$CERTIFICATE_ARN_APSOUTHEAST2"
+            export API_ACM_CERTIFICATE_ARN="$CERTIFICATE_ARN_USEAST1"
 
             # Reports CloudFront Custom Domain Configuration
             export ENABLE_REPORTS_CUSTOM_DOMAIN="true"
@@ -81,6 +83,11 @@ get_env_config() {
             # Firebase credentials passed from CI/CD pipeline or environment variables
             export FIREBASE_PROJECT_ID="${FIREBASE_PROJECT_ID:-}"
             export FIREBASE_SERVICE_ACCOUNT_KEY="${FIREBASE_SERVICE_ACCOUNT_KEY:-}"
+
+            # Backup System Configuration (Optional)
+            # Set backup system enabled/disabled state for development environment
+            export ENABLE_BACKUP_SYSTEM="false"  # Default disabled for development (simpler setup)
+            export BACKUP_SCHEDULE="cron(0 18 ? * SAT *)"  # Weekly on Saturday at 6 PM UTC (Sunday 2 AM Perth time) for dev
             ;;
         production)
             # Production Environment Configuration
@@ -99,6 +106,7 @@ get_env_config() {
             export FRONTEND_ACM_CERTIFICATE_ARN="$CERTIFICATE_ARN_USEAST1"
             export ENABLE_CUSTOM_DOMAIN="true"
             export ENABLE_FRONTEND_WEBSITE="true"
+            export FRONTEND_ROOT_URL="$FRONTEND_DOMAIN_NAME"
 
             # API Gateway Custom Domain Configuration
             export ENABLE_API_CUSTOM_DOMAINS="true"
@@ -126,6 +134,11 @@ get_env_config() {
             # Firebase credentials passed from CI/CD pipeline or environment variables
             export FIREBASE_PROJECT_ID="${FIREBASE_PROJECT_ID:-}"
             export FIREBASE_SERVICE_ACCOUNT_KEY="${FIREBASE_SERVICE_ACCOUNT_KEY:-}"
+
+            # Backup System Configuration (Optional)
+            # Set backup system enabled/disabled state for production environment
+            export ENABLE_BACKUP_SYSTEM="true"   # Default enabled for production (data protection)
+            export BACKUP_SCHEDULE="cron(0 18 ? * SAT *)"  # Weekly on Saturday at 6 PM UTC (Sunday 2 AM Perth time) for prod
             ;;
         *)
             echo "Error: Invalid environment '$env'"
@@ -163,7 +176,7 @@ get_env_config() {
     export AUTH0_AUDIENCE="${AUTH0_AUDIENCE}"
 
     # Frontend GitHub Repository Configuration
-    FRONTEND_REPO_OWNER="Auto-Lab-Solutions"
+    FRONTEND_REPO_OWNER="Actions-Test-123"
     FRONTEND_REPO_NAME="Web-Frontend"
     FRONTEND_GITHUB_TOKEN="${FRONTEND_GITHUB_TOKEN}"
 
@@ -230,7 +243,7 @@ prompt_for_environment() {
     
     # Skip prompt in CI/CD environments or if AUTO_CONFIRM is set - use default
     if [ -n "$GITHUB_ACTIONS" ] || [ -n "$CI" ] || [ "$AUTO_CONFIRM" = "true" ]; then
-        echo "Running in automated environment - using default environment: $default_env"
+        echo "Running in automated environment - using default environment: $default_env" >&2
         echo "$default_env"
         return
     fi

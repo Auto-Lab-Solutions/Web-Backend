@@ -1,5 +1,6 @@
 import os
-import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import stripe
 import db_utils as db
 import response_utils as resp
@@ -51,7 +52,9 @@ def lambda_handler(event, context):
         if existing_record.get('paymentStatus') == 'paid':
             return resp.success_response({
                 "message": "Payment already confirmed for this record",
-            }, success=False)
+                "referenceNumber": reference_number,
+                "paymentStatus": "paid"
+            })
         
         # Verify the payment intent ID matches
         if existing_record.get('paymentIntentId') != payment_intent_id:
@@ -60,7 +63,7 @@ def lambda_handler(event, context):
         # Update payment record in database
         payment_update_data = {
             'status': 'paid',
-            'updatedAt': int(time.time())
+            'updatedAt': int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())
         }
         success = db.update_payment_by_intent_id(payment_intent_id, payment_update_data)
         if not success:
@@ -69,10 +72,10 @@ def lambda_handler(event, context):
         # Update the appointment/order record
         update_data = {
             'paymentStatus': 'paid',
-            'paidAt': int(time.time()),
+            'paidAt': int(datetime.now(ZoneInfo('Australia/Perth')).timestamp()),
             'paymentMethod': 'stripe',
             'paymentAmount': float(payment_intent['amount']) / 100,  # Convert cents to dollars
-            'updatedAt': int(time.time())
+            'updatedAt': int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())
         }
         
         if payment_type == 'appointment':
@@ -97,7 +100,12 @@ def lambda_handler(event, context):
                 # Fallback to synchronous processing if queue fails
                 try:
                     # Use invoice manager for synchronous generation
-                    invoice_manager._generate_invoice_synchronously(updated_record, payment_type, payment_intent_id)
+                    sync_result = invoice_manager._generate_invoice_synchronously(updated_record, payment_type, payment_intent_id)
+                    if sync_result.get('success'):
+                        invoice_url = sync_result.get('invoice_url')
+                        print(f"Invoice generated synchronously: {invoice_url}")
+                    else:
+                        print(f"Synchronous invoice generation failed: {sync_result.get('error')}")
                 except Exception as sync_error:
                     print(f"Error in synchronous invoice generation fallback: {str(sync_error)}")
         
@@ -109,7 +117,7 @@ def lambda_handler(event, context):
             "referenceNumber": reference_number,
             "paymentStatus": "paid",
             "invoiceUrl": invoice_url,
-            "updatedAt": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+            "updatedAt": datetime.now(ZoneInfo('Australia/Perth')).isoformat()
         })
         
     except Exception as e:

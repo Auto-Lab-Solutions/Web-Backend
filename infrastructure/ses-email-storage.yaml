@@ -14,8 +14,8 @@ Parameters:
 
   SesRegion:
     Type: String
-    Description: AWS SES region
-    Default: "ap-southeast-2"
+    Description: AWS SES region (us-east-1 for development, ap-southeast-2 for production)
+    Default: "us-east-1"
 
   MailReceivingAddress:
     Type: String
@@ -26,6 +26,26 @@ Parameters:
     Type: String
     Description: S3 bucket containing Lambda packages
     Default: "auto-lab-cloudformation-templates"
+
+  EmailMetadataTable:
+    Type: String
+    Description: DynamoDB table for email metadata (managed by DynamoDB stack)
+    Default: ""
+
+  EmailThreadsTable:
+    Type: String
+    Description: DynamoDB table for email threading (managed by DynamoDB stack)
+    Default: ""
+
+  EmailAttachmentsTable:
+    Type: String
+    Description: DynamoDB table for email attachments (managed by DynamoDB stack)
+    Default: ""
+
+  EmailAttachmentsBucket:
+    Type: String
+    Description: S3 bucket for storing email attachments (managed by S3 stack)
+    Default: ""
 
   FirebaseNotificationQueueUrl:
     Type: String
@@ -39,45 +59,6 @@ Parameters:
     Description: Whether to enable Firebase push notifications
 
 Resources:
-  # DynamoDB Table for Email Metadata
-  EmailMetadataTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: !Sub 'EmailMetadata-${EnvironmentName}'
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: messageId
-          AttributeType: S
-        - AttributeName: receivedDate
-          AttributeType: S
-        - AttributeName: fromEmail
-          AttributeType: S
-      KeySchema:
-        - AttributeName: messageId
-          KeyType: HASH
-      GlobalSecondaryIndexes:
-        - IndexName: ReceivedDateIndex
-          KeySchema:
-            - AttributeName: receivedDate
-              KeyType: HASH
-          Projection:
-            ProjectionType: ALL
-        - IndexName: FromEmailIndex
-          KeySchema:
-            - AttributeName: fromEmail
-              KeyType: HASH
-            - AttributeName: receivedDate
-              KeyType: RANGE
-          Projection:
-            ProjectionType: ALL
-      TimeToLiveSpecification:
-        AttributeName: ttl
-        Enabled: true
-      Tags:
-        - Key: Environment
-          Value: !Ref EnvironmentName
-        - Key: Purpose
-          Value: EmailMetadata
 
   # Email Processor Lambda Function
   EmailProcessorLambda:
@@ -95,6 +76,9 @@ Resources:
           ENVIRONMENT: !Ref EnvironmentName
           EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
           EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_ATTACHMENTS_TABLE: !Ref EmailAttachmentsTable
+          EMAIL_ATTACHMENTS_BUCKET: !Ref EmailAttachmentsBucket
           FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
           ENABLE_FIREBASE_NOTIFICATIONS: !Ref EnableFirebaseNotifications
           MAIL_RECEIVING_ADDRESS: !Ref MailReceivingAddress
@@ -130,12 +114,51 @@ Resources:
                 Resource: !Sub 'arn:aws:s3:::${EmailStorageBucketName}-${AWS::AccountId}-${EnvironmentName}/*'
               - Effect: Allow
                 Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:GetObjectUrl
+                Resource: !Sub 'arn:aws:s3:::${EmailAttachmentsBucket}/*'
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:HeadBucket
+                  - s3:GetBucketLocation
+                Resource: 
+                  - !Sub 'arn:aws:s3:::${EmailStorageBucketName}-${AWS::AccountId}-${EnvironmentName}'
+                  - !Sub 'arn:aws:s3:::${EmailAttachmentsBucket}'
+              - Effect: Allow
+                Action:
                   - dynamodb:PutItem
                   - dynamodb:UpdateItem
                   - dynamodb:GetItem
                   - dynamodb:Query
                   - dynamodb:Scan
-                Resource: !GetAtt EmailMetadataTable.Arn
+                Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailMetadataTable}'
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailThreadsTable}'
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource: !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailAttachmentsTable}'
+              - Effect: Allow
+                Action:
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource: 
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailThreadsTable}/index/*"
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailMetadataTable}/index/*"
+                  - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailAttachmentsTable}/index/*"
               - Effect: Allow
                 Action:
                   - sqs:SendMessage
@@ -317,12 +340,6 @@ Outputs:
     Value: !Ref EmailStorageBucket
     Export:
       Name: !Sub '${AWS::StackName}-EmailStorageBucket'
-
-  EmailMetadataTable:
-    Description: DynamoDB table for email metadata
-    Value: !Ref EmailMetadataTable
-    Export:
-      Name: !Sub '${AWS::StackName}-EmailMetadataTable'
 
   SESReceiptRuleSet:
     Description: SES receipt rule set name

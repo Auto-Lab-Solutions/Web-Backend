@@ -9,7 +9,7 @@ import response_utils as resp
 
 
 class DataRetriever:
-    """Handles common data retrieval patterns with access control"""
+    """Centralized data retrieval with access control"""
     
     @staticmethod
     def get_appointments_with_access_control(staff_user_email, user_id=None, appointment_id=None, event=None):
@@ -45,10 +45,23 @@ class DataRetriever:
                 if not appointment:
                     raise perm.PermissionError("Appointment not found", 404)
                 
-                return {"appointment": resp.convert_decimal(appointment)}
+                # Get assigned mechanic details if available
+                response_data = {"appointment": resp.convert_decimal(appointment)}
+                
+                assigned_mechanic_id = appointment.get('assignedMechanicId')
+                if assigned_mechanic_id:
+                    mechanic_record = db.get_staff_record_by_user_id(assigned_mechanic_id)
+                    if mechanic_record:
+                        response_data["assignedMechanic"] = {
+                            "userName": mechanic_record.get('userName', ''),
+                            "userEmail": mechanic_record.get('userEmail', ''),
+                            "contactNumber": mechanic_record.get('contactNumber', '')
+                        }
+                
+                return response_data
             else:
                 # Get multiple appointments based on role
-                if perm.RoleBasedPermissions.check_permission(staff_roles, 'can_view_all_data'):
+                if perm.RoleBasedPermissions.check_permission(staff_roles, 'can_view_all_appointments'):
                     # ADMIN, CUSTOMER_SUPPORT, CLERK - get all appointments
                     appointments = db.get_all_appointments()
                 elif 'MECHANIC' in staff_roles:
@@ -57,10 +70,15 @@ class DataRetriever:
                 else:
                     raise perm.PermissionError("Unauthorized: Invalid staff role", 403)
                 
+                # Filter to last 2 months
+                from datetime import datetime, timedelta
+                from zoneinfo import ZoneInfo
+                now = datetime.now(ZoneInfo('Australia/Perth'))
+                two_months_ago = int((now - timedelta(days=60)).timestamp())
+                appointments = [apt for apt in appointments if int(apt.get('createdAt', 0)) >= two_months_ago]
                 # Apply query parameter filters if provided
                 if event:
                     appointments = DataRetriever._apply_appointment_filters(appointments, event)
-                
                 return {
                     "appointments": resp.convert_decimal(appointments),
                     "count": len(appointments)
@@ -98,16 +116,20 @@ class DataRetriever:
             else:
                 # Get all appointments created by this user
                 appointments = db.get_appointments_by_created_user(effective_user_id)
-                
+                # Filter to last 2 months
+                from datetime import datetime, timedelta
+                from zoneinfo import ZoneInfo
+                now = datetime.now(ZoneInfo('Australia/Perth'))
+                two_months_ago = int((now - timedelta(days=60)).timestamp())
+                appointments = [apt for apt in appointments if int(apt.get('createdAt', 0)) >= two_months_ago]
                 # Apply query parameter filters if provided
                 if event:
                     appointments = DataRetriever._apply_appointment_filters(appointments, event)
-                
                 return {
                     "appointments": resp.convert_decimal(appointments),
                     "count": len(appointments)
                 }
-    
+
     @staticmethod
     def get_orders_with_access_control(staff_user_email, user_id=None, order_id=None, event=None):
         """
@@ -141,18 +163,36 @@ class DataRetriever:
                 if not order:
                     raise perm.PermissionError("Order not found", 404)
                 
-                return {"order": resp.convert_decimal(order)}
+                # Get assigned mechanic details if available
+                response_data = {"order": resp.convert_decimal(order)}
+                
+                assigned_mechanic_id = order.get('assignedMechanicId')
+                if assigned_mechanic_id:
+                    mechanic_record = db.get_staff_record_by_user_id(assigned_mechanic_id)
+                    if mechanic_record:
+                        response_data["assignedMechanic"] = {
+                            "userName": mechanic_record.get('userName', ''),
+                            "userEmail": mechanic_record.get('userEmail', ''),
+                            "contactNumber": mechanic_record.get('contactNumber', '')
+                        }
+                
+                return response_data
             else:
                 # Staff can view all orders
-                if perm.RoleBasedPermissions.check_permission(staff_roles, 'can_view_all_data'):
+                if perm.RoleBasedPermissions.check_permission(staff_roles, 'can_view_all_orders'):
                     orders = db.get_all_orders()
                 else:
                     raise perm.PermissionError("Unauthorized: Insufficient permissions", 403)
                 
+                # Filter to last 2 months
+                from datetime import datetime, timedelta
+                from zoneinfo import ZoneInfo
+                now = datetime.now(ZoneInfo('Australia/Perth'))
+                two_months_ago = int((now - timedelta(days=60)).timestamp())
+                orders = [order for order in orders if int(order.get('createdAt', 0)) >= two_months_ago]
                 # Apply query parameter filters if provided
                 if event:
                     orders = DataRetriever._apply_order_filters(orders, event)
-                
                 return {
                     "orders": resp.convert_decimal(orders),
                     "count": len(orders)
@@ -173,15 +213,31 @@ class DataRetriever:
                 
                 # perm.PermissionValidator.check_ownership(order, effective_user_id)
                 
-                return {"order": resp.convert_decimal(order)}
+                # Get assigned mechanic details if available
+                response_data = {"order": resp.convert_decimal(order)}
+                
+                assigned_mechanic_id = order.get('assignedMechanicId')
+                if assigned_mechanic_id:
+                    mechanic_record = db.get_staff_record_by_user_id(assigned_mechanic_id)
+                    if mechanic_record:
+                        response_data["assignedMechanic"] = {
+                            "userName": mechanic_record.get('userName', ''),
+                            "userEmail": mechanic_record.get('userEmail', ''),
+                            "contactNumber": mechanic_record.get('contactNumber', '')
+                        }
+                
+                return response_data
             else:
                 # Get all orders created by this user
                 orders = db.get_orders_by_created_user(effective_user_id)
-                
+                # Filter to last 2 months
+                import time
+                now = int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())
+                two_months_ago = now - 60 * 24 * 60 * 60  # 60 days in seconds
+                orders = [order for order in orders if int(order.get('createdAt', 0)) >= two_months_ago]
                 # Apply query parameter filters if provided
                 if event:
                     orders = DataRetriever._apply_order_filters(orders, event)
-                
                 return {
                     "orders": resp.convert_decimal(orders),
                     "count": len(orders)
@@ -352,6 +408,48 @@ class StaffDataRetriever:
         # Sort by creation time, newest first
         latest_messages = list(latest_by_user.values())
         return sorted(latest_messages, key=lambda x: int(x['createdAt']), reverse=True)
+
+
+class DataRetrievalManager:
+    """
+    Legacy compatibility class for existing code that expects DataRetrievalManager
+    Wraps the new DataRetriever and StaffDataRetriever classes for backward compatibility
+    """
+    
+    def __init__(self):
+        self.data_retriever = DataRetriever()
+        self.staff_data_retriever = StaffDataRetriever()
+    
+    def get_appointments_with_access_control(self, staff_user_email, user_id=None, appointment_id=None, event=None):
+        """Get appointments with access control using DataRetriever"""
+        return self.data_retriever.get_appointments_with_access_control(
+            staff_user_email, user_id, appointment_id, event
+        )
+    
+    def get_orders_with_access_control(self, staff_user_email, user_id=None, order_id=None, event=None):
+        """Get orders with access control using DataRetriever"""
+        return self.data_retriever.get_orders_with_access_control(
+            staff_user_email, user_id, order_id, event
+        )
+    
+    def get_connections_with_access_control(self, staff_user_email):
+        """Get connections with access control using StaffDataRetriever"""
+        return self.staff_data_retriever.get_connections_with_access_control(staff_user_email)
+    
+    def get_last_messages_with_access_control(self, staff_user_email):
+        """Get last messages with access control using StaffDataRetriever"""
+        return self.staff_data_retriever.get_last_messages_with_access_control(staff_user_email)
+    
+    # Provide access to the underlying static methods for flexibility
+    @staticmethod
+    def apply_appointment_filters(appointments, event):
+        """Apply appointment filters using DataRetriever"""
+        return DataRetriever._apply_appointment_filters(appointments, event)
+    
+    @staticmethod
+    def apply_order_filters(orders, event):
+        """Apply order filters using DataRetriever"""
+        return DataRetriever._apply_order_filters(orders, event)
 
 
 def handle_data_retrieval_error(func):

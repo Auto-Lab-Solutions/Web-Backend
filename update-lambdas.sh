@@ -149,6 +149,7 @@ package_lambda() {
     # Create temp directory
     local temp_dir="dist/lambda/$lambda_name"
     mkdir -p "$temp_dir"
+    rm -rf "$temp_dir"/*
     
     # Copy function code
     cp "$lambda_dir"/*.py "$temp_dir/" 2>/dev/null || {
@@ -173,9 +174,10 @@ package_lambda() {
     cd - > /dev/null
 
     # Upload to S3 - all lambdas use lambda/ path
+    print_status "Uploading $lambda_name.zip to S3..."
     aws s3 cp "dist/lambda/$lambda_name.zip" "s3://$CLOUDFORMATION_BUCKET/lambda/$lambda_name.zip"
     
-    print_success "Packaged $lambda_name"
+    print_success "Packaged and uploaded $lambda_name"
     return 0
 }
 

@@ -4,68 +4,19 @@ Handles payment confirmation and processing workflows
 """
 
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from decimal import Decimal
 
 import permission_utils as perm
-import data_retrieval_utils as db
-from notification_manager import notification_manager
+import db_utils as db
+from notification_manager import queue_payment_firebase_notification, invoice_manager
 import wsgw_utils as wsgw
 from exceptions import BusinessLogicError
 
 
 class PaymentManager:
     """Manages payment-related business logic"""
-    
-    @staticmethod
-    def confirm_cash_payment(staff_user_email, payment_id, amount):
-        """
-        Confirm cash payment workflow
-        
-        Args:
-            staff_user_email (str): Staff user email
-            payment_id (str): Payment ID
-            amount (float): Payment amount
-            
-        Returns:
-            dict: Success response
-            
-        Raises:
-            BusinessLogicError: If confirmation fails
-        """
-        # Validate permissions
-        staff_context = perm.PermissionValidator.validate_staff_access(
-            staff_user_email,
-            required_roles=['ADMIN']
-        )
-        
-        # Get payment record
-        payment_record = db.get_payment_record(payment_id)
-        if not payment_record:
-            raise BusinessLogicError("Payment not found", 404)
-        
-        if payment_record.get('status') == 'paid':
-            raise BusinessLogicError("Payment already confirmed", 400)
-        
-        # Update payment status
-        update_data = {
-            'status': 'paid',
-            'paymentMethod': 'cash',
-            'confirmedBy': staff_context['staff_user_id'],
-            'confirmedAt': int(time.time()),
-            'amount': Decimal(str(amount))
-        }
-        
-        success = db.update_payment(payment_id, update_data)
-        if not success:
-            raise BusinessLogicError("Failed to confirm payment", 500)
-        
-        # Update related appointment/order status
-        PaymentManager._update_related_resource_status(payment_record)
-        
-        return {
-            "message": "Cash payment confirmed successfully",
-            "paymentId": payment_id
-        }
     
     @staticmethod
     def confirm_manual_payment(reference_number, payment_type, payment_method, staff_user_id):
@@ -75,7 +26,7 @@ class PaymentManager:
         Args:
             reference_number (str): Appointment or order ID
             payment_type (str): 'appointment' or 'order'
-            payment_method (str): 'cash' or 'bank_transfer'
+            payment_method (str): 'cash', 'bank_transfer', or 'card'
             staff_user_id (str): Staff user ID
             
         Returns:
@@ -107,7 +58,7 @@ class PaymentManager:
             'paymentStatus': 'paid',
             'paymentMethod': payment_method,
             'paymentConfirmedBy': staff_user_id,
-            'paymentConfirmedAt': int(time.time())
+            'paymentConfirmedAt': int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())
         }
         
         # Update record
@@ -118,6 +69,25 @@ class PaymentManager:
         
         if not success:
             raise BusinessLogicError(f"Failed to update {payment_type} payment status", 500)
+        
+        # Generate payment identifier that matches the invoice generation pattern
+        # Format: {payment_method}_{reference_number}_{timestamp} to match notification_manager expectations
+        payment_identifier = f"{payment_method}_{reference_number}_{int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())}"
+        
+        # Queue invoice generation asynchronously (similar to Stripe payments)
+        try:
+            # Get updated record to pass to invoice generation
+            if payment_type == 'appointment':
+                updated_record = db.get_appointment(reference_number)
+            else:
+                updated_record = db.get_order(reference_number)
+            
+            if updated_record and updated_record.get('paymentStatus') == 'paid':
+                invoice_manager.queue_invoice_generation(updated_record, payment_type, payment_identifier)
+                print(f"Invoice generation queued for {payment_type} {reference_number}")
+        except Exception as e:
+            print(f"Error queuing invoice generation: {str(e)}")
+            # Don't fail the payment confirmation if invoice generation fails
         
         # Send notifications
         PaymentManager._send_payment_confirmation_notifications(
@@ -169,7 +139,7 @@ class PaymentManager:
             'paymentConfirmedBy': None,
             'paymentConfirmedAt': None,
             'paymentRevertedBy': staff_user_id,
-            'paymentRevertedAt': int(time.time())
+            'paymentRevertedAt': int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())
         }
         
         # Update record
@@ -180,6 +150,37 @@ class PaymentManager:
         
         if not success:
             raise BusinessLogicError(f"Failed to revert {payment_type} payment status", 500)
+        
+        # Cancel associated invoices when payment is reverted
+        cancelled_invoices = []
+        try:
+            invoices = db.get_invoices_by_reference(reference_number, payment_type)
+            cancelled_invoice_count = 0
+            for invoice in invoices:
+                # Only cancel active invoices (not already cancelled)
+                if invoice.get('status') != 'cancelled':
+                    success = db.cancel_invoice(invoice.get('invoiceId'))
+                    if success:
+                        cancelled_invoice_count += 1
+                        cancelled_invoices.append(invoice.get('invoiceId'))
+                        print(f"Cancelled invoice {invoice.get('invoiceId')} for reverted {payment_type} payment {reference_number}")
+                    else:
+                        print(f"Failed to cancel invoice {invoice.get('invoiceId')} for reverted {payment_type} payment {reference_number}")
+            
+            if cancelled_invoice_count > 0:
+                print(f"Cancelled {cancelled_invoice_count} invoices for reverted {payment_type} payment {reference_number}")
+        except Exception as e:
+            print(f"Error cancelling invoices for reverted {payment_type} payment {reference_number}: {str(e)}")
+            # Don't fail the payment reversion if invoice cancellation fails
+        
+        # Send payment cancellation email notification
+        try:
+            PaymentManager._send_payment_cancellation_notifications(
+                existing_record, payment_type, reference_number, cancelled_invoices
+            )
+        except Exception as e:
+            print(f"Error sending payment cancellation notifications: {str(e)}")
+            # Don't fail the payment reversion if email notification fails
         
         return {
             "message": "Payment confirmation reverted successfully",
@@ -194,53 +195,94 @@ class PaymentManager:
         try:
             wsgw_client = wsgw.get_apigateway_client()
             
-            # Get customer user ID
+            # Get customer user ID for WebSocket notifications
             customer_user_id = record.get('createdUserId')
             
-            # Send WebSocket notification to customer if connected
-            if customer_user_id:
-                customer_connection = db.get_connection_by_user_id(customer_user_id)
-                if customer_connection:
-                    wsgw.send_notification(wsgw_client, customer_connection.get('connectionId'), {
-                        "type": "payment",
-                        "subtype": "confirmed",
-                        "success": True,
-                        "referenceId": reference_id,
-                        "referenceType": record_type,
-                        "paymentMethod": payment_method,
-                        "message": f"Your {record_type} payment has been confirmed"
-                    })
+            # Get customer information from record (following the same pattern as notification_manager)
+            customer_email = None
+            customer_name = None
             
-            # Send WebSocket notifications to all connected staff
-            staff_connections = db.get_all_staff_connections()
-            for connection in staff_connections:
-                wsgw.send_notification(wsgw_client, connection.get('connectionId'), {
-                    "type": "payment",
-                    "subtype": "confirmed",
-                    "success": True,
-                    "referenceId": reference_id,
-                    "referenceType": record_type,
-                    "paymentMethod": payment_method,
-                    "message": f"{record_type.title()} payment confirmed"
-                })
+            if record_type == 'order':
+                # For orders, get customer data directly from the record
+                customer_email = record.get('customerEmail')
+                customer_name = record.get('customerName', 'Valued Customer')
+            else:  # appointment
+                # For appointments, check if it's a buyer or seller
+                is_buyer = record.get('isBuyer', True)
+                if is_buyer:
+                    customer_email = record.get('buyerEmail')
+                    customer_name = record.get('buyerName', 'Valued Customer')
+                else:
+                    customer_email = record.get('sellerEmail')
+                    customer_name = record.get('sellerName', 'Valued Customer')
+            
+            # Removed: WebSocket notifications for payments (not messaging-related)
+            # As per requirements, websocket notifications are only for messaging scenarios
             
             # Queue Firebase push notification
-            notification_manager.queue_payment_firebase_notification(record.get(f'{record_type}Id'), 'cash_payment_confirmed')
+            queue_payment_firebase_notification(record.get(f'{record_type}Id'), 'cash_payment_confirmed')
+            
+            # Note: Payment confirmation email will be sent by the invoice generation process
+            # The invoice generation queued earlier will handle sending the email with the invoice attached
+            # This ensures customers receive a single email with both payment confirmation and invoice
             
         except Exception as e:
             print(f"Failed to send payment confirmation notifications: {str(e)}")
-    
+
     @staticmethod
-    def _update_related_resource_status(payment_record):
-        """Update appointment or order status after payment confirmation"""
+    def _send_payment_cancellation_notifications(record, record_type, reference_id, cancelled_invoices=None):
+        """Send notifications for payment cancellation"""
         try:
-            appointment_id = payment_record.get('appointmentId')
-            order_id = payment_record.get('orderId')
+            from notification_manager import queue_payment_cancellation_email
+            import wsgw_utils as wsgw
             
-            if appointment_id:
-                db.update_appointment(appointment_id, {'paymentStatus': 'paid'})
-            elif order_id:
-                db.update_order(order_id, {'paymentStatus': 'paid'})
+            wsgw_client = wsgw.get_apigateway_client()
+            
+            # Get customer user ID for WebSocket notifications
+            customer_user_id = record.get('createdUserId')
+            
+            # Get customer information from record
+            customer_email = None
+            customer_name = None
+            
+            if record_type == 'order':
+                # For orders, get customer data directly from the record
+                customer_email = record.get('customerEmail')
+                customer_name = record.get('customerName', 'Valued Customer')
+            else:  # appointment
+                # For appointments, check if it's a buyer or seller
+                is_buyer = record.get('isBuyer', True)
+                if is_buyer:
+                    customer_email = record.get('buyerEmail')
+                    customer_name = record.get('buyerName', 'Valued Customer')
+                else:
+                    customer_email = record.get('sellerEmail')
+                    customer_name = record.get('sellerName', 'Valued Customer')
+            
+            # Removed: WebSocket notifications for payments (not messaging-related)
+            # As per requirements, websocket notifications are only for messaging scenarios
+            
+            # Send email notification if customer email is available
+            if customer_email and customer_name:
+                # Prepare payment data for email
+                payment_data = {
+                    'referenceNumber': reference_id,
+                    'amount': record.get('totalPrice', record.get('price', '0.00')),
+                    'paymentMethod': record.get('paymentMethod', 'Payment'),
+                    'cancellationDate': datetime.now(ZoneInfo('Australia/Perth')).strftime('%d/%m/%Y'),
+                    'cancellationReason': 'Payment was cancelled by staff'
+                }
                 
+                # Add cancelled invoice ID if available
+                if cancelled_invoices and len(cancelled_invoices) > 0:
+                    # Use the first cancelled invoice ID
+                    payment_data['cancelledInvoiceId'] = cancelled_invoices[0]
+                
+                # Queue cancellation email
+                queue_payment_cancellation_email(customer_email, customer_name, payment_data)
+                print(f"Payment cancellation email queued for {customer_email}")
+            else:
+                print(f"Warning: No customer email found for {record_type} {reference_id}, skipping email notification")
+            
         except Exception as e:
-            print(f"Failed to update related resource status: {str(e)}")
+            print(f"Failed to send payment cancellation notifications: {str(e)}")

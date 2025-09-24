@@ -2,10 +2,11 @@ import boto3
 import os
 import uuid
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from botocore.exceptions import ClientError
 
 # Environment variables
-REPORTS_BUCKET_NAME = os.environ.get('REPORTS_BUCKET_NAME')
+REPORTS_BUCKET_NAME = os.environ.get('REPORTS_BUCKET')
 CLOUDFRONT_DOMAIN = os.environ.get('CLOUDFRONT_DOMAIN')
 
 # Initialize S3 client
@@ -13,6 +14,14 @@ s3_client = boto3.client('s3')
 
 def generate_presigned_upload_url(bucket_name, key, content_type, expires_in=3600):
     """Generate a presigned URL for uploading files to S3"""
+    # Validate input parameters
+    if not bucket_name:
+        raise ValueError("bucket_name cannot be None or empty")
+    if not key:
+        raise ValueError("key cannot be None or empty")  
+    if not content_type:
+        raise ValueError("content_type cannot be None or empty")
+    
     try:
         presigned_url = s3_client.generate_presigned_url(
             'put_object',
@@ -26,12 +35,13 @@ def generate_presigned_upload_url(bucket_name, key, content_type, expires_in=360
         return presigned_url
     except Exception as e:
         print(f"Error generating presigned URL: {str(e)}")
+        print(f"Parameters: bucket_name={bucket_name}, key={key}, content_type={content_type}, expires_in={expires_in}")
         return None
 
 
 def generate_unique_file_key(prefix, appointment_id, file_name):
     """Generate a unique file key for S3 storage"""
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    timestamp = datetime.now(ZoneInfo('Australia/Perth')).strftime('%Y%m%d_%H%M%S')
     unique_id = str(uuid.uuid4())[:8]
     
     # Ensure file has proper extension
@@ -45,16 +55,21 @@ def generate_public_url(cloudfront_domain=None, file_key=None):
     """Generate public URL using CloudFront domain"""
     domain = cloudfront_domain or CLOUDFRONT_DOMAIN
     if not domain:
+        print(f"Warning: CLOUDFRONT_DOMAIN not available, falling back to S3 URL for file: {file_key}")
         # Fallback to S3 URL if CloudFront domain is not available
         if not REPORTS_BUCKET_NAME:
             raise ValueError("Neither CLOUDFRONT_DOMAIN nor REPORTS_BUCKET_NAME environment variable is set")
-        return f"https://{REPORTS_BUCKET_NAME}.s3.amazonaws.com/{file_key}"
+        fallback_url = f"https://{REPORTS_BUCKET_NAME}.s3.amazonaws.com/{file_key}"
+        print(f"Generated fallback S3 URL: {fallback_url}")
+        return fallback_url
     
     # Ensure domain doesn't have protocol prefix
     if domain.startswith('http://') or domain.startswith('https://'):
         domain = domain.split('://', 1)[1]
     
-    return f"https://{domain}/{file_key}"
+    cloudfront_url = f"https://{domain}/{file_key}"
+    print(f"Generated CloudFront URL: {cloudfront_url}")
+    return cloudfront_url
 
 
 def generate_reports_base_url(cloudfront_domain=None):

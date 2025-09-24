@@ -2,6 +2,8 @@ import os
 import json
 import stripe
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import db_utils as db
 import response_utils as resp
@@ -113,8 +115,8 @@ def lambda_handler(event, context):
             'currency': currency.upper(),
             'status': 'pending',
             'metadata': json.dumps(metadata),
-            'createdAt': int(time.time()),
-            'updatedAt': int(time.time())
+            'createdAt': int(datetime.now(ZoneInfo('Australia/Perth')).timestamp()),
+            'updatedAt': int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())
         }
         
         # Create payment record
@@ -131,7 +133,7 @@ def lambda_handler(event, context):
         update_data = {
             'paymentIntentId': payment_intent.id,
             'paymentStatus': 'pending',
-            'updatedAt': int(time.time())
+            'updatedAt': int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())
         }
         
         if payment_type == 'appointment':

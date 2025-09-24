@@ -54,9 +54,76 @@ Resources:
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: AttachmentCleanupRule
+            Status: Enabled
+            Prefix: attachments/
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+            Transitions:
+              - StorageClass: STANDARD_IA
+                TransitionInDays: 30
+              - StorageClass: GLACIER
+                TransitionInDays: 90
+          - Id: ReportCleanupRule
+            Status: Enabled
+            Prefix: reports/
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+            Transitions:
+              - StorageClass: STANDARD_IA
+                TransitionInDays: 30
+              - StorageClass: GLACIER
+                TransitionInDays: 90
+
       Tags:
         - Key: Environment
           Value: !Ref Environment
+        - Key: Purpose
+          Value: ReportsAndAttachments
+
+  # Email Attachments Bucket
+  EmailAttachmentsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'auto-lab-email-attachments-${Environment}-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [GET, HEAD]
+            AllowedOrigins: ['*']
+            ExposedHeaders: [ETag]
+            MaxAge: 3000
+      LifecycleConfiguration:
+        Rules:
+          - Id: EmailAttachmentLifecycle
+            Status: Enabled
+            Prefix: attachments/
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+            Transitions:
+              - StorageClass: STANDARD_IA
+                TransitionInDays: 90  # Keep attachments in Standard for 90 days
+              - StorageClass: GLACIER
+                TransitionInDays: 365  # Archive after 1 year
+            ExpirationInDays: 2555  # Delete after 7 years (legal retention)
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: EmailAttachments
 
   OriginAccessControl:
     Type: AWS::CloudFront::OriginAccessControl
@@ -163,3 +230,9 @@ Outputs:
     Value: !If [ShouldUseCustomDomain, !Ref DomainName, !GetAtt CloudFrontDistribution.DomainName]
     Export:
       Name: !Sub '${AWS::StackName}-EffectiveDomainName'
+
+  EmailAttachmentsBucket:
+    Description: Email attachments S3 bucket name
+    Value: !Ref EmailAttachmentsBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-EmailAttachmentsBucket'

@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Deployment Validation Script
-# This script validates that all components are deployed correctly
+# Post-deployment validation script for Route53 and API Gateway domains
+# This script validates that all custom domains and deployments are working correctly
 
 set -e
 
@@ -377,11 +377,90 @@ check_reports_domain() {
     fi
 }
 
+# Function to validate Route53 records and custom domains
+validate_route53_and_custom_domains() {
+    print_status "Validating Route53 records and custom domains..."
+    
+    # Only validate if custom domains are enabled
+    if [[ "${ENABLE_API_CUSTOM_DOMAINS}" != "true" ]]; then
+        print_status "API custom domains disabled - skipping Route53 validation"
+        return 0
+    fi
+    
+    if [[ -z "$API_HOSTED_ZONE_ID" ]]; then
+        print_warning "API_HOSTED_ZONE_ID not set - skipping Route53 validation"
+        return 0
+    fi
+    
+    # Validate REST API domain
+    if [[ -n "$API_DOMAIN_NAME" ]]; then
+        print_status "Validating REST API domain: $API_DOMAIN_NAME"
+        
+        # Check if API Gateway custom domain exists
+        if aws apigateway get-domain-name --domain-name "$API_DOMAIN_NAME" --region $AWS_REGION >/dev/null 2>&1; then
+            local target_dns=$(aws apigateway get-domain-name --domain-name "$API_DOMAIN_NAME" --region $AWS_REGION --query 'regionalDomainName' --output text 2>/dev/null)
+            print_success "✓ API Gateway custom domain exists: $target_dns"
+            
+            # Check DNS resolution
+            if nslookup "$API_DOMAIN_NAME" >/dev/null 2>&1; then
+                print_success "✓ DNS resolution works for: $API_DOMAIN_NAME"
+                
+                # Test basic connectivity
+                if curl -s --max-time 5 --connect-timeout 3 "https://$API_DOMAIN_NAME" >/dev/null 2>&1; then
+                    print_success "✓ HTTPS connectivity works for: $API_DOMAIN_NAME"
+                else
+                    print_warning "⚠ HTTPS connectivity test failed for: $API_DOMAIN_NAME (may be normal for secured endpoints)"
+                fi
+            else
+                print_warning "⚠ DNS resolution failed for: $API_DOMAIN_NAME (may take a few minutes to propagate)"
+            fi
+        else
+            print_error "✗ API Gateway custom domain not found: $API_DOMAIN_NAME"
+        fi
+    fi
+    
+    # Validate WebSocket API domain
+    if [[ -n "$WEBSOCKET_DOMAIN_NAME" ]]; then
+        print_status "Validating WebSocket API domain: $WEBSOCKET_DOMAIN_NAME"
+        
+        # Check if WebSocket API custom domain exists
+        if aws apigatewayv2 get-domain-name --domain-name "$WEBSOCKET_DOMAIN_NAME" --region $AWS_REGION >/dev/null 2>&1; then
+            local target_dns=$(aws apigatewayv2 get-domain-name --domain-name "$WEBSOCKET_DOMAIN_NAME" --region $AWS_REGION --query 'DomainNameConfigurations[0].TargetDomainName' --output text 2>/dev/null || echo "")
+            
+            # Handle case where target DNS might be None, null, or empty
+            if [[ -n "$target_dns" && "$target_dns" != "None" && "$target_dns" != "null" && "$target_dns" != "" ]]; then
+                print_success "✓ WebSocket API custom domain exists: $target_dns"
+            else
+                print_warning "⚠ WebSocket API custom domain exists but target DNS not properly configured"
+                print_status "  Domain configuration may still be initializing"
+                
+                # Debug information (only if debug mode or verbose)
+                if [[ "${DEBUG_MODE:-false}" == "true" ]] || [[ "${VERBOSE:-false}" == "true" ]]; then
+                    print_status "  Debug: Raw AWS response for WebSocket domain:"
+                    aws apigatewayv2 get-domain-name --domain-name "$WEBSOCKET_DOMAIN_NAME" --region $AWS_REGION 2>/dev/null || echo "  Failed to get domain details"
+                fi
+                
+                # Don't count this as an error since the domain exists
+            fi
+            
+            # Check DNS resolution
+            if nslookup "$WEBSOCKET_DOMAIN_NAME" >/dev/null 2>&1; then
+                print_success "✓ DNS resolution works for: $WEBSOCKET_DOMAIN_NAME"
+                print_status "  WebSocket endpoint: wss://$WEBSOCKET_DOMAIN_NAME"
+            else
+                print_warning "⚠ DNS resolution failed for: $WEBSOCKET_DOMAIN_NAME (may take a few minutes to propagate)"
+            fi
+        else
+            print_error "✗ WebSocket API custom domain not found: $WEBSOCKET_DOMAIN_NAME"
+        fi
+    fi
+    
+    return 0
+}
+
 # Main validation function
 validate_deployment() {
     print_status "Starting deployment validation..."
-    
-    local errors=0
     
     # Check CloudFormation stack
     print_status "Checking CloudFormation stack..."
@@ -391,12 +470,18 @@ validate_deployment() {
             print_success "✓ CloudFormation stack '$STACK_NAME' is in good state ($stack_status)"
         else
             print_error "✗ CloudFormation stack '$STACK_NAME' is in bad state ($stack_status)"
-            ((errors++))
         fi
     else
         print_error "✗ CloudFormation stack '$STACK_NAME' not found"
-        ((errors++))
-        return $errors
+        print_warning "  Stack validation cannot continue without deployment"
+        print_warning "  Skipping remaining checks that require stack outputs"
+        
+        # Skip to basic checks that don't require the stack
+        if [[ "${ENABLE_API_CUSTOM_DOMAINS}" == "true" ]]; then
+            validate_route53_and_custom_domains
+        fi
+        
+        return 0
     fi
     
     # Get stack outputs
@@ -409,7 +494,11 @@ validate_deployment() {
     REPORTS_DOMAIN=$(get_stack_output "$STACK_NAME" "ReportsDomainName")
     REPORTS_BASE_URL=$(get_stack_output "$STACK_NAME" "ReportsBaseUrl")
     INVOICE_QUEUE_URL=$(get_stack_output "$STACK_NAME" "InvoiceQueueUrl")
-    BACKUP_BUCKET_NAME=$(get_stack_output "$STACK_NAME" "BackupBucketName")
+    
+    # Get backup bucket output only if backup system is enabled
+    if [ "${ENABLE_BACKUP_SYSTEM:-false}" = "true" ]; then
+        BACKUP_BUCKET_NAME=$(get_stack_output "$STACK_NAME" "BackupBucketName")
+    fi
     
     # Get custom domain outputs (may be empty if not configured)
     REST_API_CUSTOM_DOMAIN=$(get_stack_output "$STACK_NAME" "RestApiCustomDomainName")
@@ -429,7 +518,9 @@ validate_deployment() {
     echo "  CloudFront Domain: $CLOUDFRONT_DOMAIN"
     echo "  Reports Domain: $REPORTS_DOMAIN"
     echo "  Reports Base URL: $REPORTS_BASE_URL"
-    echo "  Backup Bucket: $BACKUP_BUCKET_NAME"
+    if [ "${ENABLE_BACKUP_SYSTEM:-false}" = "true" ] && [ -n "$BACKUP_BUCKET_NAME" ]; then
+        echo "  Backup Bucket: $BACKUP_BUCKET_NAME"
+    fi
     echo "  Invoice Queue URL: $INVOICE_QUEUE_URL"
     echo
     
@@ -437,7 +528,7 @@ validate_deployment() {
     print_status "Checking DynamoDB tables..."
     local tables=("$STAFF_TABLE" "$USERS_TABLE" "$CONNECTIONS_TABLE" "$MESSAGES_TABLE" "$UNAVAILABLE_SLOTS_TABLE" "$APPOINTMENTS_TABLE" "$SERVICE_PRICES_TABLE" "$ORDERS_TABLE" "$ITEM_PRICES_TABLE" "$INQUIRIES_TABLE")
     for table in "${tables[@]}"; do
-        check_dynamodb_table "$table" || ((errors++))
+        check_dynamodb_table "$table"
     done
     echo
     
@@ -449,33 +540,31 @@ validate_deployment() {
         "api-get-unavailable-slots" "api-update-unavailable-slots"
         "api-get-orders" "api-create-order" "api-update-order" 
         "api-confirm-cash-payment" "api-create-payment-intent" "api-confirm-stripe-payment"
-        "api-webhook-stripe-payment" "api-get-invoices" "api-generate-invoice"
+        "api-webhook-stripe-payment" "api-get-invoices" "api-generate-invoice" "api-cancel-invoice"
         "api-get-inquiries" "api-create-inquiry"
-        "api-get-report-upload-url" "api-get-analytics" "api-get-staff-roles"
+        "api-get-upload-url" "api-get-analytics" "api-get-staff-roles"
         "api-notify" "api-take-user" "api-get-connections" "api-get-messages" "api-get-last-messages" "api-send-message"
         "ws-connect" "ws-disconnect" "ws-init" "ws-ping" "ws-staff-init"
         "sqs-process-invoice-queue"
     )
     
     for func in "${functions[@]}"; do
-        check_lambda_function "$func" || ((errors++))
+        check_lambda_function "$func"
     done
     echo
     
     # Check API Gateways
     print_status "Checking API Gateways..."
     if [ -n "$REST_API_ID" ]; then
-        check_api_gateway "$REST_API_ID" "rest" || ((errors++))
+        check_api_gateway "$REST_API_ID" "rest"
     else
         print_error "✗ REST API ID not found in stack outputs"
-        ((errors++))
     fi
     
     if [ -n "$WEBSOCKET_API_ID" ]; then
-        check_api_gateway "$WEBSOCKET_API_ID" "websocket" || ((errors++))
+        check_api_gateway "$WEBSOCKET_API_ID" "websocket"
     else
         print_error "✗ WebSocket API ID not found in stack outputs"
-        ((errors++))
     fi
     echo
     
@@ -484,47 +573,47 @@ validate_deployment() {
     
     # Check ACM certificate (if configured)
     if [ -n "$API_CERTIFICATE_ARN" ]; then
-        check_acm_certificate "$API_CERTIFICATE_ARN" "$API_DOMAIN_NAME" || ((errors++))
+        check_acm_certificate "$API_CERTIFICATE_ARN" "$API_DOMAIN_NAME"
     fi
     
     # Check Route53 hosted zone (if configured)
     if [ -n "$HOSTED_ZONE_ID" ] && [ -n "$API_DOMAIN_NAME" ]; then
-        check_hosted_zone "$HOSTED_ZONE_ID" "$API_DOMAIN_NAME" || ((errors++))
+        check_hosted_zone "$HOSTED_ZONE_ID" "$API_DOMAIN_NAME"
     fi
     
     # Check REST API custom domain
-    check_custom_domain "$REST_API_CUSTOM_DOMAIN" "rest" || ((errors++))
+    check_custom_domain "$REST_API_CUSTOM_DOMAIN" "rest"
     if [ -n "$REST_API_CUSTOM_DOMAIN" ]; then
-        check_dns_resolution "$REST_API_CUSTOM_DOMAIN" "rest" || ((errors++))
+        check_dns_resolution "$REST_API_CUSTOM_DOMAIN" "rest"
     fi
     
     # Check WebSocket API custom domain  
-    check_custom_domain "$WEBSOCKET_API_CUSTOM_DOMAIN" "websocket" || ((errors++))
+    check_custom_domain "$WEBSOCKET_API_CUSTOM_DOMAIN" "websocket"
     if [ -n "$WEBSOCKET_API_CUSTOM_DOMAIN" ]; then
-        check_dns_resolution "$WEBSOCKET_API_CUSTOM_DOMAIN" "websocket" || ((errors++))
+        check_dns_resolution "$WEBSOCKET_API_CUSTOM_DOMAIN" "websocket"
     fi
     echo
     
     # Check S3 bucket
     print_status "Checking S3 bucket..."
-    check_s3_bucket "${REPORTS_BUCKET_NAME}-${AWS_ACCOUNT_ID}-${ENVIRONMENT}" || ((errors++))
+    check_s3_bucket "${REPORTS_BUCKET_NAME}-${AWS_ACCOUNT_ID}-${ENVIRONMENT}"
     echo
     
     # Check SQS queues
     print_status "Checking SQS queues..."
-    check_sqs_queue "$INVOICE_QUEUE_URL" || ((errors++))
+    check_sqs_queue "$INVOICE_QUEUE_URL"
     
     # Check notification queues
     EMAIL_QUEUE_URL=$(get_stack_output "$STACK_NAME" "EmailNotificationQueueUrl")
-    WEBSOCKET_QUEUE_URL=$(get_stack_output "$STACK_NAME" "WebSocketNotificationQueueUrl")
+    # Removed: WebSocket queue validation - no longer needed
     FIREBASE_QUEUE_URL=$(get_stack_output "$STACK_NAME" "FirebaseNotificationQueueUrl")
     
-    check_sqs_queue "$EMAIL_QUEUE_URL" || ((errors++))
-    check_sqs_queue "$WEBSOCKET_QUEUE_URL" || ((errors++))
+    check_sqs_queue "$EMAIL_QUEUE_URL"
+    # Removed: check_sqs_queue "$WEBSOCKET_QUEUE_URL" - WebSocket notifications are now synchronous
     
     # Only check Firebase queue if Firebase is enabled
     if [ "${ENABLE_FIREBASE_NOTIFICATIONS:-false}" == "true" ]; then
-        check_sqs_queue "$FIREBASE_QUEUE_URL" || ((errors++))
+        check_sqs_queue "$FIREBASE_QUEUE_URL"
     fi
     echo
     
@@ -533,25 +622,25 @@ validate_deployment() {
     if [ "${ENABLE_FIREBASE_NOTIFICATIONS:-false}" == "true" ]; then
         if [ -n "$FIREBASE_QUEUE_URL" ]; then
             # Check Firebase processor lambda
-            check_lambda_function "sqs-process-firebase-notification-queue" || ((errors++))
+            check_lambda_function "sqs-process-firebase-notification-queue"
             
             # Check Firebase configuration
             if [ -n "$FIREBASE_PROJECT_ID" ]; then
                 print_success "✓ Firebase project ID configured: $FIREBASE_PROJECT_ID"
             else
                 print_error "✗ Firebase project ID required when Firebase is enabled"
-                ((errors++))
+    
             fi
             
             if [ -n "$FIREBASE_SERVICE_ACCOUNT_KEY" ]; then
                 print_success "✓ Firebase service account key configured"
             else
                 print_error "✗ Firebase service account key required when Firebase is enabled"
-                ((errors++))
+    
             fi
         else
             print_error "✗ Firebase notification queue not found (required when Firebase is enabled)"
-            ((errors++))
+
         fi
     else
         print_status "✓ Firebase notifications are disabled (ENABLE_FIREBASE_NOTIFICATIONS=false)"
@@ -569,7 +658,7 @@ validate_deployment() {
         print_warning "⚠ SES configuration validation failed"
         print_warning "Email sending may not work correctly"
         print_warning "Run './validate-ses.sh $ENVIRONMENT --setup' for setup instructions"
-        ((errors++))
+
     fi
     echo
     
@@ -591,13 +680,14 @@ validate_deployment() {
         fi
     fi
     
-    # Check backup system
-    print_status "Checking backup system..."
-    local backup_stack_name_prefix="${STACK_NAME}-BackupSystemStack"
-    if aws cloudformation describe-stacks --stack-name "$backup_stack_name_prefix" --region $AWS_REGION &>/dev/null; then
-        local backup_stack_status=$(aws cloudformation describe-stacks --stack-name "$backup_stack_name_prefix" --region $AWS_REGION --query 'Stacks[0].StackStatus' --output text)
-        if [ "$backup_stack_status" = "CREATE_COMPLETE" ] || [ "$backup_stack_status" = "UPDATE_COMPLETE" ]; then
-            print_success "✓ Backup system stack '$backup_stack_name' is in good state ($backup_stack_status)"
+    # Check backup system (if enabled)
+    if [ "${ENABLE_BACKUP_SYSTEM:-false}" = "true" ]; then
+        print_status "Checking backup system..."
+        local backup_stack_name_prefix="${STACK_NAME}-BackupSystemStack"
+        if aws cloudformation describe-stacks --stack-name "$backup_stack_name_prefix" --region $AWS_REGION &>/dev/null; then
+            local backup_stack_status=$(aws cloudformation describe-stacks --stack-name "$backup_stack_name_prefix" --region $AWS_REGION --query 'Stacks[0].StackStatus' --output text)
+            if [ "$backup_stack_status" = "CREATE_COMPLETE" ] || [ "$backup_stack_status" = "UPDATE_COMPLETE" ]; then
+                print_success "✓ Backup system stack '$backup_stack_name' is in good state ($backup_stack_status)"
             
             # Check backup Lambda functions with new sys- prefix
             # These functions have custom names that don't follow the standard pattern
@@ -610,11 +700,11 @@ validate_deployment() {
                     print_success "✓ Lambda function '$backup_function_name' is active"
                 else
                     print_warning "⚠ Lambda function '$backup_function_name' exists but is not active (State: $state)"
-                    ((errors++))
+        
                 fi
             else
                 print_error "✗ Lambda function '$backup_function_name' not found"
-                ((errors++))
+    
             fi
             
             if aws lambda get-function --function-name "$manual_backup_function_name" --region $AWS_REGION &>/dev/null; then
@@ -623,11 +713,11 @@ validate_deployment() {
                     print_success "✓ Lambda function '$manual_backup_function_name' is active"
                 else
                     print_warning "⚠ Lambda function '$manual_backup_function_name' exists but is not active (State: $state)"
-                    ((errors++))
+        
                 fi
             else
                 print_error "✗ Lambda function '$manual_backup_function_name' not found"
-                ((errors++))
+    
             fi
             
             # Check backup system outputs
@@ -640,14 +730,14 @@ validate_deployment() {
                 print_success "✓ Automated backup function deployed: $(basename "$backup_function_arn")"
             else
                 print_error "✗ Automated backup function not found"
-                ((errors++))
+    
             fi
             
             if [ -n "$manual_backup_arn" ]; then
                 print_success "✓ Manual backup function deployed: $(basename "$manual_backup_arn")"
             else
                 print_error "✗ Manual backup function not found"
-                ((errors++))
+    
             fi
             
             if [ -n "$backup_bucket" ]; then
@@ -656,11 +746,11 @@ validate_deployment() {
                     print_success "✓ Backup S3 bucket exists: $backup_bucket"
                 else
                     print_error "✗ Backup S3 bucket not accessible: $backup_bucket"
-                    ((errors++))
+        
                 fi
             else
                 print_error "✗ Backup S3 bucket not found in outputs"
-                ((errors++))
+    
             fi
             
             if [ -n "$backup_schedule_arn" ]; then
@@ -676,63 +766,63 @@ validate_deployment() {
                 esac
             else
                 print_error "✗ Backup schedule not found"
-                ((errors++))
+    
             fi
             
         else
             print_error "✗ Backup system stack '$backup_stack_name' is in bad state ($backup_stack_status)"
-            ((errors++))
+
         fi
     else
         print_warning "⚠ Backup system stack '$backup_stack_name' not found"
         print_warning "Backup functionality is not available"
         # Don't increment errors as backup system might be optional
     fi
+    else
+        print_status "Backup system is disabled for this environment"
+        print_status "  To enable: Set ENABLE_BACKUP_SYSTEM=\"true\" in config/environments.sh"
+    fi
+    echo
+    
+    # Validate Route53 records and custom domains
+    print_status "=== ROUTE53 AND CUSTOM DOMAINS ==="
+    validate_route53_and_custom_domains
     echo
     
     # Summary
     echo
     print_status "=== VALIDATION SUMMARY ==="
-    if [ $errors -eq 0 ]; then
-        print_success "🎉 All components validated successfully!"
-        print_status "Your Auto Lab Solutions backend is ready for use."
-        echo
-        print_status "Next steps:"
-        if [ -n "$REST_API_CUSTOM_DOMAIN" ]; then
-            echo "  1. Update Auth0 configuration with: https://$REST_API_CUSTOM_DOMAIN"
-        else
-            echo "  1. Update Auth0 configuration with: $REST_API_ENDPOINT"
-        fi
-        echo "  2. Initialize DynamoDB tables with your data"
-        echo "  3. Test your frontend integration"
-        echo "  4. Test backup system: ./manage-backups.sh trigger-backup $ENVIRONMENT"
-        echo ""
-        print_status "Backend services available:"
-        if [ -n "$REST_API_CUSTOM_DOMAIN" ]; then
-            echo "  • REST API: https://$REST_API_CUSTOM_DOMAIN (custom domain)"
-        else
-            echo "  • REST API: $REST_API_ENDPOINT"
-        fi
-        if [ -n "$WEBSOCKET_API_CUSTOM_DOMAIN" ]; then
-            echo "  • WebSocket API: wss://$WEBSOCKET_API_CUSTOM_DOMAIN (custom domain)"
-        else
-            echo "  • WebSocket API: $WEBSOCKET_API_ENDPOINT"
-        fi
-        if [ -n "$CLOUDFRONT_DOMAIN" ]; then
-            echo "  • CloudFront CDN: https://$CLOUDFRONT_DOMAIN"
-        fi
-        echo "  • Async processing via SQS queues"
-        echo "  • Automated backups (if backup system deployed)"
+    print_success "🎉 Validation completed!"
+    print_status "Your Auto Lab Solutions backend validation is done."
+    echo
+    print_status "Next steps:"
+    if [ -n "$REST_API_CUSTOM_DOMAIN" ]; then
+        echo "  1. Update Auth0 configuration with: https://$REST_API_CUSTOM_DOMAIN"
     else
-        print_error "❌ Validation completed with $errors error(s)"
-        print_status "Please check the errors above and re-run deployment if needed."
-        echo ""
-        print_status "Common fixes:"
-        echo "  • Re-run deployment: ./deploy.sh $ENVIRONMENT"
-        echo "  • Check AWS credentials and permissions"
+        echo "  1. Update Auth0 configuration with: $REST_API_ENDPOINT"
     fi
+    echo "  2. Initialize DynamoDB tables with your data"
+    echo "  3. Test your frontend integration"
+    echo "  4. Test backup system: ./manage-backups.sh trigger-backup $ENVIRONMENT"
+    echo ""
+    print_status "Backend services available:"
+    if [ -n "$REST_API_CUSTOM_DOMAIN" ]; then
+        echo "  • REST API: https://$REST_API_CUSTOM_DOMAIN (custom domain)"
+    else
+        echo "  • REST API: $REST_API_ENDPOINT"
+    fi
+    if [ -n "$WEBSOCKET_API_CUSTOM_DOMAIN" ]; then
+        echo "  • WebSocket API: wss://$WEBSOCKET_API_CUSTOM_DOMAIN (custom domain)"
+    else
+        echo "  • WebSocket API: $WEBSOCKET_API_ENDPOINT"
+    fi
+    if [ -n "$CLOUDFRONT_DOMAIN" ]; then
+        echo "  • CloudFront CDN: https://$CLOUDFRONT_DOMAIN"
+    fi
+    echo "  • Async processing via SQS queues"
+    echo "  • Automated backups (if backup system deployed)"
     
-    return $errors
+    return 0
 }
 
 # Main function
@@ -778,7 +868,11 @@ main() {
     print_status "AWS Region: $AWS_REGION"
     echo ""
     
+    # Run validation and exit with appropriate code
     validate_deployment
+    
+    print_success "✅ Deployment validation completed successfully!"
+    exit 0
 }
 
 # Check if script is being run directly

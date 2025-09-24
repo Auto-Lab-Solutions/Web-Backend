@@ -5,13 +5,9 @@ This module provides managers for common data access patterns used across
 API Lambda functions, including analytics, inquiries, prices, users, etc.
 """
 
-import sys
-import os
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from collections import defaultdict, Counter
-
-# Add common_lib to path for imports
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'common_lib'))
 
 import db_utils as db
 import request_utils as req
@@ -105,7 +101,8 @@ class DataAccessManager:
             raise BusinessLogicError(f"{param_name} parameter is required", 400)
         
         try:
-            return datetime.strptime(date_str, '%Y-%m-%d')
+            # Parse date and set Perth timezone
+            return datetime.strptime(date_str, '%Y-%m-%d').replace(tzinfo=ZoneInfo('Australia/Perth'))
         except ValueError:
             raise BusinessLogicError(f"{param_name} must be in YYYY-MM-DD format", 400)
     
@@ -172,479 +169,50 @@ class DataAccessManager:
         
         return start_timestamp, end_timestamp
 
-
-class AnalyticsManager(DataAccessManager):
-    """Manager for analytics data operations"""
-    
-    def __init__(self):
-        super().__init__()
-        self.allowed_roles = ['CUSTOMER_SUPPORT', 'CLERK', 'ADMIN', 'MANAGER']
-        self.query_handlers = {
-            # Orders analytics
-            'orders_by_category': self.get_orders_by_category,
-            'orders_by_item': self.get_orders_by_item,
-            'orders_by_status': self.get_orders_by_status,
-            'orders_by_mechanic': self.get_orders_by_mechanic,
-            'daily_orders': self.get_daily_orders,
-            'monthly_orders': self.get_monthly_orders,
-            'orders_revenue': self.get_orders_revenue,
-            
-            # Appointments analytics
-            'appointments_by_service': self.get_appointments_by_service,
-            'appointments_by_plan': self.get_appointments_by_plan,
-            'appointments_by_status': self.get_appointments_by_status,
-            'appointments_by_mechanic': self.get_appointments_by_mechanic_analytics,
-            'daily_appointments': self.get_daily_appointments,
-            'monthly_appointments': self.get_monthly_appointments,
-            'appointments_revenue': self.get_appointments_revenue,
-            
-            # Combined analytics
-            'daily_income': self.get_daily_income,
-            'monthly_income': self.get_monthly_income,
-            'yearly_income': self.get_yearly_income,
-            'revenue_breakdown': self.get_revenue_breakdown,
-            
-            # Staff analytics
-            'staff_performance': self.get_staff_performance,
-            'mechanic_workload': self.get_mechanic_workload,
-            
-            # Customer analytics
-            'customer_activity': self.get_customer_activity,
-            'top_customers': self.get_top_customers,
-            
-            # Trend analytics
-            'daily_trends': self.get_daily_trends,
-            'monthly_trends': self.get_monthly_trends,
-            'service_popularity': self.get_service_popularity,
-            'item_popularity': self.get_item_popularity,
-            
-            # Summary analytics
-            'dashboard_summary': self.get_dashboard_summary,
-            'financial_summary': self.get_financial_summary,
-        }
-    
-    def validate_analytics_access(self, event):
-        """Validate staff has analytics access"""
-        return self.validate_staff_authentication(event, self.allowed_roles)
-    
-    def route_analytics_query(self, query_type, parameters, user_context):
+    def validate_date_range(self, start_date_str, end_date_str, max_days=None):
         """
-        Route analytics query to appropriate handler
+        Validate date range parameters in YYYY-MM-DD format
         
         Args:
-            query_type: Type of analytics query
-            parameters: Query parameters
-            user_context: User context from authentication
+            start_date_str: Start date string in YYYY-MM-DD format
+            end_date_str: End date string in YYYY-MM-DD format
+            max_days: Maximum allowed range in days (optional)
             
         Returns:
-            dict: Query results
+            tuple: (start_timestamp, end_timestamp)
+            
+        Raises:
+            BusinessLogicError: If date range is invalid
         """
-        handler = self.query_handlers.get(query_type)
-        if not handler:
-            raise BusinessLogicError(f"Unsupported query type: {query_type}", 400)
-        
-        return handler(parameters, user_context)
-    
-    # ==================== UTILITY METHODS ====================
-    
-    def filter_by_date_range(self, item, start_date=None, end_date=None):
-        """Filter items by date range"""
-        if not start_date and not end_date:
-            return True
-        
-        item_date = item.get('createdDate', '')
-        if not item_date:
-            return False
-        
-        if start_date and item_date < start_date:
-            return False
-        
-        if end_date and item_date > end_date:
-            return False
-        
-        return True
-    
-    # ==================== ORDERS ANALYTICS ====================
-    
-    def get_orders_by_category(self, parameters, user_context):
-        """Get orders grouped by category"""
-        from collections import defaultdict
-        
-        start_date = parameters.get('startDate')
-        end_date = parameters.get('endDate')
-        
-        orders = db.get_all_orders()
-        category_data = defaultdict(lambda: {'count': 0, 'revenue': 0, 'items': []})
-        
-        for order in orders:
-            if self.filter_by_date_range(order, start_date, end_date):
-                category_id = order.get('categoryId', 0)
-                category_key = f"Category {category_id}"
-                
-                category_data[category_key]['count'] += 1
-                category_data[category_key]['revenue'] += float(order.get('totalPrice', 0))
-                category_data[category_key]['items'].append({
-                    'orderId': order.get('orderId'),
-                    'itemId': order.get('itemId'),
-                    'quantity': order.get('quantity'),
-                    'price': float(order.get('totalPrice', 0)),
-                    'status': order.get('status'),
-                    'createdDate': order.get('createdDate')
-                })
-        
-        return dict(category_data)
-    
-    def get_orders_by_item(self, parameters, user_context):
-        """Get orders grouped by item"""
-        from collections import defaultdict
-        
-        start_date = parameters.get('startDate')
-        end_date = parameters.get('endDate')
-        category_id = parameters.get('categoryId')
-        
-        orders = db.get_all_orders()
-        item_data = defaultdict(lambda: {'count': 0, 'revenue': 0, 'totalQuantity': 0})
-        
-        for order in orders:
-            if self.filter_by_date_range(order, start_date, end_date):
-                if category_id and order.get('categoryId') != category_id:
-                    continue
-                    
-                item_id = order.get('itemId', 0)
-                item_key = f"Item {item_id}"
-                
-                item_data[item_key]['count'] += 1
-                item_data[item_key]['revenue'] += float(order.get('totalPrice', 0))
-                item_data[item_key]['totalQuantity'] += order.get('quantity', 0)
-        
-        return dict(item_data)
-    
-    def get_orders_by_status(self, parameters, user_context):
-        """Get orders grouped by status"""
-        from collections import defaultdict
-        
-        start_date = parameters.get('startDate')
-        end_date = parameters.get('endDate')
-        
-        orders = db.get_all_orders()
-        status_data = defaultdict(lambda: {'count': 0, 'revenue': 0})
-        
-        for order in orders:
-            if self.filter_by_date_range(order, start_date, end_date):
-                status = order.get('status', 'UNKNOWN')
-                status_data[status]['count'] += 1
-                status_data[status]['revenue'] += float(order.get('totalPrice', 0))
-        
-        return dict(status_data)
-    
-    def get_orders_by_mechanic(self, parameters, user_context):
-        """Get orders grouped by assigned mechanic"""
-        from collections import defaultdict
-        
-        start_date = parameters.get('startDate')
-        end_date = parameters.get('endDate')
-        
-        orders = db.get_all_orders()
-        mechanic_data = defaultdict(lambda: {'count': 0, 'revenue': 0, 'orders': []})
-        
-        for order in orders:
-            if self.filter_by_date_range(order, start_date, end_date):
-                mechanic_id = order.get('assignedMechanicId', 'Unassigned')
-                
-                mechanic_data[mechanic_id]['count'] += 1
-                mechanic_data[mechanic_id]['revenue'] += float(order.get('totalPrice', 0))
-                mechanic_data[mechanic_id]['orders'].append({
-                    'orderId': order.get('orderId'),
-                    'status': order.get('status'),
-                    'createdDate': order.get('createdDate'),
-                    'price': float(order.get('totalPrice', 0))
-                })
-        
-        return dict(mechanic_data)
-    
-    def get_daily_orders(self, parameters, user_context):
-        """Get daily orders count and revenue"""
-        from collections import defaultdict
-        from datetime import datetime
-        
-        start_date = parameters.get('startDate')
-        end_date = parameters.get('endDate', datetime.now().strftime('%Y-%m-%d'))
-        
-        orders = db.get_all_orders()
-        daily_data = defaultdict(lambda: {'count': 0, 'revenue': 0, 'paid': 0, 'unpaid': 0})
-        
-        for order in orders:
-            if self.filter_by_date_range(order, start_date, end_date):
-                date = order.get('createdDate', '')
-                if date:
-                    daily_data[date]['count'] += 1
-                    daily_data[date]['revenue'] += float(order.get('totalPrice', 0))
-                    
-                    if order.get('paymentStatus', 'pending') == 'paid':
-                        daily_data[date]['paid'] += 1
-                    else:
-                        daily_data[date]['unpaid'] += 1
-        
-        return dict(daily_data)
-    
-    def get_monthly_orders(self, parameters, user_context):
-        """Get monthly orders count and revenue"""
-        from collections import defaultdict
-        from datetime import datetime
-        
-        year = parameters.get('year', datetime.now().year)
-        
-        orders = db.get_all_orders()
-        monthly_data = defaultdict(lambda: {'count': 0, 'revenue': 0, 'paid': 0, 'unpaid': 0})
-        
-        for order in orders:
-            created_date = order.get('createdDate', '')
-            if created_date and created_date.startswith(str(year)):
-                month = created_date[:7]  # YYYY-MM format
-                
-                monthly_data[month]['count'] += 1
-                monthly_data[month]['revenue'] += float(order.get('totalPrice', 0))
-                
-                if order.get('paymentStatus', 'pending') == 'paid':
-                    monthly_data[month]['paid'] += 1
-                else:
-                    monthly_data[month]['unpaid'] += 1
-        
-        return dict(monthly_data)
-    
-    def get_orders_revenue(self, parameters, user_context):
-        """Get detailed orders revenue analysis"""
-        from collections import defaultdict
-        
-        start_date = parameters.get('startDate')
-        end_date = parameters.get('endDate')
-        
-        orders = db.get_all_orders()
-        
-        total_revenue = 0
-        paid_revenue = 0
-        unpaid_revenue = 0
-        orders_count = 0
-        
-        revenue_by_status = defaultdict(float)
-        revenue_by_category = defaultdict(float)
-        
-        for order in orders:
-            if self.filter_by_date_range(order, start_date, end_date):
-                revenue = float(order.get('totalPrice', 0))
-                total_revenue += revenue
-                orders_count += 1
-                
-                if order.get('paymentStatus', 'pending') == 'paid':
-                    paid_revenue += revenue
-                else:
-                    unpaid_revenue += revenue
-                
-                status = order.get('status', 'UNKNOWN')
-                revenue_by_status[status] += revenue
-                
-                category_id = order.get('categoryId', 0)
-                revenue_by_category[f"Category {category_id}"] += revenue
-        
-        return {
-            'totalRevenue': total_revenue,
-            'paidRevenue': paid_revenue,
-            'unpaidRevenue': unpaid_revenue,
-            'ordersCount': orders_count,
-            'averageOrderValue': total_revenue / orders_count if orders_count > 0 else 0,
-            'revenueByStatus': dict(revenue_by_status),
-            'revenueByCategory': dict(revenue_by_category)
-        }
-    
-    # ==================== APPOINTMENTS ANALYTICS ====================
-    
-    def get_appointments_by_service(self, parameters, user_context):
-        """Get appointments grouped by service"""
-        from collections import defaultdict
-        
-        start_date = parameters.get('startDate')
-        end_date = parameters.get('endDate')
-        
-        appointments = db.get_all_appointments()
-        service_data = defaultdict(lambda: {'count': 0, 'revenue': 0, 'appointments': []})
-        
-        for appointment in appointments:
-            if self.filter_by_date_range(appointment, start_date, end_date):
-                service_id = appointment.get('serviceId', 0)
-                service_key = f"Service {service_id}"
-                
-                service_data[service_key]['count'] += 1
-                service_data[service_key]['revenue'] += float(appointment.get('price', 0))
-                service_data[service_key]['appointments'].append({
-                    'appointmentId': appointment.get('appointmentId'),
-                    'status': appointment.get('status'),
-                    'scheduledDate': appointment.get('scheduledDate'),
-                    'price': float(appointment.get('price', 0))
-                })
-        
-        return dict(service_data)
-    
-    def get_appointments_by_plan(self, parameters, user_context):
-        """Get appointments grouped by plan"""
-        from collections import defaultdict
-        
-        start_date = parameters.get('startDate')
-        end_date = parameters.get('endDate')
-        service_id = parameters.get('serviceId')
-        
-        appointments = db.get_all_appointments()
-        plan_data = defaultdict(lambda: {'count': 0, 'revenue': 0})
-        
-        for appointment in appointments:
-            if self.filter_by_date_range(appointment, start_date, end_date):
-                if service_id and appointment.get('serviceId') != service_id:
-                    continue
-                    
-                plan_id = appointment.get('planId', 0)
-                plan_key = f"Plan {plan_id}"
-                
-                plan_data[plan_key]['count'] += 1
-                plan_data[plan_key]['revenue'] += float(appointment.get('price', 0))
-        
-        return dict(plan_data)
-    
-    def get_appointments_by_status(self, parameters, user_context):
-        """Get appointments grouped by status"""
-        from collections import defaultdict
-        
-        start_date = parameters.get('startDate')
-        end_date = parameters.get('endDate')
-        
-        appointments = db.get_all_appointments()
-        status_data = defaultdict(lambda: {'count': 0, 'revenue': 0})
-        
-        for appointment in appointments:
-            if self.filter_by_date_range(appointment, start_date, end_date):
-                status = appointment.get('status', 'UNKNOWN')
-                status_data[status]['count'] += 1
-                status_data[status]['revenue'] += float(appointment.get('price', 0))
-        
-        return dict(status_data)
-    
-    def get_appointments_by_mechanic_analytics(self, parameters, user_context):
-        """Get appointments grouped by assigned mechanic"""
-        from collections import defaultdict
-        
-        start_date = parameters.get('startDate')
-        end_date = parameters.get('endDate')
-        
-        appointments = db.get_all_appointments()
-        mechanic_data = defaultdict(lambda: {'count': 0, 'revenue': 0, 'appointments': []})
-        
-        for appointment in appointments:
-            if self.filter_by_date_range(appointment, start_date, end_date):
-                mechanic_id = appointment.get('assignedMechanicId', 'Unassigned')
-                
-                mechanic_data[mechanic_id]['count'] += 1
-                mechanic_data[mechanic_id]['revenue'] += float(appointment.get('price', 0))
-                mechanic_data[mechanic_id]['appointments'].append({
-                    'appointmentId': appointment.get('appointmentId'),
-                    'status': appointment.get('status'),
-                    'scheduledDate': appointment.get('scheduledDate'),
-                    'price': float(appointment.get('price', 0))
-                })
-        
-        return dict(mechanic_data)
-    
-    def get_daily_appointments(self, parameters, user_context):
-        """Get daily appointments count and revenue"""
-        from collections import defaultdict
-        from datetime import datetime
-        
-        start_date = parameters.get('startDate')
-        end_date = parameters.get('endDate', datetime.now().strftime('%Y-%m-%d'))
-        
-        appointments = db.get_all_appointments()
-        daily_data = defaultdict(lambda: {'count': 0, 'revenue': 0, 'paid': 0, 'unpaid': 0})
-        
-        for appointment in appointments:
-            if self.filter_by_date_range(appointment, start_date, end_date):
-                date = appointment.get('createdDate', '')
-                if date:
-                    daily_data[date]['count'] += 1
-                    daily_data[date]['revenue'] += float(appointment.get('price', 0))
-                    
-                    if appointment.get('paymentStatus', 'paid') == 'paid':
-                        daily_data[date]['paid'] += 1
-                    else:
-                        daily_data[date]['unpaid'] += 1
-        
-        return dict(daily_data)
-    
-    def get_monthly_appointments(self, parameters, user_context):
-        """Get monthly appointments count and revenue"""
-        from collections import defaultdict
-        from datetime import datetime
-        
-        year = parameters.get('year', datetime.now().year)
-        
-        appointments = db.get_all_appointments()
-        monthly_data = defaultdict(lambda: {'count': 0, 'revenue': 0, 'paid': 0, 'unpaid': 0})
-        
-        for appointment in appointments:
-            created_date = appointment.get('createdDate', '')
-            if created_date and created_date.startswith(str(year)):
-                month = created_date[:7]  # YYYY-MM format
-                
-                monthly_data[month]['count'] += 1
-                monthly_data[month]['revenue'] += float(appointment.get('price', 0))
-                
-                if appointment.get('paymentStatus', 'pending') == 'paid':
-                    monthly_data[month]['paid'] += 1
-                else:
-                    monthly_data[month]['unpaid'] += 1
-        
-        return dict(monthly_data)
-    
-    def get_appointments_revenue(self, parameters, user_context):
-        """Get detailed appointments revenue analysis"""
-        from collections import defaultdict
-        
-        start_date = parameters.get('startDate')
-        end_date = parameters.get('endDate')
-        
-        appointments = db.get_all_appointments()
-        
-        total_revenue = 0
-        paid_revenue = 0
-        unpaid_revenue = 0
-        appointments_count = 0
-        
-        revenue_by_status = defaultdict(float)
-        revenue_by_service = defaultdict(float)
-        
-        for appointment in appointments:
-            if self.filter_by_date_range(appointment, start_date, end_date):
-                revenue = float(appointment.get('price', 0))
-                total_revenue += revenue
-                appointments_count += 1
-                
-                if appointment.get('paymentStatus', 'pending') == 'paid':
-                    paid_revenue += revenue
-                else:
-                    unpaid_revenue += revenue
-                
-                status = appointment.get('status', 'UNKNOWN')
-                revenue_by_status[status] += revenue
-                
-                service_id = appointment.get('serviceId', 0)
-                revenue_by_service[f"Service {service_id}"] += revenue
-        
-        return {
-            'totalRevenue': total_revenue,
-            'paidRevenue': paid_revenue,
-            'unpaidRevenue': unpaid_revenue,
-            'appointmentsCount': appointments_count,
-            'averageAppointmentValue': total_revenue / appointments_count if appointments_count > 0 else 0,
-            'revenueByStatus': dict(revenue_by_status),
-            'revenueByService': dict(revenue_by_service)
-        }
-    
+        from datetime import datetime, timezone
+        
+        if not start_date_str or not end_date_str:
+            raise BusinessLogicError("start_date and end_date parameters are required (YYYY-MM-DD format)", 400)
+        
+        try:
+            # Parse dates in YYYY-MM-DD format with Perth timezone
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d').replace(tzinfo=ZoneInfo('Australia/Perth'))
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').replace(tzinfo=ZoneInfo('Australia/Perth'))
+            
+            # Convert to end of day for end_date to include the entire day
+            end_date = end_date.replace(hour=23, minute=59, second=59)
+            
+        except ValueError:
+            raise BusinessLogicError("start_date and end_date must be in YYYY-MM-DD format", 400)
+        
+        if end_date <= start_date:
+            raise BusinessLogicError("end_date must be greater than or equal to start_date", 400)
+        
+        if max_days:
+            range_days = (end_date - start_date).days
+            if range_days > max_days:
+                raise BusinessLogicError(f"Date range cannot exceed {max_days} days", 400)
+        
+        # Convert to timestamps
+        start_timestamp = int(start_date.timestamp())
+        end_timestamp = int(end_date.timestamp())
+        
+        return start_timestamp, end_timestamp
 
 
 class InquiryManager(DataAccessManager):
@@ -664,13 +232,14 @@ class InquiryManager(DataAccessManager):
     def get_all_inquiries_with_filters(self, event):
         """Get all inquiries with optional filters"""
         inquiries = db.get_all_inquiries()
-        
+        # Filter to last 2 months
+        now = int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())
+        two_months_ago = now - 60 * 24 * 60 * 60  # 60 days in seconds
+        inquiries = [inq for inq in inquiries if int(inq.get('createdAt', 0)) >= two_months_ago]
         # Apply query parameter filters (implementation would be moved from original function)
         inquiries = self._apply_inquiry_filters(inquiries, event)
-        
         # Sort by creation date (newest first)
         inquiries.sort(key=lambda x: x.get('createdAt', 0), reverse=True)
-        
         return inquiries
     
     def _apply_inquiry_filters(self, inquiries, event):
@@ -755,6 +324,63 @@ class InvoiceManager(DataAccessManager):
         invoices = db.get_invoices_by_date_range(start_timestamp, end_timestamp, limit)
         return invoices
 
+    def get_invoices_by_date_range_formatted(self, start_date_str, end_date_str, limit_str='2000'):
+        """
+        Get invoices within date range using YYYY-MM-DD format (excludes cancelled invoices)
+        
+        Args:
+            start_date_str: Start date string in YYYY-MM-DD format
+            end_date_str: End date string in YYYY-MM-DD format  
+            limit_str: Limit parameter string
+            
+        Returns:
+            list: Active invoices within date range (cancelled invoices excluded)
+        """
+        # Validate date range (max 90 days)
+        start_timestamp, end_timestamp = self.validate_date_range(
+            start_date_str, end_date_str, max_days=90
+        )
+        
+        # Validate limit
+        try:
+            limit = int(limit_str)
+        except (ValueError, TypeError):
+            limit = 2000
+        
+        # Get invoices from database (excludes cancelled invoices)
+        invoices = db.get_invoices_by_date_range(start_timestamp, end_timestamp, limit)
+        return invoices
+
+    def get_all_invoices_by_date_range_formatted(self, start_date_str, end_date_str, limit_str='2000'):
+        """
+        Get ALL invoices within date range using YYYY-MM-DD format (includes cancelled invoices)
+        
+        This method is intended for administrative purposes where all invoices need to be retrieved,
+        including cancelled ones for audit and reporting purposes.
+        
+        Args:
+            start_date_str: Start date string in YYYY-MM-DD format
+            end_date_str: End date string in YYYY-MM-DD format  
+            limit_str: Limit parameter string
+            
+        Returns:
+            list: All invoices within date range (including cancelled invoices)
+        """
+        # Validate date range (max 90 days)
+        start_timestamp, end_timestamp = self.validate_date_range(
+            start_date_str, end_date_str, max_days=90
+        )
+        
+        # Validate limit
+        try:
+            limit = int(limit_str)
+        except (ValueError, TypeError):
+            limit = 2000
+        
+        # Get ALL invoices from database (including cancelled invoices)
+        invoices = db.get_all_invoices_by_date_range(start_timestamp, end_timestamp, limit)
+        return invoices
+
 
 class PriceManager(DataAccessManager):
     """Manager for price data operations"""
@@ -767,7 +393,7 @@ class PriceManager(DataAccessManager):
         return {
             'item_prices': item_prices,
             'service_prices': service_prices,
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now(ZoneInfo('Australia/Perth')).isoformat()
         }
 
 
@@ -775,18 +401,111 @@ class UserManager(DataAccessManager):
     """Manager for user data operations"""
     
     def get_all_users(self):
-        """Get all customer and staff users"""
+        """Get all customer and staff users, excluding inactive customers (not seen in 2 months)"""
+        now = int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())
+        two_months_ago = now - 60 * 24 * 60 * 60  # 60 days in seconds
         customer_users = db.get_all_users()
+        # Only include customers with lastSeen in last 2 months (or if lastSeen missing, include by default)
+        filtered_customers = [u for u in customer_users if not u.get('lastSeen') or int(u.get('lastSeen', 0)) >= two_months_ago]
         staff_users = db.get_all_staff_records()
-        
         return {
-            'customer_users': customer_users,
+            'customer_users': filtered_customers,
             'staff_users': staff_users
         }
 
 
 class MessageManager(DataAccessManager):
     """Manager for message data operations"""
+    
+    @staticmethod
+    def send_message(staff_user_email=None, client_id=None, message_id=None, message=None):
+        """
+        Send a message between staff and client with notifications
+        
+        Args:
+            staff_user_email: Email of the staff user sending the message
+            client_id: ID of the client (can be sender or receiver)
+            message_id: Unique ID for the message
+            message: Message content
+            
+        Returns:
+            dict: Result with message details and success status
+        """
+        # Validate required parameters
+        if not message_id or not message or not client_id:
+            raise BusinessLogicError("messageId, message, and clientId are required", 400)
+        
+        sender_id = None
+        receiver_id = None
+        sender_name = "Unknown"
+        
+        # Determine sender and receiver based on staff_user_email presence
+        if staff_user_email:
+            # Staff is sending message to client
+            staff_record = db.get_staff_record(staff_user_email)
+            if not staff_record:
+                raise BusinessLogicError("Staff user not found", 404)
+            
+            sender_id = staff_record.get('userId')
+            sender_name = staff_record.get('name', staff_user_email)
+            receiver_id = client_id
+            
+            # Validate client exists
+            if not db.get_user_record(client_id):
+                raise BusinessLogicError(f"Client with userId {client_id} does not exist", 404)
+        else:
+            # Client is sending message to staff (broadcast to all staff)
+            client_record = db.get_user_record(client_id)
+            if not client_record:
+                raise BusinessLogicError(f"Client with userId {client_id} does not exist", 404)
+            
+            sender_id = client_id
+            sender_name = client_record.get('name', 'Customer')
+            receiver_id = "ALL"  # Broadcast to all staff
+        
+        # Build and create message data
+        message_data = db.build_message_data(message_id, message, sender_id, receiver_id)
+        create_success = db.create_message(message_data)
+        
+        if not create_success:
+            raise BusinessLogicError("Failed to create message", 500)
+        
+        # Send notifications
+        try:
+            import sync_websocket_utils as sync_ws
+            import notification_utils as notif
+            
+            if staff_user_email:
+                # Staff is sending message to client - notify the client directly via websocket
+                sync_ws.send_message_websocket_notification(message_id, sender_id, receiver_id, message)
+            else:
+                # Client is sending message - check if client has assigned staff
+                client_record = db.get_user_record(client_id)
+                assigned_to = client_record.get('assignedTo') if client_record else None
+                
+                if assigned_to:
+                    # Client has assigned staff - only notify that specific staff member
+                    print(f"Client {client_id} has assigned staff {assigned_to} - sending targeted notification")
+                    sync_ws.send_message_websocket_notification(message_id, sender_id, assigned_to, message)
+                    notif.queue_message_firebase_notification(message_id, sender_name, staff_user_ids=[assigned_to])
+                else:
+                    # Client has no assigned staff - broadcast to all staff
+                    print(f"Client {client_id} has no assigned staff - broadcasting to all staff")
+                    sync_ws.send_message_websocket_notification(message_id, sender_id, "ALL", message)
+                    notif.queue_message_firebase_notification(message_id, sender_name, 'staff')
+        
+        except Exception as e:
+            print(f"Warning: Failed to send notifications for message {message_id}: {str(e)}")
+            # Continue execution even if notifications fail
+        
+        return {
+            "messageId": message_id,
+            "senderId": sender_id,
+            "receiverId": receiver_id,
+            "message": message,
+            "sent": True,
+            "senderName": sender_name
+        }
     
     def get_user_messages(self, client_id):
         """
@@ -822,14 +541,16 @@ class MessageManager(DataAccessManager):
         )
         
         all_messages = sender_messages + receiver_messages
-        
+        # Filter to last 2 months
+        now = int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())
+        two_months_ago = now - 60 * 24 * 60 * 60  # 60 days in seconds
+        filtered_messages = [msg for msg in all_messages if int(msg.get('createdAt', 0)) >= two_months_ago]
         # Sort by creation date (newest first)
         sorted_messages = sorted(
-            all_messages, 
-            key=lambda x: int(x.get('createdAt', 0)), 
+            filtered_messages,
+            key=lambda x: int(x.get('createdAt', 0)),
             reverse=True
         )
-        
         return sorted_messages
 
 
@@ -848,24 +569,43 @@ class StaffRoleManager(DataAccessManager):
         Returns:
             list: Staff roles
         """
+        print(f"StaffRoleManager.get_staff_roles called with email: {email}")
+        
         # Validate shared key authentication
         if not email or not shared_key:
+            print("Missing email or shared_key parameter")
             raise BusinessLogicError("Email and sharedKey are required", 400)
         
         if shared_key != required_shared_key:
+            print("Invalid shared key provided")
             raise BusinessLogicError("Invalid sharedKey provided", 401)
         
-        # Get staff record
-        staff_record = db.get_staff_record(email)
-        if not staff_record:
-            raise BusinessLogicError(f"No staff record found for email: {email}", 404)
+        print("Shared key validation successful")
         
-        return staff_record.get('roles', [])
-
-
-def get_analytics_manager():
-    """Factory function to get AnalyticsManager instance"""
-    return AnalyticsManager()
+        try:
+            # Get staff record with enhanced error handling
+            print(f"Querying staff record for email: {email}")
+            staff_record = db.get_staff_record(email, raise_on_error=True)
+            
+            if not staff_record:
+                print(f"No staff record found for email: {email}")
+                raise BusinessLogicError(f"No staff record found for email: {email}", 404)
+            
+            print(f"Staff record found: {staff_record}")
+            roles = staff_record.get('roles', [])
+            print(f"Extracted roles: {roles}")
+            
+            return roles
+            
+        except BusinessLogicError:
+            # Re-raise business logic errors as-is
+            raise
+        except Exception as e:
+            print(f"Unexpected error in get_staff_roles: {str(e)}")
+            print(f"Error type: {type(e).__name__}")
+            import traceback
+            traceback.print_exc()
+            raise BusinessLogicError(f"Database error while retrieving staff roles: {str(e)}", 500)
 
 
 def get_inquiry_manager():

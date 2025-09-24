@@ -1,9 +1,9 @@
 exports.onExecutePostLogin = async (event, api) => {
   const userEmail = event.user.email;
   const emailVerified = event.user.email_verified;
-  const apiGwEndpoint = process.env.API_GATEWAY_ENDPOINT || 'REPLACE_WITH_YOUR_API_ENDPOINT';
+  const apiGwEndpoint = 'https://api-dev.autolabsolutions.com';
   const lambdaEndpoint = apiGwEndpoint + '/get-staff-roles';
-  const sharedSecret = process.env.SHARED_KEY || 'REPLACE_WITH_SECURE_SECRET';
+  const sharedSecret = 'dsa2GJN4i23SOml35hWa2p';
 
   if (!userEmail || !emailVerified) {
     api.access.deny('Access denied: A verified email is required to use this application.');
@@ -20,8 +20,19 @@ exports.onExecutePostLogin = async (event, api) => {
     });
 
     if (!response.ok) {
-      console.log('Lambda call failed:', await response.text());
+      const errorText = await response.text();
+      console.error('Lambda call failed:', response.status, errorText);
       api.access.deny('Access denied: Unable to verify user role.');
+      return;
+    }
+
+    // Check if the response is JSON before parsing
+    const contentType = response.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      const responseText = await response.text();
+      console.error('Invalid response format. Expected JSON, got:', contentType);
+      console.error('Response:', responseText.substring(0, 200));
+      api.access.deny('Access denied: Invalid response format from role verification service.');
       return;
     }
 

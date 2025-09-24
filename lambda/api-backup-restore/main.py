@@ -20,40 +20,35 @@ def lambda_handler(event, context):
     
     Requires ADMIN role for all operations.
     """
+    # Validate staff permissions - only ADMIN can perform backup operations
+    staff_user_email = req.get_staff_user_email(event)
+    staff_context = perm.PermissionValidator.validate_staff_access(
+        staff_user_email,
+        required_roles=['ADMIN']
+    )
+    
+    # Parse the request
+    http_method = event.get('httpMethod', '')
+    path = event.get('path', '')
+    body = event.get('body', '{}')
+    
+    # Parse request body
     try:
-        # Validate staff permissions - only ADMIN can perform backup operations
-        staff_user_email = req.get_staff_user_email(event)
-        staff_context = perm.PermissionValidator.validate_staff_access(
-            staff_user_email,
-            required_roles=['ADMIN']
-        )
-        
-        # Parse the request
-        http_method = event.get('httpMethod', '')
-        path = event.get('path', '')
-        body = event.get('body', '{}')
-        
-        # Parse request body
-        try:
-            request_data = json.loads(body) if body and body != '{}' else {}
-        except json.JSONDecodeError:
-            raise biz.BusinessLogicError("Invalid JSON in request body", 400)
-        
-        # Route requests based on method and path
-        if http_method == 'POST' and path.endswith('/backup'):
-            return handle_backup_request(request_data, event, context, staff_context)
-        elif http_method == 'POST' and path.endswith('/restore'):
-            return handle_restore_request(request_data, event, context, staff_context)
-        elif http_method == 'POST' and path.endswith('/cleanup'):
-            return handle_cleanup_request(request_data, event, context, staff_context)
-        elif http_method == 'GET' and path.endswith('/backups'):
-            return handle_list_backups_request(event, context, staff_context)
-        else:
-            raise biz.BusinessLogicError(f"Unsupported method {http_method} for path {path}", 404)
-            
-    except Exception as e:
-        print(f"Error in api-backup-restore lambda_handler: {str(e)}")
-        return resp.error_response(f"Internal server error: {str(e)}", 500)
+        request_data = json.loads(body) if body and body != '{}' else {}
+    except json.JSONDecodeError:
+        raise biz.BusinessLogicError("Invalid JSON in request body", 400)
+    
+    # Route requests based on method and path
+    if http_method == 'POST' and path.endswith('/backup'):
+        return handle_backup_request(request_data, event, context, staff_context)
+    elif http_method == 'POST' and path.endswith('/restore'):
+        return handle_restore_request(request_data, event, context, staff_context)
+    elif http_method == 'POST' and path.endswith('/cleanup'):
+        return handle_cleanup_request(request_data, event, context, staff_context)
+    elif http_method == 'GET' and path.endswith('/backups'):
+        return handle_list_backups_request(event, context, staff_context)
+    else:
+        raise biz.BusinessLogicError(f"Unsupported method {http_method} for path {path}", 404)
 
 def handle_backup_request(request_data, event, context, staff_context):
     """Handle manual backup request with enhanced options"""

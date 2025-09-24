@@ -9,8 +9,8 @@ Parameters:
 
   SesRegion:
     Type: String
-    Description: AWS SES region
-    Default: "ap-southeast-2"
+    Description: AWS SES region (us-east-1 for development, ap-southeast-2 for production)
+    Default: "us-east-1"
 
   HostedZoneId:
     Type: String

@@ -111,8 +111,8 @@ def send_inquiry_notifications(inquiry_id, inquiry_data):
             "message": message[:100] + "..." if len(message) > 100 else message
         }
         
-        # Queue WebSocket notification to all staff
-        notification_manager.queue_staff_websocket_notification(notification_data)
+        # Removed: WebSocket notification for inquiries (not messaging-related)
+        # As per requirements, websocket notifications are only for messaging scenarios
         
         # Queue Firebase push notification to all staff with customer name
         notification_manager.queue_inquiry_firebase_notification(inquiry_id, customer_name)

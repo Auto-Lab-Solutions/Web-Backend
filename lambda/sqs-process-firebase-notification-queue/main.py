@@ -2,6 +2,8 @@ import json
 import os
 import time
 import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from firebase_admin import credentials, messaging, initialize_app
 
 import db_utils as db
@@ -166,7 +168,7 @@ def send_firebase_notification(notification_data):
         # Add notification metadata
         data.update({
             'notification_type': notification_type,
-            'timestamp': str(int(time.time())),
+            'timestamp': str(int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())),
             'environment': os.environ.get('ENVIRONMENT', 'development')
         })
         

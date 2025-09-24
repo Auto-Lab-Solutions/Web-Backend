@@ -6,7 +6,8 @@ user initialization, staff initialization, and related operations.
 """
 
 import uuid
-import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import db_utils as db
 import wsgw_utils as wsgw
@@ -18,11 +19,12 @@ class WebSocketManager:
     def __init__(self):
         pass
     
-    def get_wsgw_client(self, domain, stage):
+    def get_wsgw_client(self, domain):
         """Get WebSocket API Gateway client"""
-        client = wsgw.get_apigateway_client(domain, stage)
+        client = wsgw.get_apigateway_client(domain)
+        print("Domain:", domain)
         if not client:
-            raise BusinessLogicError(f"Failed to get API Gateway client for domain: {domain}, stage: {stage}", 500)
+            raise BusinessLogicError(f"Failed to get API Gateway client for domain: {domain}", 500)
         return client
     
     def validate_connection_exists(self, connection_id):
@@ -68,7 +70,6 @@ class ConnectionManager(WebSocketManager):
         """Handle WebSocket disconnection"""
         connection_id = event['requestContext']['connectionId']
         domain = event["requestContext"]["domainName"]
-        stage = event["requestContext"]["stage"]
 
         connection_item = db.get_connection(connection_id)
         if not connection_item:
@@ -82,14 +83,14 @@ class ConnectionManager(WebSocketManager):
             print(f"Connection closed for connectionId: {connection_id} with no userId.")
             return {"statusCode": 200}
         
-        wsgw_client = self.get_wsgw_client(domain, stage)
+        wsgw_client = self.get_wsgw_client(domain)
 
         message_body = {
             "type": "notification",
             "subtype": "user-disconnected",
             "success": True,
             "userId": user_id,
-            "lastSeen": str(int(time.time()))
+            "lastSeen": str(int(datetime.now(ZoneInfo('Australia/Perth')).timestamp()))
         }
 
         # delete all uninitialized connections
@@ -113,18 +114,26 @@ class UserInitManager(WebSocketManager):
     
     def initialize_user_connection(self, event):
         """Initialize user WebSocket connection"""
+        if not event:
+            print("Error: Event is None")
+            return {"statusCode": 400}
+            
         connection_id = event.get('connectionId')
         domain = event.get('domain')
-        stage = event.get('stage')
         request_body = event.get('body', {})
+        
+        if not request_body:
+            print("Error: Request body is None or empty")
+            return {"statusCode": 400}
         
         user_id = request_body.get('userId', '')
         user_email = request_body.get('userEmail', '')
         user_name = request_body.get('userName', '')
         user_device = request_body.get('userDevice', '')
         user_location = request_body.get('userLocation', '')
+        user_phone = request_body.get('contactNumber', '')
 
-        wsgw_client = self.get_wsgw_client(domain, stage)
+        wsgw_client = self.get_wsgw_client(domain)
         self.validate_connection_exists(connection_id)
 
         assigned_to = ''
@@ -135,7 +144,7 @@ class UserInitManager(WebSocketManager):
             user_record = db.get_user_record(user_id)
             if user_record:
                 if 'assignedTo' in user_record:
-                    assigned_to = user_record.get('assignedTo')
+                    assigned_to = user_record.get('assignedTo', '')
             else:
                 self.send_error_notification(wsgw_client, connection_id, "INVALID_USER_ID")
                 return {"statusCode": 400}
@@ -161,6 +170,7 @@ class UserInitManager(WebSocketManager):
             user_name=user_name,
             user_device=user_device,
             user_location=user_location,
+            user_phone=user_phone,
             assigned_to=assigned_to
         )
         create_or_update_success = db.create_or_update_user_record(new_user_record)
@@ -178,13 +188,15 @@ class UserInitManager(WebSocketManager):
             "userName": user_name,
             "userDevice": user_device,
             "userLocation": user_location,
+            "contactNumber": user_phone,
             "assignedTo": assigned_to
         }
         receivers = db.get_assigned_or_all_staff_connections(assigned_to=assigned_to)
         if receivers:
             for staff_conn in receivers:
-                staff_conn_id = staff_conn.get('connectionId')
-                wsgw.send_notification(wsgw_client, staff_conn_id, message_body)
+                if staff_conn and staff_conn.get('connectionId'):
+                    staff_conn_id = staff_conn.get('connectionId')
+                    wsgw.send_notification(wsgw_client, staff_conn_id, message_body)
         
         # Send success notification to user
         user_data = {
@@ -193,6 +205,7 @@ class UserInitManager(WebSocketManager):
             "userName": user_name,
             "userDevice": user_device,
             "userLocation": user_location,
+            "contactNumber": user_phone,
             "assignedTo": assigned_to
         }
         self.send_success_notification(wsgw_client, connection_id, user_data)
@@ -212,11 +225,10 @@ class StaffInitManager(WebSocketManager):
         """Initialize staff WebSocket connection"""
         connection_id = event.get('connectionId')
         domain = event.get('domain')
-        stage = event.get('stage')
         request_body = event.get('body', {})
         token = request_body.get('token', '')
 
-        wsgw_client = self.get_wsgw_client(domain, stage)
+        wsgw_client = self.get_wsgw_client(domain)
         self.validate_connection_exists(connection_id)
 
         import auth_utils as auth
@@ -274,7 +286,6 @@ class PingManager(WebSocketManager):
         """Handle WebSocket ping"""
         connection_id = event.get('connectionId')
         domain = event.get('domain')
-        stage = event.get('stage')
         request_body = event.get('body', {})
         
         user_id = request_body.get('userId', '')

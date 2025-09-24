@@ -1,8 +1,10 @@
 import boto3, os, time
 from decimal import Decimal
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from botocore.exceptions import ClientError
 from boto3.dynamodb.types import TypeDeserializer
+import validation_utils as valid
 
 # Dynamodb client and deserializer
 dynamodb = boto3.client('dynamodb')
@@ -24,18 +26,72 @@ INVOICES_TABLE = os.environ.get('INVOICES_TABLE')
 
 # ------------------  Staff Table Functions ------------------
 
-def get_staff_record(email):
+def get_staff_record(email, raise_on_error=False):
+    """
+    Get staff record by email with comprehensive error handling
+    
+    Args:
+        email: Staff email to lookup
+        raise_on_error: If True, raises exceptions for critical errors. If False (default), 
+                       maintains backward compatibility by returning None for all errors.
+        
+    Returns:
+        dict: Staff record or None if not found
+        
+    Raises:
+        Exception: For database connection or other critical errors (only if raise_on_error=True)
+    """
+    if not email:
+        print("get_staff_record: email parameter is required")
+        return None
+    
+    if not STAFF_TABLE:
+        print("get_staff_record: STAFF_TABLE environment variable not set")
+        if raise_on_error:
+            raise Exception("Database configuration error: STAFF_TABLE not configured")
+        return None
+    
     try:
+        print(f"get_staff_record: Querying STAFF_TABLE '{STAFF_TABLE}' for email: {email}")
+        
         result = dynamodb.query(
             TableName=STAFF_TABLE,
             KeyConditionExpression='userEmail = :email',
             ExpressionAttributeValues={':email': {'S': email}}
         )
+        
+        print(f"get_staff_record: Query result count: {result.get('Count', 0)}")
+        
         if result.get('Count', 0) > 0:
-            return deserialize_item(result['Items'][0])
+            staff_record = deserialize_item(result['Items'][0])
+            print(f"get_staff_record: Found staff record: {staff_record}")
+            return staff_record
+            
+        print(f"get_staff_record: No staff record found for email: {email}")
         return None
+        
     except ClientError as e:
-        print(f"Error querying staff record: {e.response['Error']['Message']}")
+        error_code = e.response['Error']['Code']
+        error_message = e.response['Error']['Message']
+        print(f"get_staff_record: DynamoDB ClientError - Code: {error_code}, Message: {error_message}")
+        
+        # For certain errors, raise exception only if raise_on_error=True
+        if raise_on_error and error_code in ['ResourceNotFoundException', 'AccessDeniedException']:
+            raise Exception(f"Database access error: {error_message}")
+        
+        print(f"get_staff_record: Returning None due to ClientError")
+        return None
+        
+    except Exception as e:
+        print(f"get_staff_record: Unexpected error: {str(e)}")
+        print(f"get_staff_record: Error type: {type(e).__name__}")
+        import traceback
+        traceback.print_exc()
+        
+        if raise_on_error:
+            raise Exception(f"Database operation failed: {str(e)}")
+        
+        print("get_staff_record: Returning None due to unexpected error (backward compatibility)")
         return None
 
 def get_all_mechanic_records():
@@ -74,6 +130,29 @@ def get_staff_record_by_user_id(user_id):
         print(f"Error querying staff record by user ID: {e.response['Error']['Message']}")
         return None
 
+def update_staff_roles(user_email, new_roles):
+    """Update staff member roles"""
+    try:
+        # Convert roles list to DynamoDB format
+        roles_list = [{'S': role} for role in new_roles]
+        
+        dynamodb.update_item(
+            TableName=STAFF_TABLE,
+            Key={'userEmail': {'S': user_email}},
+            UpdateExpression='SET #roles = :roles',
+            ExpressionAttributeNames={
+                '#roles': 'roles'
+            },
+            ExpressionAttributeValues={
+                ':roles': {'L': roles_list}
+            }
+        )
+        print(f"Staff roles updated successfully for {user_email}: {new_roles}")
+        return True
+    except ClientError as e:
+        print(f"Error updating staff roles for {user_email}: {e}")
+        return False
+
 # ------------------  User Table Functions ------------------
 
 def get_user_record(user_id):
@@ -89,11 +168,12 @@ def get_user_record(user_id):
         print(f"Error getting user record for userId {user_id}: {e}")
         return None
 
-def build_user_record(user_id, user_record, user_email=None, user_name=None, user_device=None, user_location=None, assigned_to=None):
-    user_email = user_email if user_email else user_record.get('userEmail', '') if user_record else ''
-    user_name = user_name if user_name else user_record.get('userName', '') if user_record else ''
-    user_device = user_device if user_device else user_record.get('userDevice', '') if user_record else ''
-    user_location = user_location if user_location else user_record.get('userLocation', '') if user_record else ''
+def build_user_record(user_id, user_record, user_email=None, user_name=None, user_device=None, user_location=None, user_phone=None, assigned_to=None):
+    user_email = user_record.get('userEmail') if user_record and user_record.get('userEmail') else user_email if user_email else ''
+    user_name = user_record.get('userName') if user_record and user_record.get('userName') else user_name if user_name else ''
+    user_device = user_device if user_device else user_record.get('userDevice') if user_record and user_record.get('userDevice') else ''
+    user_location = user_location if user_location else user_record.get('userLocation') if user_record and user_record.get('userLocation') else ''
+    user_phone = user_record.get('contactNumber') if user_record and user_record.get('contactNumber') else user_phone if user_phone else ''
     new_user_record = {
         'userId': {'S': user_id}
     }
@@ -102,7 +182,8 @@ def build_user_record(user_id, user_record, user_email=None, user_name=None, use
         'userEmail': user_email,
         'userName': user_name,
         'userDevice': user_device,
-        'userLocation': user_location
+        'userLocation': user_location,
+        'contactNumber': user_phone
     }
     for key, value in optional_fields.items():
         if value:
@@ -119,6 +200,7 @@ def create_or_update_user_record(user_data):
         return True
     except ClientError as e:
         print(f"Error creating or updating user record: {e}")
+        return False
 
 def update_user_disconnected_time(user_id):
     try:
@@ -126,12 +208,55 @@ def update_user_disconnected_time(user_id):
             TableName=USERS_TABLE,
             Key={'userId': {'S': user_id}},
             UpdateExpression='SET lastSeen = :lastSeen',
-            ExpressionAttributeValues={':lastSeen': {'N': str(int(time.time()))}}
+            ExpressionAttributeValues={':lastSeen': {'N': str(int(datetime.now(ZoneInfo('Australia/Perth')).timestamp()))}}
         )
         print(f"User {user_id} lastSeen updated successfully.")
         return True
     except ClientError as e:
         print(f"Error updating lastSeen for user {user_id}: {e}")
+        return False
+
+def update_user_record(user_id, update_data):
+    """
+    Update specific fields in a user record
+    
+    Args:
+        user_id (str): The user ID to update
+        update_data (dict): Dictionary containing fields to update
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        if not update_data:
+            return True
+        
+        # Build update expression and attribute values
+        update_expressions = []
+        expression_attribute_values = {}
+        
+        for field, value in update_data.items():
+            if field in ['userEmail', 'userName', 'userDevice', 'userLocation', 'contactNumber']:
+                update_expressions.append(f"{field} = :{field}")
+                expression_attribute_values[f":{field}"] = {'S': str(value)}
+        
+        if not update_expressions:
+            return True
+        
+        update_expression = 'SET ' + ', '.join(update_expressions)
+        
+        dynamodb.update_item(
+            TableName=USERS_TABLE,
+            Key={'userId': {'S': user_id}},
+            UpdateExpression=update_expression,
+            ExpressionAttributeValues=expression_attribute_values
+        )
+        
+        print(f"User {user_id} record updated with fields: {list(update_data.keys())}")
+        return True
+        
+    except ClientError as e:
+        print(f"Error updating user record {user_id}: {e}")
         return False
 
 def assign_client_to_staff_user(client_id, staff_user_id):
@@ -260,7 +385,7 @@ def create_connection(connection_id):
             TableName=CONNECTIONS_TABLE,
             Item={
                 'connectionId': {'S': connection_id},
-                'createdAt': {'N': str(int(time.time()))}
+                'createdAt': {'N': str(int(datetime.now(ZoneInfo('Australia/Perth')).timestamp()))}
             }
         )
         print(f"Connection {connection_id} created successfully.")
@@ -340,8 +465,10 @@ def update_connection(connection_id, user_data):
             return True
         except ClientError as e:
             print(f"Error updating connection {connection_id}: {e}")
+            return False
     else:
         print("No valid data to update.")
+        return False
 
 # ------------------  Message Table Functions ------------------
 
@@ -381,7 +508,7 @@ def build_message_data(message_id, message, sender_id, receiver_id):
         'sent': {'BOOL': True},
         'received': {'BOOL': False},
         'viewed': {'BOOL': False},
-        'createdAt': {'N': str(int(time.time()))}
+        'createdAt': {'N': str(int(datetime.now(ZoneInfo('Australia/Perth')).timestamp()))}
     }
 
 def create_message(message_data):
@@ -456,26 +583,46 @@ def get_unavailable_slots(date):
         print(f"Error getting unavailable slots for date {date}: {e}")
         return None
 
-def update_unavailable_slots(date, time_slots):
+def update_unavailable_slots(date, time_slots, staff_user_id=None):
     """Update unavailable slots for a specific date"""
     try:
         # Build time slots list for DynamoDB
         time_slots_list = []
         for slot in time_slots:
-            time_slots_list.append({
-                'M': {
-                    'startTime': {'S': slot['startTime']},
-                    'endTime': {'S': slot['endTime']}
-                }
-            })
+            if isinstance(slot, str) and '-' in slot:
+                # Handle "HH:MM-HH:MM" format
+                start_time, end_time = slot.split('-')
+                time_slots_list.append({
+                    'M': {
+                        'startTime': {'S': start_time},
+                        'endTime': {'S': end_time}
+                    }
+                })
+            elif isinstance(slot, dict) and 'startTime' in slot and 'endTime' in slot:
+                # Handle object format
+                time_slots_list.append({
+                    'M': {
+                        'startTime': {'S': slot['startTime']},
+                        'endTime': {'S': slot['endTime']}
+                    }
+                })
+            else:
+                print(f"Warning: Invalid time slot format: {slot}")
+        
+        # Build the item to store
+        item = {
+            'date': {'S': date},
+            'timeSlots': {'L': time_slots_list},
+            'updatedAt': {'N': str(int(datetime.now(ZoneInfo('Australia/Perth')).timestamp()))}
+        }
+        
+        # Add staff user ID if provided
+        if staff_user_id:
+            item['updatedBy'] = {'S': staff_user_id}
         
         dynamodb.put_item(
             TableName=UNAVAILABLE_SLOTS_TABLE,
-            Item={
-                'date': {'S': date},
-                'timeSlots': {'L': time_slots_list},
-                'updatedAt': {'N': str(int(time.time()))}
-            }
+            Item=item
         )
         print(f"Unavailable slots updated for date {date}")
         return True
@@ -489,8 +636,8 @@ def update_unavailable_slots_range(start_date, end_date, time_slots):
     
     try:
         # Parse dates
-        start_dt = datetime.strptime(start_date, '%Y-%m-%d')
-        end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+        start_dt = datetime.strptime(start_date, '%Y-%m-%d').replace(tzinfo=ZoneInfo("Australia/Perth"))
+        end_dt = datetime.strptime(end_date, '%Y-%m-%d').replace(tzinfo=ZoneInfo("Australia/Perth"))
         
         if end_dt < start_dt:
             print(f"Error: End date {end_date} is before start date {start_date}")
@@ -519,7 +666,7 @@ def update_unavailable_slots_range(start_date, end_date, time_slots):
                     Item={
                         'date': {'S': date_str},
                         'timeSlots': {'L': time_slots_list},
-                        'updatedAt': {'N': str(int(time.time()))}
+                        'updatedAt': {'N': str(int(datetime.now(ZoneInfo('Australia/Perth')).timestamp()))}
                     }
                 )
                 success_count += 1
@@ -545,8 +692,8 @@ def get_unavailable_slots_range(start_date, end_date):
     
     try:
         # Parse dates
-        start_dt = datetime.strptime(start_date, '%Y-%m-%d')
-        end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+        start_dt = datetime.strptime(start_date, '%Y-%m-%d').replace(tzinfo=ZoneInfo("Australia/Perth"))
+        end_dt = datetime.strptime(end_date, '%Y-%m-%d').replace(tzinfo=ZoneInfo("Australia/Perth"))
         
         if end_dt < start_dt:
             print(f"Error: End date {end_date} is before start date {start_date}")
@@ -677,6 +824,21 @@ def get_appointments_by_scheduled_date(scheduled_date):
     except ClientError as e:
         print(f"Error getting appointments for scheduled date {scheduled_date}: {e}")
         return []
+    
+def get_appointments_by_status(status):
+    """Get appointments by status"""
+    try:
+        result = dynamodb.query(
+            TableName=APPOINTMENTS_TABLE,
+            IndexName='status-index',
+            KeyConditionExpression='#status = :status',
+            ExpressionAttributeNames={'#status': 'status'},
+            ExpressionAttributeValues={':status': {'S': status}}
+        )
+        return [deserialize_item_json_safe(item) for item in result.get('Items', [])]
+    except ClientError as e:
+        print(f"Error getting appointments for status {status}: {e}")
+        return []
 
 def build_update_expression_for_appointment(data):
     """Build update expression for appointment updates"""
@@ -688,7 +850,7 @@ def build_update_expression_for_appointment(data):
     # DynamoDB reserved keywords that need expression attribute names
     reserved_keywords = {
         'status', 'name', 'type', 'value', 'size', 'order', 'date', 
-        'time', 'user', 'group', 'role', 'data', 'count', 'index'
+        'time', 'user', 'group', 'role', 'data', 'count', 'index', 'items'
     }
     
     for key, value in data.items():
@@ -715,6 +877,8 @@ def build_update_expression_for_appointment(data):
                 elif isinstance(value, int):
                     expression_values[f':{key}'] = {'N': str(value)}
                 elif isinstance(value, float):
+                    expression_values[f':{key}'] = {'N': str(value)}
+                elif isinstance(value, Decimal):
                     expression_values[f':{key}'] = {'N': str(value)}
                 elif isinstance(value, bool):
                     expression_values[f':{key}'] = {'BOOL': value}
@@ -744,8 +908,8 @@ def build_update_expression_for_appointment(data):
 
 def build_appointment_data(appointment_id, service_id, plan_id, is_buyer, buyer_data, car_data, seller_data, notes, selected_slots, created_user_id, price):
     """Build appointment data in DynamoDB format"""
-    current_time = int(time.time())
-    current_date = datetime.now().strftime('%Y-%m-%d')
+    current_time = int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())
+    current_date = datetime.now(ZoneInfo('Australia/Perth')).strftime('%Y-%m-%d')
     
     # Convert selected slots to DynamoDB format
     slots_list = []
@@ -979,7 +1143,7 @@ def build_update_expression_for_order(data):
     # DynamoDB reserved keywords that need expression attribute names
     reserved_keywords = {
         'status', 'name', 'type', 'value', 'size', 'order', 'date', 
-        'time', 'user', 'group', 'role', 'data', 'count', 'index'
+        'time', 'user', 'group', 'role', 'data', 'count', 'index', 'items'
     }
     
     for key, value in data.items():
@@ -1003,6 +1167,8 @@ def build_update_expression_for_order(data):
                 elif isinstance(value, int):
                     expression_values[f':{key}'] = {'N': str(value)}
                 elif isinstance(value, float):
+                    expression_values[f':{key}'] = {'N': str(value)}
+                elif isinstance(value, Decimal):
                     expression_values[f':{key}'] = {'N': str(value)}
                 elif isinstance(value, bool):
                     expression_values[f':{key}'] = {'BOOL': value}
@@ -1032,8 +1198,8 @@ def build_update_expression_for_order(data):
 
 def build_order_data(order_id, items, customer_data, car_data, notes, delivery_location, created_user_id, total_price):
     """Build order data in DynamoDB format with support for multiple items"""
-    current_time = int(time.time())
-    current_date = datetime.now().strftime('%Y-%m-%d')
+    current_time = int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())
+    current_date = datetime.now(ZoneInfo('Australia/Perth')).strftime('%Y-%m-%d')
     
     # Convert items list to DynamoDB format
     items_list = []
@@ -1043,7 +1209,7 @@ def build_order_data(order_id, items, customer_data, car_data, notes, delivery_l
                 'categoryId': {'N': str(item['categoryId'])},
                 'itemId': {'N': str(item['itemId'])},
                 'quantity': {'N': str(item['quantity'])},
-                'price': {'N': str(item['price'])},
+                'unitPrice': {'N': str(item['unitPrice'])},
                 'totalPrice': {'N': str(item['totalPrice'])}
             }
         }
@@ -1160,8 +1326,8 @@ def get_all_inquiries():
 
 def build_inquiry_data(inquiry_id, first_name, last_name, email, message, user_id):
     """Build inquiry data in DynamoDB format"""
-    current_time = int(time.time())
-    current_date = datetime.now().strftime('%Y-%m-%d')
+    current_time = int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())
+    current_date = datetime.now(ZoneInfo('Australia/Perth')).strftime('%Y-%m-%d')
     
     inquiry_data = {
         'inquiryId': {'S': inquiry_id},
@@ -1298,24 +1464,237 @@ def build_update_expression_for_payment(update_data):
 
 # ------------------ Invoice Table Functions ------------------
 
-def get_invoices_by_date_range(start_date, end_date, limit=100):
-    """Get invoices within a date range using the invoiceDate-index GSI"""
+def get_all_invoices():
+    """Get all invoices from the database"""
     try:
-        # Use the invoiceDate-index to efficiently query by date range
-        # We'll need to scan with a filter since invoiceDate is the hash key
-        result = dynamodb.scan(
-            TableName=INVOICES_TABLE,
-            FilterExpression='invoiceDate BETWEEN :start_date AND :end_date',
-            ExpressionAttributeValues={
-                ':start_date': {'N': str(start_date)},
-                ':end_date': {'N': str(end_date)}
-            },
-            Limit=limit
-        )
-        invoices = [deserialize_item_json_safe(item) for item in result.get('Items', [])]
+        invoices = []
+        
+        # Start with an initial scan
+        scan_kwargs = {
+            'TableName': INVOICES_TABLE
+        }
+        
+        response = dynamodb.scan(**scan_kwargs)
+        invoices.extend([deserialize_item_json_safe(item) for item in response.get('Items', [])])
+        
+        # Continue scanning if there are more items
+        while 'LastEvaluatedKey' in response:
+            scan_kwargs['ExclusiveStartKey'] = response['LastEvaluatedKey']
+            response = dynamodb.scan(**scan_kwargs)
+            invoices.extend([deserialize_item_json_safe(item) for item in response.get('Items', [])])
+        
         return invoices
     except ClientError as e:
+        print(f"Error getting all invoices: {e}")
+        return []
+
+def get_active_invoices():
+    """Get all active invoices (excluding cancelled ones) from the database"""
+    try:
+        invoices = []
+        
+        # Start with an initial scan with filter expression
+        scan_kwargs = {
+            'TableName': INVOICES_TABLE,
+            'FilterExpression': 'attribute_not_exists(#status) OR #status <> :cancelled_status',
+            'ExpressionAttributeNames': {
+                '#status': 'status'
+            },
+            'ExpressionAttributeValues': {
+                ':cancelled_status': {'S': 'cancelled'}
+            }
+        }
+        
+        response = dynamodb.scan(**scan_kwargs)
+        invoices.extend([deserialize_item_json_safe(item) for item in response.get('Items', [])])
+        
+        # Continue scanning if there are more items
+        while 'LastEvaluatedKey' in response:
+            scan_kwargs['ExclusiveStartKey'] = response['LastEvaluatedKey']
+            response = dynamodb.scan(**scan_kwargs)
+            invoices.extend([deserialize_item_json_safe(item) for item in response.get('Items', [])])
+        
+        return invoices
+    except ClientError as e:
+        print(f"Error getting active invoices: {e}")
+        return []
+
+def get_invoices_by_date_range(start_date, end_date, limit=100):
+    """
+    Get active invoices within a date range using effectiveDate for analytics processing
+    
+    This function filters invoices based on the effectiveDate field from analyticsData.operation_data
+    instead of createdAt, ensuring all date-related analytics operations use consistent date logic.
+    
+    IMPORTANT: This function EXCLUDES cancelled invoices. For admin purposes where all invoices 
+    (including cancelled ones) are needed, use get_all_invoices_by_date_range() instead.
+    
+    Args:
+        start_date: Start timestamp
+        end_date: End timestamp  
+        limit: Maximum number of results to return
+        
+    Returns:
+        list: Filtered active invoices sorted by effectiveDate (most recent first)
+    """
+    try:
+        # Get all invoices first, then filter by effectiveDate from analyticsData
+        # This is necessary because effectiveDate is stored in a nested JSON field
+        result = dynamodb.scan(
+            TableName=INVOICES_TABLE,
+            Limit=limit * 2  # Get more to account for filtering
+        )
+        
+        all_invoices = [deserialize_item_json_safe(item) for item in result.get('Items', [])]
+        
+        # Convert start_date and end_date timestamps to DD/MM/YYYY format for comparison
+        start_date_formatted = datetime.fromtimestamp(start_date, ZoneInfo('Australia/Perth')).strftime('%d/%m/%Y')
+        end_date_formatted = datetime.fromtimestamp(end_date, ZoneInfo('Australia/Perth')).strftime('%d/%m/%Y')
+        
+        # Filter invoices by effectiveDate from analyticsData and exclude cancelled ones
+        filtered_invoices = []
+        for invoice in all_invoices:
+            # Skip cancelled invoices
+            if invoice.get('status') == 'cancelled':
+                continue
+                
+            analytics_data = invoice.get('analyticsData', {})
+            operation_data = analytics_data.get('operation_data', {})
+            effective_date = operation_data.get('effectiveDate', '')
+            
+            if effective_date:
+                try:
+                    # Validate and normalize effectiveDate to DD/MM/YYYY format
+                    normalized_effective_date = valid.DataValidator.validate_and_convert_date_to_analytics_format(
+                        effective_date, 'effectiveDate'
+                    )
+                    
+                    # Convert dates to comparable datetime objects
+                    effective_date_obj = datetime.strptime(normalized_effective_date, '%d/%m/%Y').replace(tzinfo=ZoneInfo("Australia/Perth"))
+                    start_date_obj = datetime.strptime(start_date_formatted, '%d/%m/%Y').replace(tzinfo=ZoneInfo("Australia/Perth"))
+                    end_date_obj = datetime.strptime(end_date_formatted, '%d/%m/%Y').replace(tzinfo=ZoneInfo("Australia/Perth"))
+                    
+                    if start_date_obj <= effective_date_obj <= end_date_obj:
+                        filtered_invoices.append(invoice)
+                except (ValueError, valid.ValidationError) as e:
+                    # If effectiveDate format is invalid, log warning and skip this invoice
+                    print(f"Warning: Invalid effectiveDate format '{effective_date}' in invoice {invoice.get('invoiceId', 'unknown')}: {e}")
+                    continue
+            else:
+                # If no effectiveDate, fall back to createdAt for backward compatibility
+                created_at = invoice.get('createdAt', 0)
+                if start_date <= created_at <= end_date:
+                    filtered_invoices.append(invoice)
+        
+        # Sort by effectiveDate (most recent first) and limit results
+        def get_sort_key(invoice):
+            analytics_data = invoice.get('analyticsData', {})
+            operation_data = analytics_data.get('operation_data', {})
+            effective_date = operation_data.get('effectiveDate', '')
+            
+            if effective_date:
+                try:
+                    return datetime.strptime(effective_date, '%d/%m/%Y').replace(tzinfo=ZoneInfo("Australia/Perth"))
+                except ValueError:
+                    # Fall back to createdAt if effectiveDate is invalid
+                    return datetime.fromtimestamp(invoice.get('createdAt', 0), ZoneInfo('Australia/Perth'))
+            else:
+                # Fall back to createdAt if no effectiveDate
+                return datetime.fromtimestamp(invoice.get('createdAt', 0), ZoneInfo('Australia/Perth'))
+        
+        filtered_invoices.sort(key=get_sort_key, reverse=True)
+        
+        return filtered_invoices[:limit]
+        
+    except ClientError as e:
         print(f"Error querying invoices by date range: {e}")
+        return []
+
+def get_all_invoices_by_date_range(start_date, end_date, limit=100):
+    """
+    Get ALL invoices (including cancelled ones) within a date range for admin purposes
+    
+    This function filters invoices based on the effectiveDate field from analyticsData.operation_data
+    instead of createdAt, ensuring all date-related operations use consistent date logic.
+    Unlike get_invoices_by_date_range, this function includes cancelled invoices.
+    
+    Args:
+        start_date: Start timestamp
+        end_date: End timestamp  
+        limit: Maximum number of results to return
+        
+    Returns:
+        list: Filtered invoices including cancelled ones sorted by effectiveDate (most recent first)
+    """
+    try:
+        # Get all invoices first, then filter by effectiveDate from analyticsData
+        # This is necessary because effectiveDate is stored in a nested JSON field
+        result = dynamodb.scan(
+            TableName=INVOICES_TABLE,
+            Limit=limit * 2  # Get more to account for filtering
+        )
+        
+        all_invoices = [deserialize_item_json_safe(item) for item in result.get('Items', [])]
+        
+        # Convert start_date and end_date timestamps to DD/MM/YYYY format for comparison
+        start_date_formatted = datetime.fromtimestamp(start_date, ZoneInfo('Australia/Perth')).strftime('%d/%m/%Y')
+        end_date_formatted = datetime.fromtimestamp(end_date, ZoneInfo('Australia/Perth')).strftime('%d/%m/%Y')
+        
+        # Filter invoices by effectiveDate from analyticsData (including cancelled ones)
+        filtered_invoices = []
+        for invoice in all_invoices:
+            # NOTE: Unlike get_invoices_by_date_range, we DO NOT skip cancelled invoices here
+            
+            analytics_data = invoice.get('analyticsData', {})
+            operation_data = analytics_data.get('operation_data', {})
+            effective_date = operation_data.get('effectiveDate', '')
+            
+            if effective_date:
+                try:
+                    # Validate and normalize effectiveDate to DD/MM/YYYY format
+                    normalized_effective_date = valid.DataValidator.validate_and_convert_date_to_analytics_format(
+                        effective_date, 'effectiveDate'
+                    )
+                    
+                    # Convert dates to comparable datetime objects
+                    effective_date_obj = datetime.strptime(normalized_effective_date, '%d/%m/%Y').replace(tzinfo=ZoneInfo("Australia/Perth"))
+                    start_date_obj = datetime.strptime(start_date_formatted, '%d/%m/%Y').replace(tzinfo=ZoneInfo("Australia/Perth"))
+                    end_date_obj = datetime.strptime(end_date_formatted, '%d/%m/%Y').replace(tzinfo=ZoneInfo("Australia/Perth"))
+                    
+                    if start_date_obj <= effective_date_obj <= end_date_obj:
+                        filtered_invoices.append(invoice)
+                except (ValueError, valid.ValidationError) as e:
+                    # If effectiveDate format is invalid, log warning and skip this invoice
+                    print(f"Warning: Invalid effectiveDate format '{effective_date}' in invoice {invoice.get('invoiceId', 'unknown')}: {e}")
+                    continue
+            else:
+                # If no effectiveDate, fall back to createdAt for backward compatibility
+                created_at = invoice.get('createdAt', 0)
+                if start_date <= created_at <= end_date:
+                    filtered_invoices.append(invoice)
+        
+        # Sort by effectiveDate (most recent first) and limit results
+        def get_sort_key(invoice):
+            analytics_data = invoice.get('analyticsData', {})
+            operation_data = analytics_data.get('operation_data', {})
+            effective_date = operation_data.get('effectiveDate', '')
+            
+            if effective_date:
+                try:
+                    return datetime.strptime(effective_date, '%d/%m/%Y').replace(tzinfo=ZoneInfo("Australia/Perth"))
+                except ValueError:
+                    # Fall back to createdAt if effectiveDate is invalid
+                    return datetime.fromtimestamp(invoice.get('createdAt', 0), ZoneInfo('Australia/Perth'))
+            else:
+                # Fall back to createdAt if no effectiveDate
+                return datetime.fromtimestamp(invoice.get('createdAt', 0), ZoneInfo('Australia/Perth'))
+        
+        filtered_invoices.sort(key=get_sort_key, reverse=True)
+        
+        return filtered_invoices[:limit]
+        
+    except ClientError as e:
+        print(f"Error querying all invoices by date range: {e}")
         return []
 
 def create_invoice_record(invoice_data):
@@ -1324,7 +1703,6 @@ def create_invoice_record(invoice_data):
         # Prepare item data with required fields
         item = {
             'invoiceId': {'S': invoice_data['invoiceId']},
-            'invoiceDate': {'N': str(invoice_data['invoiceDate'])},
             'paymentIntentId': {'S': invoice_data['paymentIntentId']},
             'referenceNumber': {'S': invoice_data['referenceNumber']},
             'referenceType': {'S': invoice_data['referenceType']},
@@ -1344,6 +1722,10 @@ def create_invoice_record(invoice_data):
             else:
                 item['metadata'] = {'M': {}}
         
+        # Add analytics data if present
+        if 'analyticsData' in invoice_data and invoice_data['analyticsData']:
+            item['analyticsData'] = convert_to_dynamodb_format(invoice_data['analyticsData'])
+        
         dynamodb.put_item(
             TableName=INVOICES_TABLE,
             Item=item
@@ -1352,6 +1734,182 @@ def create_invoice_record(invoice_data):
         return True
     except ClientError as e:
         print(f"Error creating invoice: {e}")
+        return False
+
+def get_invoice_by_reference(reference_number, reference_type):
+    """Get invoice by reference number and type - returns the latest one if multiple exist"""
+    try:
+        # Use a scan to find invoice by reference number and type
+        response = dynamodb.scan(
+            TableName=INVOICES_TABLE,
+            FilterExpression='referenceNumber = :ref AND referenceType = :type',
+            ExpressionAttributeValues={
+                ':ref': {'S': reference_number},
+                ':type': {'S': reference_type}
+            }
+        )
+        items = response.get('Items', [])
+        if items:
+            # If multiple invoices exist, return the latest one (highest createdAt)
+            if len(items) > 1:
+                # Sort by createdAt in descending order and take the first (latest)
+                items.sort(key=lambda x: int(x.get('createdAt', {}).get('N', '0')), reverse=True)
+                print(f"Found {len(items)} invoices for {reference_type} {reference_number}, returning the latest one")
+            return deserialize_item_json_safe(items[0])
+        return None
+    except ClientError as e:
+        print(f"Error getting invoice by reference {reference_number}: {e}")
+        return None
+
+def has_active_invoices(reference_number, reference_type):
+    """Check if there are any active (non-cancelled) invoices for a reference"""
+    try:
+        invoices = get_invoices_by_reference(reference_number, reference_type)
+        if not invoices:
+            return False
+        
+        # Check if any invoice is not cancelled
+        for invoice in invoices:
+            if invoice.get('status') != 'cancelled':
+                return True
+        
+        return False
+    except Exception as e:
+        print(f"Error checking for active invoices for {reference_type} {reference_number}: {e}")
+        return False
+
+def get_active_invoice_by_reference(reference_number, reference_type):
+    """Get the latest active (non-cancelled) invoice by reference number and type"""
+    try:
+        invoices = get_invoices_by_reference(reference_number, reference_type)
+        if not invoices:
+            return None
+        
+        # Filter out cancelled invoices and get the latest active one
+        active_invoices = [inv for inv in invoices if inv.get('status') != 'cancelled']
+        if not active_invoices:
+            return None
+            
+        # If multiple active invoices exist, return the latest one (highest createdAt)
+        if len(active_invoices) > 1:
+            active_invoices.sort(key=lambda x: x.get('createdAt', 0), reverse=True)
+            print(f"Found {len(active_invoices)} active invoices for {reference_type} {reference_number}, returning the latest one")
+        
+        return active_invoices[0]
+    except Exception as e:
+        print(f"Error getting active invoice by reference {reference_number} ({reference_type}): {e}")
+        return None
+
+def update_invoice_analytics_data(invoice_id, analytics_data):
+    """Update analytics data for an existing invoice"""
+    try:
+        dynamodb.update_item(
+            TableName=INVOICES_TABLE,
+            Key={'invoiceId': {'S': invoice_id}},
+            UpdateExpression='SET analyticsData = :analytics_data',
+            ExpressionAttributeValues={
+                ':analytics_data': convert_to_dynamodb_format(analytics_data)
+            }
+        )
+        print(f"Invoice {invoice_id} analytics data updated successfully")
+        return True
+    except ClientError as e:
+        print(f"Error updating invoice analytics data for {invoice_id}: {e}")
+        return False
+
+def get_invoices_by_reference(reference_number, reference_type):
+    """Get all invoices by reference number and type"""
+    try:
+        # Use a scan to find all invoices by reference number and type
+        response = dynamodb.scan(
+            TableName=INVOICES_TABLE,
+            FilterExpression='referenceNumber = :ref AND referenceType = :type',
+            ExpressionAttributeValues={
+                ':ref': {'S': reference_number},
+                ':type': {'S': reference_type}
+            }
+        )
+        items = response.get('Items', [])
+        if items:
+            # Sort by createdAt in descending order (latest first)
+            items.sort(key=lambda x: int(x.get('createdAt', {}).get('N', '0')), reverse=True)
+            return [deserialize_item_json_safe(item) for item in items]
+        return []
+    except ClientError as e:
+        print(f"Error getting invoices by reference {reference_number}: {e}")
+        return []
+
+def get_invoice_by_id(invoice_id):
+    """Get an invoice by invoice ID"""
+    try:
+        response = dynamodb.get_item(
+            TableName=INVOICES_TABLE,
+            Key={'invoiceId': {'S': invoice_id}}
+        )
+        
+        if 'Item' in response:
+            return deserialize_item_json_safe(response['Item'])
+        return None
+    except ClientError as e:
+        print(f"Error getting invoice by ID {invoice_id}: {e}")
+        return None
+
+def cancel_invoice(invoice_id):
+    """Cancel an invoice by updating its status to 'cancelled' instead of deleting"""
+    try:
+        # Update invoice status to 'cancelled' and sync metadata paymentStatus
+        dynamodb.update_item(
+            TableName=INVOICES_TABLE,
+            Key={'invoiceId': {'S': invoice_id}},
+            UpdateExpression='SET #status = :status, cancelledAt = :cancelled_at, #metadata.#paymentStatus = :payment_status',
+            ExpressionAttributeNames={
+                '#status': 'status',
+                '#metadata': 'metadata',
+                '#paymentStatus': 'paymentStatus'
+            },
+            ExpressionAttributeValues={
+                ':status': {'S': 'cancelled'},
+                ':cancelled_at': {'N': str(int(datetime.now(ZoneInfo('Australia/Perth')).timestamp()))},
+                ':payment_status': {'S': 'cancelled'}
+            }
+        )
+        print(f"Invoice {invoice_id} status updated to cancelled successfully")
+        return True
+    except ClientError as e:
+        print(f"Error cancelling invoice {invoice_id}: {e}")
+        return False
+
+def is_invoice_cancelled(invoice):
+    """Check if an invoice is cancelled"""
+    return invoice.get('status') == 'cancelled' if invoice else False
+
+def get_invoice_status(invoice_id):
+    """Get the status of an invoice"""
+    invoice = get_invoice_by_id(invoice_id)
+    return invoice.get('status', 'unknown') if invoice else None
+
+def reactivate_invoice(invoice_id):
+    """Reactivate a cancelled invoice by updating its status back to 'generated'"""
+    try:
+        # Update invoice status back to 'generated' and sync metadata paymentStatus
+        dynamodb.update_item(
+            TableName=INVOICES_TABLE,
+            Key={'invoiceId': {'S': invoice_id}},
+            UpdateExpression='SET #status = :status, #metadata.#paymentStatus = :payment_status REMOVE cancelledAt',
+            ExpressionAttributeNames={
+                '#status': 'status',
+                '#metadata': 'metadata',
+                '#paymentStatus': 'paymentStatus'
+            },
+            ExpressionAttributeValues={
+                ':status': {'S': 'generated'},
+                ':payment_status': {'S': 'completed'}
+            }
+        )
+        print(f"Invoice {invoice_id} reactivated successfully")
+        return True
+    except ClientError as e:
+        print(f"Error reactivating invoice {invoice_id}: {e}")
         return False
 
 
@@ -1475,10 +2033,12 @@ def convert_to_dynamodb_format(obj):
     """Convert Python objects to DynamoDB format"""
     if isinstance(obj, str):
         return {'S': obj}
+    elif isinstance(obj, bool):  # Check bool before int/float since bool is a subclass of int
+        return {'BOOL': obj}
     elif isinstance(obj, int):
         return {'N': str(obj)}
-    elif obj is True or obj is False:
-        return {'BOOL': obj}
+    elif isinstance(obj, float):
+        return {'N': str(obj)}
     elif isinstance(obj, dict):
         return {'M': {k: convert_to_dynamodb_format(v) for k, v in obj.items()}}
     elif isinstance(obj, list):

@@ -1,11 +1,17 @@
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import db_utils as db
 import response_utils as resp
 import request_utils as req
+import validation_utils as valid
+import business_logic_utils as biz
 import email_utils as email
 from notification_manager import invoice_manager
 
 
+@biz.handle_business_logic_error
+@valid.handle_validation_error
 def lambda_handler(event, context):
     """
     Generate an invoice for manual transactions (cash/bank transfers)
@@ -16,8 +22,8 @@ def lambda_handler(event, context):
     
     Expected event body:
     {
-        "payment_method": "cash" or "bank_transfer",
-        "reference_number": "APT001 or ORD001" (optional - will be auto-generated if not provided),
+        "payment_method": "cash", "bank_transfer", or "card",
+        "reference_number": "APT001 or ORD001" (optional - will use Invoice Id if not provided)
         "customer_data": {
             "name": "John Doe",
             "email": "john@example.com",    # optional, defaults to N/A
@@ -37,6 +43,7 @@ def lambda_handler(event, context):
                 "name": "Service 1",
                 "totalAmount": 50.00,
                 "description": "Basic service"  # optional, defaults to ""
+                # Note: Services (items with only totalAmount) will display empty quantity and unit price columns
             },
             {
                 "name": "Item 1",
@@ -44,99 +51,87 @@ def lambda_handler(event, context):
                 "quantity": 1,
                 "totalAmount": 100.00,  # optional, defaults to unitPrice * quantity
                 "description": "Premium item"  # optional, defaults to ""
+                # Note: Items (with unitPrice and quantity) will display these values in respective columns
             }
         ]
     }
     """
-    try:
-        # Parse request body
-        body = req.get_request_body(event)
+    # Parse request body
+    body = req.get_body(event)
+    
+    # Validate required parameters
+    payment_method = req.get_body_param(event, 'payment_method')
+    reference_number = req.get_body_param(event, 'reference_number')
+    customer_data = req.get_body_param(event, 'customer_data')
+    transaction_data = req.get_body_param(event, 'transaction_data')
+    vehicle_data = req.get_body_param(event, 'vehicle_data')
+    items = req.get_body_param(event, 'items')
+    
+    # Validate all request data using validation utilities
+    validate_all_request_data(payment_method, customer_data, transaction_data, vehicle_data, items)
+    
+    # Generate reference number if not provided
+    if not reference_number:
+        reference_number = "<INVOICE_ID>"
+    
+    # Generate unique payment intent ID for manual transactions
+    payment_intent_id = f"{payment_method}_{reference_number}"
+    
+    # Set transaction defaults and ensure invoice ID matches reference number
+    set_transaction_defaults(transaction_data)
+    
+    # Prepare vehicle description
+    vehicle_description = prepare_vehicle_description(vehicle_data)
+    
+    # Enhance items with vehicle information
+    enhanced_items, total_amount = enhance_items_with_vehicle_info(items, vehicle_description)
+    
+    # Prepare record data in the format expected by invoice generation
+    record_data = {
+        "customerName": customer_data['name'],
+        "customerEmail": customer_data.get('email', 'N/A'),
+        "customerPhone": customer_data.get('phone', 'N/A'),
+        "carMake": vehicle_data.get('make', 'N/A'),
+        "carModel": vehicle_data.get('model', 'N/A'),
+        "carYear": vehicle_data.get('year', 'N/A'),
+        "paymentMethod": payment_method,
+        "paymentStatus": "completed",
+        "paymentIntentId": payment_intent_id,
+        "paymentDate": transaction_data.get('payment_date', datetime.now(ZoneInfo('Australia/Perth')).strftime('%d/%m/%Y')),
+        "items": enhanced_items,
+        "currency": transaction_data.get('currency', 'AUD'),
+        "totalAmount": total_amount,
+    }
+    
+    # Generate invoice synchronously using invoice manager
+    invoice_generation_result = invoice_manager._generate_invoice_synchronously(
+        record_data, 
+        "invoice", 
+        payment_intent_id
+    )
+    
+    if invoice_generation_result.get('success'):
+        # Extract invoice URL and other required fields from the result
+        invoice_url = invoice_generation_result.get('invoice_url')
+        invoice_id = invoice_generation_result.get('invoice_id')
+        payment_intent_id_result = invoice_generation_result.get('payment_intent_id')
         
-        # Validate required parameters
-        payment_method = req.get_body_param(event, 'payment_method')
-        reference_number = req.get_body_param(event, 'reference_number')
-        customer_data = req.get_body_param(event, 'customer_data')
-        transaction_data = req.get_body_param(event, 'transaction_data')
-        vehicle_data = req.get_body_param(event, 'vehicle_data')
-        items = req.get_body_param(event, 'items')
-        
-        # Validate all request data
-        validation_error = validate_all_request_data(payment_method, customer_data, transaction_data, vehicle_data, items)
-        if validation_error:
-            return resp.error_response(validation_error)
-        
-        # Generate reference number if not provided
-        if not reference_number:
-            timestamp = int(time.time())
-            reference_number = f"INV{timestamp}"
-        
-        # Generate unique payment intent ID for manual transactions
-        payment_intent_id = f"{payment_method}_{reference_number}_{int(time.time())}"
-        
-        # Set transaction defaults
-        set_transaction_defaults(transaction_data, reference_number)
-        
-        # Prepare vehicle description
-        vehicle_description = prepare_vehicle_description(vehicle_data)
-        
-        # Enhance items with vehicle information
-        enhanced_items, total_amount = enhance_items_with_vehicle_info(items, vehicle_description)
-        
-        # Prepare record data in the format expected by invoice generation
-        record_data = {
-            "invoiceId": transaction_data['id'],
-            "invoiceDate": time.strftime('%d/%m/%Y'),
-            "customerName": customer_data['name'],
-            "customerEmail": customer_data.get('email', 'N/A'),
-            "customerPhone": customer_data.get('phone', 'N/A'),
-            "paymentMethod": payment_method,
-            "paymentStatus": "completed",
-            "paymentIntentId": payment_intent_id,
-            "paymentDate": transaction_data.get('payment_date', time.strftime('%d/%m/%Y')),
-            "items": enhanced_items,
-            "currency": transaction_data.get('currency', 'AUD'),
-            "totalAmount": total_amount,
+        # The invoice manager handles email sending internally,
+        # so we just return success with the provided data
+        response_data = {
+            "message": "Invoice generated successfully",
+            "invoice_id": invoice_id,
+            "reference_number": payment_intent_id_result or payment_intent_id,
+            "payment_intent_id": payment_intent_id_result or payment_intent_id,
+            "payment_method": payment_method,
+            "invoice_url": invoice_url,
+            "generated_at": datetime.now(ZoneInfo('Australia/Perth')).strftime('%Y-%m-%dT%H:%M:%S%z')
         }
         
-        # Generate invoice synchronously using invoice manager
-        invoice_generation_success = invoice_manager._generate_invoice_synchronously(
-            record_data, 
-            "invoice", 
-            payment_intent_id
-        )
-        
-        if invoice_generation_success:
-            # Since the invoice manager handles all the processing internally,
-            # we can return success with the provided data
-            try:
-                # Send payment confirmation email after successful invoice generation
-                send_payment_confirmation_email_for_manual_invoice(
-                    customer_data, 
-                    record_data, 
-                    None,  # Invoice URL is handled internally by the manager
-                    payment_method
-                )
-            except Exception as email_error:
-                print(f"Error sending payment confirmation email: {str(email_error)}")
-                # Don't fail the invoice generation if email fails
-            
-            return resp.success_response({
-                "message": "Invoice generated successfully",
-                "invoice_id": transaction_data['id'],
-                "reference_number": reference_number,
-                "payment_method": payment_method,
-                "payment_intent_id": payment_intent_id,
-                "generated_at": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-            })
-        else:
-            return resp.error_response(
-                "Failed to generate invoice. Please check the logs for more details.", 
-                500
-            )
-        
-    except Exception as e:
-        print(f"Error in invoice generation lambda: {str(e)}")
-        return resp.error_response(f"Internal server error: {str(e)}", 500)
+        return resp.success_response(response_data)
+    else:
+        error_message = invoice_generation_result.get('error', 'Unknown error occurred during invoice generation')
+        raise biz.BusinessLogicError(f"Failed to generate invoice: {error_message}", 500)
 
 
 def validate_request_parameters(payment_method, customer_data, transaction_data, vehicle_data, items):
@@ -145,8 +140,8 @@ def validate_request_parameters(payment_method, customer_data, transaction_data,
     # Validate payment method
     if not payment_method:
         return "payment_method is required"
-    if payment_method not in ['cash', 'bank_transfer']:
-        return "payment_method must be 'cash' or 'bank_transfer'"
+    if payment_method not in ['cash', 'bank_transfer', 'card']:
+        return "payment_method must be 'cash', 'bank_transfer', or 'card'"
     
     # Validate required sections
     if not customer_data:
@@ -250,37 +245,15 @@ def validate_all_request_data(payment_method, customer_data, transaction_data, v
     return None  # All validations passed
 
 
-def check_existing_invoice(reference_number):
-    """Check if invoice already exists for this reference number"""
-    
-    existing_invoice = db.get_invoice_by_reference_number(reference_number)
-    if existing_invoice:
-        return {
-            "exists": True,
-            "response": resp.success_response({
-                "message": "Invoice already exists for this transaction",
-                "invoice_id": existing_invoice.get('invoiceId'),
-                "invoice_url": existing_invoice.get('invoiceUrl'),
-                "reference_number": reference_number
-            })
-        }
-    
-    return {"exists": False}
-
-
-def set_transaction_defaults(transaction_data, reference_number):
+def set_transaction_defaults(transaction_data):
     """Set default values for optional transaction fields"""
     
     if 'currency' not in transaction_data:
         transaction_data['currency'] = 'AUD'
     if 'payment_date' not in transaction_data:
-        transaction_data['payment_date'] = time.strftime('%d/%m/%Y')
+        transaction_data['payment_date'] = datetime.now(ZoneInfo('Australia/Perth')).strftime('%d/%m/%Y')
     if 'confirmation_reference' not in transaction_data:
         transaction_data['confirmation_reference'] = 'N/A'
-    
-    # Use reference_number as transaction ID if not provided in transaction_data
-    if not transaction_data.get('id'):
-        transaction_data['id'] = reference_number
 
 
 def prepare_vehicle_description(vehicle_data):
@@ -292,7 +265,7 @@ def prepare_vehicle_description(vehicle_data):
     if vehicle_data.get('year'):
         vehicle_parts.append(str(vehicle_data['year']))
     
-    return f" for {' '.join(vehicle_parts)}"
+    return f"{' '.join(vehicle_parts)}"
 
 
 def enhance_items_with_vehicle_info(items, vehicle_description):
@@ -303,6 +276,13 @@ def enhance_items_with_vehicle_info(items, vehicle_description):
     
     for item in items:
         enhanced_item = item.copy()
+
+        # Determine item type based on structure
+        # If only totalAmount is provided (no unitPrice/quantity), treat as service
+        has_unit_price = 'unitPrice' in enhanced_item
+        has_quantity = 'quantity' in enhanced_item
+        item_type = 'item' if (has_unit_price and has_quantity) else 'service'
+        enhanced_item['type'] = item_type
 
         # Set quantity and unit price if not provided
         if 'totalAmount' in enhanced_item:
@@ -323,31 +303,3 @@ def enhance_items_with_vehicle_info(items, vehicle_description):
         total_amount += enhanced_item.get('totalAmount', 0)
     
     return enhanced_items, total_amount
-
-
-def send_payment_confirmation_email_for_manual_invoice(customer_data, record_data, invoice_url, payment_method):
-    """Send payment confirmation email for manually generated invoices"""
-    try:
-        customer_email = customer_data.get('email')
-        if not customer_email or customer_email == 'N/A':
-            print("No customer email provided for manual invoice")
-            return
-        
-        customer_name = customer_data.get('name', 'Valued Customer')
-        
-        # Prepare payment data for email
-        payment_data = {
-            'amount': f"{record_data.get('totalAmount', 0):.2f}",
-            'paymentMethod': payment_method.title(),
-            'referenceNumber': record_data.get('invoiceId', 'N/A'),
-            'paymentDate': int(time.time()),
-            'invoice_url': invoice_url
-        }
-        
-        # Send payment confirmation email with invoice
-        email.send_payment_confirmation_email(customer_email, customer_name, payment_data, invoice_url)
-        print(f"Payment confirmation email sent to {customer_email} with invoice: {invoice_url}")
-        
-    except Exception as e:
-        print(f"Error sending payment confirmation email for manual invoice: {str(e)}")
-        raise e
