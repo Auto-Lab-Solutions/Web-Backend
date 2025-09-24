@@ -1,44 +1,45 @@
 import json
 
-from permission_utils import PermissionManager
+from permission_utils import PermissionManager, handle_permission_error
 from email_suppression_manager import EmailSuppressionManager
-from validation_utils import ValidationManager
+from validation_utils import ValidationManager, handle_validation_error
+from business_logic_utils import handle_business_logic_error
+from exceptions import PermissionError, ValidationError, BusinessLogicError
 import response_utils as resp
 import request_utils as req
 
+@handle_permission_error
+@handle_validation_error
+@handle_business_logic_error
 def lambda_handler(event, context):
     """
     Manage email suppression list - API for checking, adding, removing suppressed emails
     """
     print(f"Email suppression manager invoked: {json.dumps(event, default=str)}")
     
-    try:
-        # Initialize managers
-        permission_manager = PermissionManager()
-        suppression_manager = EmailSuppressionManager()
-        validation_manager = ValidationManager()
-        
-        # Validate staff authentication and permissions
+    # Initialize managers
+    permission_manager = PermissionManager()
+    suppression_manager = EmailSuppressionManager()
+    validation_manager = ValidationManager()
+    
+    # Validate staff authentication and permissions
+    if 'httpMethod' in event:  # API Gateway request
+        staff_email = req.get_staff_user_email(event)
+        has_permission = permission_manager.check_staff_permission(staff_email, 'email_management')
+        if not has_permission:
+            raise PermissionError("Insufficient permissions for email management")
+    
+    # Parse the request
+    http_method = event.get('httpMethod', 'GET')
+    path = event.get('path', '')
+    query_params = event.get('queryStringParameters') or {}
+    body = event.get('body')
+    
+    if body:
         try:
-            if 'httpMethod' in event:  # API Gateway request
-                staff_email = req.get_staff_user_email(event)
-                has_permission = permission_manager.check_staff_permission(staff_email, 'email_management')
-                if not has_permission:
-                    return resp.error_response(403, "Insufficient permissions for email management")
-        except Exception as e:
-            return resp.error_response(401, f"Authentication failed: {str(e)}")
-        
-        # Parse the request
-        http_method = event.get('httpMethod', 'GET')
-        path = event.get('path', '')
-        query_params = event.get('queryStringParameters') or {}
-        body = event.get('body')
-        
-        if body:
-            try:
-                body = json.loads(body)
-            except json.JSONDecodeError:
-                body = {}
+            body = json.loads(body)
+        except json.JSONDecodeError:
+            body = {}
         
         # Route to appropriate handler based on HTTP method and path
         if http_method == 'GET' and '/check' in path:
@@ -51,29 +52,20 @@ def lambda_handler(event, context):
             return remove_from_suppression(suppression_manager, query_params)
         elif http_method == 'GET' and '/analytics' in path:
             return get_email_analytics(suppression_manager, query_params)
-        elif http_method == 'POST' and '/cleanup' in path:
-            return cleanup_expired_suppressions(suppression_manager)
-        else:
-            return resp.error_response(404, 'Endpoint not found')
-            
-    except Exception as e:
-        print(f"Error in email suppression manager: {str(e)}")
-        return resp.error_response(500, f"Internal server error: {str(e)}")
+    elif http_method == 'POST' and '/cleanup' in path:
+        return cleanup_expired_suppressions(suppression_manager)
+    else:
+        raise ValidationError('Endpoint not found', 404)
 
 
 def check_suppression_status(suppression_manager, query_params):
     """Check if an email address is suppressed"""
-    try:
-        email = query_params.get('email')
-        if not email:
-            return resp.error_response(400, 'Email parameter required')
-        
-        result = suppression_manager.check_suppression_status(email)
-        return resp.success_response(result)
-        
-    except Exception as e:
-        print(f"Error checking suppression status: {str(e)}")
-        return resp.error_response(500, str(e))
+    email = query_params.get('email')
+    if not email:
+        raise ValidationError('Email parameter required')
+    
+    result = suppression_manager.check_suppression_status(email)
+    return resp.success_response(result)
 
 
 def list_suppressed_emails(suppression_manager, query_params):

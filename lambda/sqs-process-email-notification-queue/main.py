@@ -94,6 +94,12 @@ def send_email_notification(email_manager, notification_type, customer_email, cu
             invoice_url = data.get('invoice_url')
             return email_manager.send_payment_confirmation_email(customer_email, customer_name, data, invoice_url)
             
+        elif notification_type == 'payment_cancelled':
+            return email_manager.send_payment_cancellation_email(customer_email, customer_name, data)
+            
+        elif notification_type == 'payment_reactivated':
+            return email_manager.send_payment_reactivation_email(customer_email, customer_name, data)
+            
         else:
             print(f"Unknown email notification type: {notification_type}")
             return False

@@ -21,16 +21,16 @@ Parameters:
 
   BackupSchedule:
     Type: String
-    Default: "cron(0 2 ? * SUN *)"
-    Description: Schedule for automated backups (default is weekly on Sunday at 2 AM UTC)
+    Default: "cron(0 18 ? * SAT *)"
+    Description: Schedule for automated backups (default is weekly on Saturday at 6 PM UTC / Sunday 2 AM Perth time)
 
 Mappings:
   EnvironmentSettings:
     development:
-      BackupFrequency: "cron(0 4 ? * SUN *)"  # Weekly on Sunday at 4 AM UTC for dev
+      BackupFrequency: "cron(0 18 ? * SAT *)"  # Weekly on Saturday at 6 PM UTC (Sunday 2 AM Perth time) for dev
       RetentionDays: 7  # Keep backups for 7 days in dev
     production:
-      BackupFrequency: "cron(0 2 ? * SUN *)"  # Weekly on Sunday at 2 AM UTC for prod
+      BackupFrequency: "cron(0 18 ? * SAT *)"  # Weekly on Saturday at 6 PM UTC (Sunday 2 AM Perth time) for prod
       RetentionDays: 30  # Keep backups for 30 days in prod
 
 Resources:

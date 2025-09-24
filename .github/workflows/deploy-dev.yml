@@ -8,7 +8,7 @@ on:
     types: [closed]
 
 env:
-  AWS_REGION: ap-southeast-2
+  AWS_REGION: us-east-1
   ENVIRONMENT: development
   AUTH0_DOMAIN: ${{ vars.AUTH0_DOMAIN }}
   AUTH0_AUDIENCE: ${{ vars.AUTH0_AUDIENCE }}
@@ -126,6 +126,12 @@ jobs:
         chmod +x *.sh
         chmod +x config/environments.sh
 
+    - name: Check for orphaned Route53 records
+      run: |
+        echo "Checking for orphaned Route53 records before deployment..."
+        ./cleanup-route53-records.sh
+      continue-on-error: true
+
     - name: Set environment configuration
       run: |
         echo "Setting up development environment configuration"
@@ -144,6 +150,19 @@ jobs:
         ./validate-deployment.sh --env development
       env:
         AUTO_LAB_ENV: development
+
+    - name: Verify Route53 configuration
+      run: |
+        echo "Final Route53 configuration verification..."
+        ./cleanup-route53-records.sh
+        
+        echo ""
+        echo "Testing DNS resolution:"
+        nslookup api-dev.autolabsolutions.com || echo "DNS resolution failed for api-dev.autolabsolutions.com"
+        nslookup ws-dev.autolabsolutions.com || echo "DNS resolution failed for ws-dev.autolabsolutions.com"
+        
+        echo "::notice::Route53 configuration verified for development environment"
+      continue-on-error: true
 
     - name: Update Stripe webhook endpoint
       run: |

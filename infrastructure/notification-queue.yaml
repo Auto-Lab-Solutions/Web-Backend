@@ -1,7 +1,7 @@
 # SQS Queue Infrastructure for Asynchronous Notification Processing
 
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'SQS Queues for asynchronous notification processing (email & websocket) in Auto Lab Solutions'
+Description: 'SQS Queues for asynchronous notification processing (email & Firebase) in Auto Lab Solutions'
 
 Parameters:
   EnvironmentName:
@@ -66,6 +66,14 @@ Parameters:
     Type: String
     Description: Email suppression DynamoDB table name
   
+  EmailMetadataTable:
+    Type: String
+    Description: Email metadata DynamoDB table name for threading
+  
+  EmailThreadsTable:
+    Type: String
+    Description: Email threads DynamoDB table name for threading
+  
   ReportsBucketName:
     Type: String
     Description: S3 bucket name for storing reports and invoices
@@ -83,6 +91,11 @@ Parameters:
     Type: String
     Description: SES verified email address for sending notifications
     Default: "noreply@autolabsolutions.com"
+
+  MailReceivingAddress:
+    Type: String
+    Description: Email address for receiving emails (environment-specific)
+    Default: "mail@autolabsolutions.com"
   
   WebSocketApiId:
     Type: String
@@ -131,24 +144,9 @@ Resources:
       QueueName: !Sub 'sqs-email-notification-dlq-${EnvironmentName}'
       MessageRetentionPeriod: 1209600  # 14 days
 
-  # SQS Queue for WebSocket notifications
-  WebSocketNotificationQueue:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub 'sqs-websocket-notification-queue-${EnvironmentName}'
-      VisibilityTimeout: 300  # 5 minutes
-      MessageRetentionPeriod: 1209600  # 14 days
-      ReceiveMessageWaitTimeSeconds: 20  # Long polling
-      RedrivePolicy:
-        deadLetterTargetArn: !GetAtt WebSocketNotificationDLQ.Arn
-        maxReceiveCount: 3  # Retry up to 3 times before moving to DLQ
-
-  # Dead Letter Queue for failed WebSocket notifications
-  WebSocketNotificationDLQ:
-    Type: AWS::SQS::Queue
-    Properties:
-      QueueName: !Sub 'sqs-websocket-notification-dlq-${EnvironmentName}'
-      MessageRetentionPeriod: 1209600  # 14 days
+  # REMOVED: WebSocket notification queue infrastructure
+  # WebSocket notifications are now handled synchronously for messaging scenarios only
+  # No longer requires SQS queues or lambda processors for websocket notifications
 
   # SQS Queue for Firebase push notifications (conditional)
   FirebaseNotificationQueue:
@@ -198,40 +196,17 @@ Resources:
           PAYMENTS_TABLE: !Ref PaymentsTable
           INVOICES_TABLE: !Ref InvoicesTable
           EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
           REPORTS_BUCKET_NAME: !Ref ReportsBucketName
           CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
-          MAIL_FROM_ADDRESS: !Ref MailSendingAddress
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
           ENVIRONMENT: !Ref EnvironmentName
 
-  # Lambda function to process WebSocket notification queue
-  WebSocketNotificationProcessorLambda:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: !Sub 'sqs-process-websocket-notification-queue-${EnvironmentName}'
-      Runtime: python3.13
-      Handler: main.lambda_handler
-      Role: !GetAtt WebSocketNotificationProcessorRole.Arn
-      Code:
-        S3Bucket: !Ref CloudFormationBucket
-        S3Key: 'lambda/sqs-process-websocket-notification-queue.zip'
-      Timeout: 300
-      Environment:
-        Variables:
-          STAFF_TABLE: !Ref StaffTable
-          USERS_TABLE: !Ref UsersTable
-          CONNECTIONS_TABLE: !Ref ConnectionsTable
-          MESSAGES_TABLE: !Ref MessagesTable
-          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
-          APPOINTMENTS_TABLE: !Ref AppointmentsTable
-          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
-          ORDERS_TABLE: !Ref OrdersTable
-          ITEM_PRICES_TABLE: !Ref ItemPricesTable
-          INQUIRIES_TABLE: !Ref InquiriesTable
-          PAYMENTS_TABLE: !Ref PaymentsTable
-          INVOICES_TABLE: !Ref InvoicesTable
-          WEBSOCKET_API_ID: !Ref WebSocketApiId
-          ENVIRONMENT: !Ref EnvironmentName
+  # REMOVED: WebSocket notification processor lambda
+  # WebSocket notifications are now handled synchronously for messaging scenarios only
 
   # Lambda function to process Firebase notification queue (conditional)
   FirebaseNotificationProcessorLambda:
@@ -305,6 +280,8 @@ Resources:
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${PaymentsTable}'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InvoicesTable}'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailSuppressionTableName}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailMetadataTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailThreadsTable}'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${StaffTable}/index/*'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UsersTable}/index/*'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ConnectionsTable}/index/*'
@@ -318,6 +295,8 @@ Resources:
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${PaymentsTable}/index/*'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InvoicesTable}/index/*'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailSuppressionTableName}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailMetadataTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailThreadsTable}/index/*'
               - Effect: Allow
                 Action:
                   - sqs:ReceiveMessage
@@ -329,6 +308,9 @@ Resources:
                 Action:
                   - ses:SendEmail
                   - ses:SendRawEmail
+                  - ses:GetSuppressedDestination
+                  - ses:PutSuppressedDestination
+                  - ses:DeleteSuppressedDestination
                 Resource: '*'
               - Effect: Allow
                 Action:
@@ -337,70 +319,8 @@ Resources:
                 Resource:
                   - !Sub 'arn:aws:s3:::${ReportsBucketName}/*'
 
-  # IAM Role for WebSocket Notification Processor Lambda
-  WebSocketNotificationProcessorRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub 'WebSocketNotificationProcessorRole-${EnvironmentName}'
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-      Policies:
-        - PolicyName: WebSocketNotificationProcessorPolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:GetItem
-                  - dynamodb:PutItem
-                  - dynamodb:UpdateItem
-                  - dynamodb:DeleteItem
-                  - dynamodb:Query
-                  - dynamodb:Scan
-                Resource:
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${StaffTable}'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UsersTable}'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ConnectionsTable}'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${MessagesTable}'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UnavailableSlotsTable}'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AppointmentsTable}'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ServicePricesTable}'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${OrdersTable}'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ItemPricesTable}'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InquiriesTable}'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${PaymentsTable}'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InvoicesTable}'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${StaffTable}/index/*'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UsersTable}/index/*'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ConnectionsTable}/index/*'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${MessagesTable}/index/*'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UnavailableSlotsTable}/index/*'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${AppointmentsTable}/index/*'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ServicePricesTable}/index/*'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${OrdersTable}/index/*'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${ItemPricesTable}/index/*'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InquiriesTable}/index/*'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${PaymentsTable}/index/*'
-                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InvoicesTable}/index/*'
-              - Effect: Allow
-                Action:
-                  - sqs:ReceiveMessage
-                  - sqs:DeleteMessage
-                  - sqs:GetQueueAttributes
-                Resource:
-                  - !GetAtt WebSocketNotificationQueue.Arn
-              - Effect: Allow
-                Action:
-                  - execute-api:ManageConnections
-                Resource:
-                  - !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApiId}/*'
+  # REMOVED: IAM Role for WebSocket Notification Processor Lambda
+  # WebSocket notifications are now handled synchronously for messaging scenarios only
 
   # IAM Role for Firebase Notification Processor Lambda (conditional)
   FirebaseNotificationProcessorRole:
@@ -472,14 +392,8 @@ Resources:
       BatchSize: 1  # Process one message at a time
       MaximumBatchingWindowInSeconds: 5
 
-  # Event Source Mapping for WebSocket Notification Queue
-  WebSocketNotificationEventSourceMapping:
-    Type: AWS::Lambda::EventSourceMapping
-    Properties:
-      EventSourceArn: !GetAtt WebSocketNotificationQueue.Arn
-      FunctionName: !Ref WebSocketNotificationProcessorLambda
-      BatchSize: 10  # Process up to 10 messages at a time for better throughput
-      MaximumBatchingWindowInSeconds: 5
+  # REMOVED: Event Source Mapping for WebSocket Notification Queue
+  # WebSocket notifications are now handled synchronously for messaging scenarios only
 
   # Event Source Mapping for Firebase Notification Queue (conditional)
   FirebaseNotificationEventSourceMapping:
@@ -504,17 +418,8 @@ Outputs:
     Export:
       Name: !Sub '${AWS::StackName}-EmailNotificationQueueArn'
 
-  WebSocketNotificationQueueUrl:
-    Description: 'URL of the WebSocket Notification SQS Queue'
-    Value: !Ref WebSocketNotificationQueue
-    Export:
-      Name: !Sub '${AWS::StackName}-WebSocketNotificationQueueUrl'
-
-  WebSocketNotificationQueueArn:
-    Description: 'ARN of the WebSocket Notification SQS Queue'
-    Value: !GetAtt WebSocketNotificationQueue.Arn
-    Export:
-      Name: !Sub '${AWS::StackName}-WebSocketNotificationQueueArn'
+  # REMOVED: WebSocket notification queue outputs - no longer needed
+  # WebSocket notifications are now handled synchronously for messaging scenarios only
 
   EmailNotificationDLQUrl:
     Description: 'URL of the Email Notification Dead Letter Queue'
@@ -522,11 +427,8 @@ Outputs:
     Export:
       Name: !Sub '${AWS::StackName}-EmailNotificationDLQUrl'
 
-  WebSocketNotificationDLQUrl:
-    Description: 'URL of the WebSocket Notification Dead Letter Queue'
-    Value: !Ref WebSocketNotificationDLQ
-    Export:
-      Name: !Sub '${AWS::StackName}-WebSocketNotificationDLQUrl'
+  # REMOVED: WebSocket notification DLQ output
+  # WebSocket notifications are now handled synchronously for messaging scenarios only
 
   FirebaseNotificationQueueUrl:
     Condition: ShouldEnableFirebase

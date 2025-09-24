@@ -279,11 +279,11 @@ Outputs:
     Export:
       Name: !Sub '${AWS::StackName}-WebSocketApiEndpoint'
 
-  WebSocketApiDefaultEndpoint:
-    Description: WebSocket API Default AWS Endpoint
-    Value: !Sub 'wss://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
+  WebSocketApiHTTPEndpoint:
+    Description: WebSocket API HTTP Endpoint
+    Value: !Sub 'https://${WebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
     Export:
-      Name: !Sub '${AWS::StackName}-WebSocketApiDefaultEndpoint'
+      Name: !Sub '${AWS::StackName}-WebSocketApiHTTPEndpoint'
 
   WebSocketCustomDomain:
     Description: WebSocket API Custom Domain (if enabled)

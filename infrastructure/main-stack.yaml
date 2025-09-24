@@ -79,7 +79,7 @@ Parameters:
   FrontendRootUrl:
     Type: String
     Description: Frontend root URL for email links
-    Default: "https://autolabsolutions.com"
+    Default: "autolabsolutions.com"
 
   MailSendingAddress:
     Type: String
@@ -88,8 +88,8 @@ Parameters:
 
   SesRegion:
     Type: String
-    Description: AWS region for SES service
-    Default: "ap-southeast-2"
+    Description: AWS region for SES service (us-east-1 for development, ap-southeast-2 for production)
+    Default: "us-east-1"
 
   # SES Domain and Route53 Configuration Parameters
   SESHostedZoneId:
@@ -190,11 +190,23 @@ Parameters:
     Description: Firebase service account key JSON for push notifications
     Default: ''
 
+  EnableBackupSystem:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+    Description: Whether to enable automated backup system
+
+  BackupSchedule:
+    Type: String
+    Default: "cron(0 18 ? * SAT *)"
+    Description: Schedule for automated backups (default is weekly on Saturday at 6 PM UTC / Sunday 2 AM Perth time)
+
 Conditions:
   ShouldDeployFrontend: !Equals [!Ref EnableFrontendWebsite, 'true']
   ShouldEnableApiCustomDomains: !Equals [!Ref EnableApiCustomDomains, 'true']
   ShouldEnableReportsCustomDomain: !Equals [!Ref EnableReportsCustomDomain, 'true']
   ShouldEnableFirebase: !Equals [!Ref EnableFirebaseNotifications, 'true']
+  ShouldEnableBackup: !Equals [!Ref EnableBackupSystem, 'true']
 
 Resources:
   # DynamoDB Tables
@@ -247,9 +259,12 @@ Resources:
         EmailStorageBucket: !GetAtt SESEmailStorageStack.Outputs.EmailStorageBucket
         MailReceivingAddress: !Ref MailReceivingAddress
         EmailSuppressionTableName: !GetAtt SESBounceComplaintStack.Outputs.EmailSuppressionTableName
-        EmailMetadataTable: !GetAtt SESEmailStorageStack.Outputs.EmailMetadataTable
+        EmailMetadataTable: !GetAtt DynamoDBStack.Outputs.EmailMetadataTable
+        EmailThreadsTable: !GetAtt DynamoDBStack.Outputs.EmailThreadsTable
+        EmailAttachmentsTable: !GetAtt DynamoDBStack.Outputs.EmailAttachmentsTable
+        EmailAttachmentsBucket: !GetAtt S3CloudFrontStack.Outputs.EmailAttachmentsBucket
         EmailNotificationQueueUrl: !GetAtt NotificationQueueStack.Outputs.EmailNotificationQueueUrl
-        WebSocketNotificationQueueUrl: !GetAtt NotificationQueueStack.Outputs.WebSocketNotificationQueueUrl
+        # Removed: WebSocketNotificationQueueUrl - websocket notifications are now synchronous for messaging only
         FirebaseNotificationQueueUrl: !If [ShouldEnableFirebase, !GetAtt NotificationQueueStack.Outputs.FirebaseNotificationQueueUrl, '']
 
   # API Gateway
@@ -264,6 +279,8 @@ Resources:
         StaffAuthorizerOptionalArn: !GetAtt LambdaStack.Outputs.StaffAuthorizerOptionalArn
         GetPricesArn: !GetAtt LambdaStack.Outputs.GetPricesArn
         GetUsersArn: !GetAtt LambdaStack.Outputs.GetUsersArn
+        CheckUserArn: !GetAtt LambdaStack.Outputs.CheckUserArn
+        UpdateUserInfoArn: !GetAtt LambdaStack.Outputs.UpdateUserInfoArn
         GetAppointmentsArn: !GetAtt LambdaStack.Outputs.GetAppointmentsArn
         CreateAppointmentArn: !GetAtt LambdaStack.Outputs.CreateAppointmentArn
         UpdateAppointmentArn: !GetAtt LambdaStack.Outputs.UpdateAppointmentArn
@@ -278,9 +295,11 @@ Resources:
         WebhookStripePaymentArn: !GetAtt LambdaStack.Outputs.WebhookStripePaymentArn
         GetInvoicesArn: !GetAtt LambdaStack.Outputs.GetInvoicesArn
         GenerateInvoiceArn: !GetAtt LambdaStack.Outputs.ApiGenerateInvoiceArn
+        CancelInvoiceArn: !GetAtt LambdaStack.Outputs.ApiCancelInvoiceArn
+        UpdateStaffRolesArn: !GetAtt LambdaStack.Outputs.ApiUpdateStaffRolesArn
         GetInquiriesArn: !GetAtt LambdaStack.Outputs.GetInquiriesArn
         CreateInquiryArn: !GetAtt LambdaStack.Outputs.CreateInquiryArn
-        GetReportUploadUrlArn: !GetAtt LambdaStack.Outputs.GetReportUploadUrlArn
+        GetUploadUrlArn: !GetAtt LambdaStack.Outputs.GetUploadUrlArn
         GetAnalyticsArn: !GetAtt LambdaStack.Outputs.GetAnalyticsArn
         GetStaffRolesArn: !GetAtt LambdaStack.Outputs.GetStaffRolesArn
         NotifyArn: !GetAtt LambdaStack.Outputs.NotifyArn
@@ -291,7 +310,9 @@ Resources:
         SendMessageArn: !GetAtt LambdaStack.Outputs.SendMessageArn
         ApiEmailSuppressionManagerArn: !GetAtt LambdaStack.Outputs.ApiEmailSuppressionManagerArn
         ApiGetEmailsArn: !GetAtt LambdaStack.Outputs.ApiGetEmailsArn
+        ApiUpdateEmailArn: !GetAtt LambdaStack.Outputs.ApiUpdateEmailArn
         ApiSendEmailArn: !GetAtt LambdaStack.Outputs.ApiSendEmailArn
+        ApiEmailAttachmentsArn: !GetAtt LambdaStack.Outputs.ApiEmailAttachmentsArn
         EnableApiCustomDomains: !Ref EnableApiCustomDomains
         ApiDomainName: !Ref ApiDomainName
         ApiHostedZoneId: !Ref ApiHostedZoneId
@@ -318,7 +339,7 @@ Resources:
   # Invoice Queue Stack
   InvoiceQueueStack:
     Type: AWS::CloudFormation::Stack
-    DependsOn: [DynamoDBStack, S3CloudFrontStack]
+    DependsOn: [DynamoDBStack, S3CloudFrontStack, SESBounceComplaintStack]
     Properties:
       TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/invoice-queue.yaml'
       Parameters:
@@ -336,9 +357,12 @@ Resources:
         InquiriesTable: !GetAtt DynamoDBStack.Outputs.InquiriesTable
         PaymentsTable: !GetAtt DynamoDBStack.Outputs.PaymentsTable
         InvoicesTable: !GetAtt DynamoDBStack.Outputs.InvoicesTable
+        EmailSuppressionTableName: !GetAtt SESBounceComplaintStack.Outputs.EmailSuppressionTableName
         ReportsBucketName: !GetAtt S3CloudFrontStack.Outputs.ReportsBucketName
         CloudFrontDomain: !If [ShouldEnableReportsCustomDomain, !Ref ReportsDomainName, !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName]
         FrontendRootUrl: !Ref FrontendRootUrl
+        MailSendingAddress: !Ref MailSendingAddress
+        MailReceivingAddress: !Ref MailReceivingAddress
 
   # S3 and CloudFront for Reports
   S3CloudFrontStack:
@@ -369,6 +393,7 @@ Resources:
   # Backup System Stack
   BackupSystemStack:
     Type: AWS::CloudFormation::Stack
+    Condition: ShouldEnableBackup
     DependsOn: 
       - DynamoDBStack
       - S3CloudFrontStack
@@ -379,6 +404,7 @@ Resources:
         CloudFormationBucket: !Ref CloudFormationBucket
         BackupBucketName: !Ref BackupBucketName
         ReportsBucketName: !GetAtt S3CloudFrontStack.Outputs.ReportsBucketName
+        BackupSchedule: !Ref BackupSchedule
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -420,7 +446,7 @@ Resources:
         - Key: Component
           Value: SESBounceComplaint
 
-  # Notification Queue Stack for Email, WebSocket, and Firebase notifications
+  # Notification Queue Stack for Email and Firebase notifications
   NotificationQueueStack:
     Type: AWS::CloudFormation::Stack
     DependsOn: [DynamoDBStack, S3CloudFrontStack, SESBounceComplaintStack]
@@ -442,10 +468,13 @@ Resources:
         PaymentsTable: !GetAtt DynamoDBStack.Outputs.PaymentsTable
         InvoicesTable: !GetAtt DynamoDBStack.Outputs.InvoicesTable
         EmailSuppressionTableName: !GetAtt SESBounceComplaintStack.Outputs.EmailSuppressionTableName
+        EmailMetadataTable: !GetAtt DynamoDBStack.Outputs.EmailMetadataTable
+        EmailThreadsTable: !GetAtt DynamoDBStack.Outputs.EmailThreadsTable
         ReportsBucketName: !GetAtt S3CloudFrontStack.Outputs.ReportsBucketName
         CloudFrontDomain: !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName
         FrontendRootUrl: !Ref FrontendRootUrl
         MailSendingAddress: !Ref MailSendingAddress
+        MailReceivingAddress: !Ref MailReceivingAddress
         WebSocketApiId: ""
         EnableFirebaseNotifications: !Ref EnableFirebaseNotifications
         FirebaseProjectId: !Ref FirebaseProjectId
@@ -473,6 +502,10 @@ Resources:
         SesRegion: !Ref SesRegion
         MailReceivingAddress: !Ref MailReceivingAddress
         CloudFormationBucket: !Ref CloudFormationBucket
+        EmailMetadataTable: !GetAtt DynamoDBStack.Outputs.EmailMetadataTable
+        EmailThreadsTable: !GetAtt DynamoDBStack.Outputs.EmailThreadsTable
+        EmailAttachmentsTable: !GetAtt DynamoDBStack.Outputs.EmailAttachmentsTable
+        EmailAttachmentsBucket: !GetAtt S3CloudFrontStack.Outputs.EmailAttachmentsBucket
         FirebaseNotificationQueueUrl: !If [ShouldEnableFirebase, !GetAtt NotificationQueueStack.Outputs.FirebaseNotificationQueueUrl, '']
         EnableFirebaseNotifications: !Ref EnableFirebaseNotifications
       Tags:
@@ -505,6 +538,12 @@ Outputs:
     Value: !GetAtt WebSocketStack.Outputs.WebSocketApiEndpoint
     Export:
       Name: !Sub '${AWS::StackName}-WebSocketApiEndpoint'
+
+  WebSocketApiHTTPEndpoint:
+    Description: WebSocket API HTTP Endpoint
+    Value: !GetAtt WebSocketStack.Outputs.WebSocketApiHTTPEndpoint
+    Export:
+      Name: !Sub '${AWS::StackName}-WebSocketApiHTTPEndpoint'
 
   CloudFrontDistributionId:
     Description: CloudFront Distribution ID
@@ -579,11 +618,7 @@ Outputs:
     Export:
       Name: !Sub '${AWS::StackName}-EmailNotificationQueueUrl'
 
-  WebSocketNotificationQueueUrl:
-    Description: SQS WebSocket Notification Queue URL for asynchronous websocket processing
-    Value: !GetAtt NotificationQueueStack.Outputs.WebSocketNotificationQueueUrl
-    Export:
-      Name: !Sub '${AWS::StackName}-WebSocketNotificationQueueUrl'
+  # REMOVED: WebSocket notification queue output - no longer needed for synchronous messaging
 
   FirebaseNotificationQueueUrl:
     Condition: ShouldEnableFirebase
@@ -594,37 +629,43 @@ Outputs:
 
   # Backup System Outputs
   BackupFunctionName:
-    Description: Name of the automated backup Lambda function
+    Condition: ShouldEnableBackup
+    Description: Name of the automated backup Lambda function (only if backup enabled)
     Value: !GetAtt BackupSystemStack.Outputs.BackupLambdaFunctionName
     Export:
       Name: !Sub '${AWS::StackName}-BackupFunctionName'
 
   ManualBackupFunctionName:
-    Description: Name of the manual backup Lambda function
+    Condition: ShouldEnableBackup
+    Description: Name of the manual backup Lambda function (only if backup enabled)
     Value: !GetAtt BackupSystemStack.Outputs.ManualBackupLambdaFunctionName
     Export:
       Name: !Sub '${AWS::StackName}-ManualBackupFunctionName'
 
   BackupLocation:
-    Description: S3 location where backups are stored
+    Condition: ShouldEnableBackup
+    Description: S3 location where backups are stored (only if backup enabled)
     Value: !GetAtt BackupSystemStack.Outputs.BackupLocation
     Export:
       Name: !Sub '${AWS::StackName}-BackupLocation'
 
   BackupBucketName:
-    Description: Name of the S3 bucket used for storing backups
+    Condition: ShouldEnableBackup
+    Description: Name of the S3 bucket used for storing backups (only if backup enabled)
     Value: !GetAtt BackupSystemStack.Outputs.BackupBucketName
     Export:
       Name: !Sub '${AWS::StackName}-BackupBucketName'
 
   BackupNotificationsTopic:
-    Description: SNS topic for backup notifications
+    Condition: ShouldEnableBackup
+    Description: SNS topic for backup notifications (only if backup enabled)
     Value: !GetAtt BackupSystemStack.Outputs.BackupNotificationsTopicArn
     Export:
       Name: !Sub '${AWS::StackName}-BackupNotificationsTopic'
 
   BackupInstructions:
-    Description: Instructions for manual backup and restoration
+    Condition: ShouldEnableBackup
+    Description: Instructions for manual backup and restoration (only if backup enabled)
     Value: !GetAtt BackupSystemStack.Outputs.BackupInstructions
     Export:
       Name: !Sub '${AWS::StackName}-BackupInstructions'

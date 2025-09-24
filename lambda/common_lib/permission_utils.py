@@ -76,14 +76,29 @@ class PermissionValidator:
             PermissionError: If access is denied
         """
         if staff_context and staff_context['staff_record']:
-            # Staff user - use their user_id unless overridden
-            effective_user_id = staff_context['staff_user_id']
+            # Staff user - determine effective user
             if user_id:
-                effective_user_id = user_id  # Staff can operate on behalf of others
-            
-            user_record = db.get_user_record(effective_user_id)
-            if not user_record:
-                raise PermissionError(f"No user record found for userId: {effective_user_id}", 404)
+                # Staff is operating on behalf of a customer
+                # First check if it's a customer user ID
+                user_record = db.get_user_record(user_id)
+                if user_record:
+                    # It's a valid customer user
+                    effective_user_id = user_id
+                else:
+                    # Check if it's actually a staff user ID (mistakenly provided)
+                    staff_record_by_id = db.get_staff_record_by_user_id(user_id)
+                    if staff_record_by_id:
+                        # The provided user_id is actually a staff user ID
+                        # For staff operations, use the staff's own ID as effective_user_id
+                        effective_user_id = staff_context['staff_user_id']
+                        user_record = None  # Staff users don't have user records in Users table
+                    else:
+                        # Neither customer nor staff user found
+                        raise PermissionError(f"No user record found for userId: {user_id}", 404)
+            else:
+                # Staff is creating for themselves (administrative entry)
+                effective_user_id = staff_context['staff_user_id']
+                user_record = None  # Staff users don't have user records in Users table
         else:
             # Regular user
             if not user_id:
@@ -137,29 +152,26 @@ class PermissionValidator:
             limit_type (str): Type of limit ('appointments', 'orders', etc.)
             limit_value (int): Maximum allowed per day
             staff_override (bool): Whether to skip limits for staff
-            
+        
         Returns:
             bool: True if within limits
-            
+        
         Raises:
             PermissionError: If limit exceeded
         """
         if staff_override:
             return True
-        
         from datetime import datetime
-        today = datetime.now().date()
-        
+        from zoneinfo import ZoneInfo
+        today = datetime.now(ZoneInfo('Australia/Perth')).date()
         if limit_type == 'appointments':
             count = db.get_daily_unpaid_appointments_count(user_id, today)
         elif limit_type == 'orders':
             count = db.get_daily_unpaid_orders_count(user_id, today)
         else:
             raise ValueError(f"Unknown limit type: {limit_type}")
-        
         if count >= limit_value:
             raise PermissionError(f"{limit_type.title()} limit ({limit_value}) reached for today", 400)
-        
         return True
 
 
@@ -169,24 +181,27 @@ class RoleBasedPermissions:
     # Define role permissions
     ROLE_PERMISSIONS = {
         'ADMIN': {
+            'can_view_all_appointments': True,
+            'can_view_all_orders': True,
             'can_manage_staff': True,
             'can_manage_payments': True,
             'can_manage_schedules': True,
-            'can_view_all_data': True,
-            'can_update_any_resource': True
+            'can_update_any_resource': True,
+            'can_update_user_info': True
         },
         'CUSTOMER_SUPPORT': {
+            'can_view_all_appointments': True,
+            'can_view_all_orders': True,
+            'can_view_customer_data': True,
             'can_create_appointments': True,
             'can_create_orders': True,
-            'can_view_customer_data': True,
             'can_send_messages': True,
-            'can_take_users': True
+            'can_take_users': True,
+            'can_update_user_info': True
         },
         'CLERK': {
-            'can_view_appointments': True,
-            'can_view_orders': True,
-            'can_view_connections': True,
-            'can_view_messages': True,
+            'can_view_all_appointments': True,
+            'can_view_all_orders': True,
             'can_generate_reports': True
         },
         'MECHANIC': {
@@ -229,6 +244,55 @@ class RoleBasedPermissions:
         """
         if not cls.check_permission(staff_roles, permission):
             raise PermissionError(f"Unauthorized: Missing required permission: {permission}", 403)
+
+
+class PermissionManager:
+    """
+    Legacy compatibility class for existing code that expects PermissionManager
+    Wraps the new PermissionValidator class for backward compatibility
+    """
+    
+    def __init__(self):
+        self.validator = PermissionValidator()
+        self.role_permissions = RoleBasedPermissions()
+    
+    def check_staff_permission(self, staff_email, permission):
+        """
+        Check if staff user has a specific permission
+        
+        Args:
+            staff_email (str): Staff user email
+            permission (str): Permission to check
+            
+        Returns:
+            bool: True if permission granted, False otherwise
+        """
+        try:
+            # Validate staff access first
+            staff_context = self.validator.validate_staff_access(staff_email)
+            staff_roles = staff_context.get('staff_roles', [])
+            
+            # Map common permission names to role-based permissions
+            permission_mapping = {
+                'email_management': 'can_view_customer_data',
+                'user_management': 'can_manage_staff',
+                'payment_management': 'can_manage_payments',
+                'schedule_management': 'can_manage_schedules',
+                'appointment_management': 'can_view_all_appointments',
+                'order_management': 'can_view_all_orders'
+            }
+            
+            # Get the mapped permission or use the original
+            mapped_permission = permission_mapping.get(permission, permission)
+            
+            # Check if any role has the permission
+            return self.role_permissions.check_permission(staff_roles, mapped_permission)
+            
+        except PermissionError:
+            return False
+        except Exception as e:
+            print(f"Error checking staff permission: {str(e)}")
+            return False
 
 
 def handle_permission_error(func):

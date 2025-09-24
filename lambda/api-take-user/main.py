@@ -1,29 +1,34 @@
 import request_utils as req
 import response_utils as resp
-from email_suppression_manager import handle_business_logic_error, BusinessLogicError
+import validation_utils as val
+from business_logic_utils import handle_business_logic_error
+from permission_utils import handle_permission_error
+from exceptions import BusinessLogicError, ValidationError, PermissionError
 from permission_utils import PermissionValidator
 import db_utils as db
 from notification_manager import notification_manager
 
 
+@handle_permission_error
+@val.handle_validation_error
 @handle_business_logic_error
 def lambda_handler(event, context):
     staff_email = req.get_staff_user_email(event)
     client_id = req.get_body_param(event, 'clientId')
 
     if not staff_email:
-        return resp.error_response("Unauthorized: Staff authentication required", 401)
+        raise PermissionError("Unauthorized: Staff authentication required")
 
     if not client_id:
-        return resp.error_response("clientId is required.")
+        raise ValidationError("clientId is required.")
 
     # Validate staff permissions
     staff_context = PermissionValidator.validate_staff_access(
         staff_email,
-        required_roles=['CUSTOMER_SUPPORT']
+        required_roles=['ADMIN', 'CUSTOMER_SUPPORT']
     )
     
-    staff_user_id = staff_context['user_id']
+    staff_user_id = staff_context['staff_user_id']
     
     # Check if client exists
     client_user_record = db.get_user_record(client_id)
@@ -51,8 +56,8 @@ def lambda_handler(event, context):
         "staffUserId": staff_user_id,
     }
     
-    # Queue notification to all staff except the one who took the user
-    notification_manager.queue_staff_websocket_notification(notification, exclude_user_id=staff_user_id)
+    # Removed: WebSocket notification for user assignment (not messaging-related)
+    # As per requirements, websocket notifications are only for messaging scenarios
     
     # Queue Firebase push notification to all staff except the one who took the user
     # Get staff user record to get the staff name for better notification

@@ -1,12 +1,29 @@
 import json
 import re
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 def get_query_param(event, key, default=None):
     return (event.get('queryStringParameters') or {}).get(key, default)
 
 def get_header(event, key, default=None):
-    return (event.get('headers') or {}).get(key, default)
+    """
+    Get header value with case-insensitive matching
+    API Gateway may normalize header names, so we try multiple variations
+    """
+    headers = event.get('headers') or {}
+    
+    # First try exact match
+    if key in headers:
+        return headers[key]
+    
+    # Try case-insensitive search
+    key_lower = key.lower()
+    for header_key, value in headers.items():
+        if header_key.lower() == key_lower:
+            return value
+    
+    return default
 
 def get_path_param(event, key, default=None):
     return (event.get('pathParameters') or {}).get(key, default)
@@ -66,7 +83,7 @@ def validate_year(year, field_name="year"):
     """Validate year value"""
     try:
         year_int = int(year)
-        current_year = datetime.now().year
+        current_year = datetime.now(ZoneInfo('Australia/Perth')).year
         if year_int < 1900 or year_int > current_year + 1:
             return False, f"{field_name} must be between 1900 and {current_year + 1}"
         return True, ""

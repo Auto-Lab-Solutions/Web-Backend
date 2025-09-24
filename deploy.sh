@@ -125,8 +125,9 @@ check_prerequisites() {
     fi
     
     if [[ -z "$SES_REGION" ]]; then
-        print_warning "SES_REGION not set, using default: ap-southeast-2"
-        export SES_REGION="ap-southeast-2"
+        # Use the same region as AWS_REGION by default
+        print_warning "SES_REGION not set, using AWS_REGION: $AWS_REGION"
+        export SES_REGION="$AWS_REGION"
     fi
     
     # Check Email Storage configuration
@@ -230,8 +231,16 @@ check_prerequisites() {
 create_cf_bucket() {
     print_status "Creating CloudFormation templates bucket..."
     
-    if aws s3 ls "s3://$CLOUDFORMATION_BUCKET" 2>&1 | grep -q 'NoSuchBucket'; then
-        aws s3 mb s3://$CLOUDFORMATION_BUCKET --region $AWS_REGION
+    # Check if bucket exists in the current region
+    if ! aws s3api head-bucket --bucket "$CLOUDFORMATION_BUCKET" --region "$AWS_REGION" 2>/dev/null; then
+        print_status "Creating new CloudFormation bucket: $CLOUDFORMATION_BUCKET in region $AWS_REGION"
+        if [ "$AWS_REGION" = "us-east-1" ]; then
+            # For us-east-1, don't specify region (it's the default)
+            aws s3 mb s3://$CLOUDFORMATION_BUCKET
+        else
+            # For other regions, specify the region
+            aws s3 mb s3://$CLOUDFORMATION_BUCKET --region $AWS_REGION
+        fi
         print_success "Created CloudFormation bucket: $CLOUDFORMATION_BUCKET"
     else
         print_status "CloudFormation bucket already exists: $CLOUDFORMATION_BUCKET"
@@ -274,7 +283,7 @@ package_lambdas() {
         
         # Copy common library if it exists
         if [[ -d "lambda/common_lib" ]]; then
-            cp -r lambda/common_lib "$temp_dir/"
+            cp lambda/common_lib/*.py "$temp_dir/"
         fi
         
         # Create ZIP file
@@ -292,7 +301,17 @@ package_lambdas() {
         fi
     done
     
-    print_success "All Lambda functions packaged"
+    # Upload all ZIP files to S3
+    print_status "Uploading Lambda packages to S3..."
+    for zip_file in lambda/tmp/*.zip; do
+        if [[ -f "$zip_file" ]]; then
+            local lambda_name=$(basename "$zip_file" .zip)
+            aws s3 cp "$zip_file" "s3://$CLOUDFORMATION_BUCKET/lambda/$lambda_name.zip" --region "$AWS_REGION"
+            print_status "Uploaded $lambda_name.zip to S3"
+        fi
+    done
+    
+    print_success "All Lambda functions packaged and uploaded"
 }
 
 # Update Lambda function code
@@ -321,7 +340,7 @@ update_lambda_code() {
 update_invoice_processor_lambda() {
     print_status "Updating Invoice Processor Lambda..."
     
-    local function_name="invoice-processor-${ENVIRONMENT}"
+    local function_name="sqs-process-invoice-queue-${ENVIRONMENT}"
     local zip_file="lambda/tmp/sqs-process-invoice-queue.zip"
     
     if [[ ! -f "$zip_file" ]]; then
@@ -342,7 +361,7 @@ update_invoice_processor_lambda() {
     fi
     
     # Update Email Notification Processor Lambda
-    local email_function_name="email-notification-processor-${ENVIRONMENT}"
+    local email_function_name="sqs-process-email-notification-queue-${ENVIRONMENT}"
     local email_zip_file="lambda/tmp/sqs-process-email-notification-queue.zip"
     
     if [[ -f "$email_zip_file" ]]; then
@@ -358,26 +377,12 @@ update_invoice_processor_lambda() {
         fi
     fi
     
-    # Update WebSocket Notification Processor Lambda
-    local websocket_function_name="websocket-notification-processor-${ENVIRONMENT}"
-    local websocket_zip_file="lambda/tmp/sqs-process-websocket-notification-queue.zip"
-    
-    if [[ -f "$websocket_zip_file" ]]; then
-        if function_exists "$websocket_function_name"; then
-            print_status "Updating WebSocket Notification Processor Lambda function: $websocket_function_name"
-            aws lambda update-function-code \
-                --function-name "$websocket_function_name" \
-                --zip-file "fileb://$websocket_zip_file" > /dev/null
-            
-            print_success "✅ WebSocket Notification Processor Lambda updated successfully"
-        else
-            print_warning "WebSocket Notification Processor Lambda function does not exist (will be created by CloudFormation): $websocket_function_name"
-        fi
-    fi
+    # Removed: WebSocket Notification Processor Lambda update
+    # WebSocket notifications are now handled synchronously for messaging scenarios only
     
     # Update Firebase Notification Processor Lambda if enabled
     if [[ "${ENABLE_FIREBASE_NOTIFICATIONS:-false}" == "true" ]]; then
-        local firebase_function_name="firebase-notification-processor-${ENVIRONMENT}"
+        local firebase_function_name="sqs-process-firebase-notification-queue-${ENVIRONMENT}"
         local firebase_zip_file="lambda/tmp/sqs-process-firebase-notification-queue.zip"
         
         if [[ -f "$firebase_zip_file" ]]; then
@@ -453,7 +458,6 @@ update_all_lambdas() {
             # Skip functions already handled by specific update functions
             if [[ "$lambda_name" == "sqs-process-invoice-queue" ]] || \
                [[ "$lambda_name" == "sqs-process-email-notification-queue" ]] || \
-               [[ "$lambda_name" == "sqs-process-websocket-notification-queue" ]] || \
                [[ "$lambda_name" == "sqs-process-firebase-notification-queue" ]] || \
                [[ "$lambda_name" == "backup-restore" ]] || \
                [[ "$lambda_name" == "api-backup-restore" ]]; then
@@ -467,80 +471,205 @@ update_all_lambdas() {
     print_success "All Lambda functions updated"
 }
 
+# Check and clean up orphaned Route53 records
+check_route53_records() {
+    print_status "Checking for orphaned Route53 records..."
+    
+    # Only check if custom domains are enabled
+    if [[ "${ENABLE_API_CUSTOM_DOMAINS}" != "true" ]]; then
+        print_status "API custom domains disabled - skipping Route53 checks"
+        return 0
+    fi
+    
+    if [[ -z "$API_HOSTED_ZONE_ID" ]]; then
+        print_warning "API_HOSTED_ZONE_ID not set - skipping Route53 checks"
+        return 0
+    fi
+    
+    local has_orphaned_records=false
+    
+    # Check if API domain has orphaned records
+    if [[ -n "$API_DOMAIN_NAME" ]]; then
+        if nslookup "$API_DOMAIN_NAME" >/dev/null 2>&1; then
+            # Check if corresponding API Gateway custom domain exists
+            if ! aws apigateway get-domain-name --domain-name "$API_DOMAIN_NAME" >/dev/null 2>&1; then
+                print_warning "⚠️  Found orphaned Route53 record: $API_DOMAIN_NAME"
+                print_warning "   DNS resolves but API Gateway custom domain does not exist"
+                has_orphaned_records=true
+            fi
+        fi
+    fi
+    
+    # Check if WebSocket domain has orphaned records
+    if [[ -n "$WEBSOCKET_DOMAIN_NAME" ]]; then
+        if nslookup "$WEBSOCKET_DOMAIN_NAME" >/dev/null 2>&1; then
+            # Check if corresponding WebSocket API custom domain exists
+            if ! aws apigatewayv2 get-domain-name --domain-name "$WEBSOCKET_DOMAIN_NAME" >/dev/null 2>&1; then
+                print_warning "⚠️  Found orphaned Route53 record: $WEBSOCKET_DOMAIN_NAME"
+                print_warning "   DNS resolves but WebSocket API custom domain does not exist"
+                has_orphaned_records=true
+            fi
+        fi
+    fi
+    
+    if [ "$has_orphaned_records" = true ]; then
+        print_error "❌ Orphaned Route53 records detected!"
+        print_error "   These records from previous deployments will interfere with new deployments."
+        print_error ""
+        print_error "🔧 AUTOMATED CLEANUP REQUIRED:"
+        print_error "   Use the cleanup pipeline to remove all resources and orphaned records:"
+        print_error "   1. Go to GitHub Actions → Cleanup Environment workflow"
+        print_error "   2. Run cleanup for the affected environment"
+        print_error "   3. Re-run this deployment after cleanup completes"
+        print_error ""
+        print_error "⚠️  CloudFormation deployment will likely fail with orphaned DNS records"
+        
+        # In CI/CD or auto-confirm mode, continue with warning
+        if [ -n "$GITHUB_ACTIONS" ] || [ -n "$CI" ] || [ "$AUTO_CONFIRM" = "true" ]; then
+            print_warning "⚠️  Continuing deployment in automated mode despite orphaned records"
+            print_warning "   CloudFormation may fail to create custom domains"
+            return 0
+        else
+            exit 1
+        fi
+    else
+        print_success "✅ No orphaned Route53 records detected"
+    fi
+}
+
+# Validate Route53 records after deployment
+validate_route53_records() {
+    print_status "Validating Route53 records after deployment..."
+    
+    # Only validate if custom domains are enabled
+    if [[ "${ENABLE_API_CUSTOM_DOMAINS}" != "true" ]]; then
+        print_status "API custom domains disabled - skipping Route53 validation"
+        return 0
+    fi
+    
+    local validation_failed=false
+    
+    # Validate REST API domain
+    if [[ -n "$API_DOMAIN_NAME" ]]; then
+        print_status "Validating REST API domain: $API_DOMAIN_NAME"
+        
+        # Check if API Gateway custom domain exists
+        if aws apigateway get-domain-name --domain-name "$API_DOMAIN_NAME" >/dev/null 2>&1; then
+            # Get the target DNS name
+            local target_dns=$(aws apigateway get-domain-name --domain-name "$API_DOMAIN_NAME" --query 'regionalDomainName' --output text 2>/dev/null)
+            print_success "✅ API Gateway custom domain exists: $target_dns"
+            
+            # Check DNS resolution
+            if nslookup "$API_DOMAIN_NAME" >/dev/null 2>&1; then
+                print_success "✅ DNS resolution works for: $API_DOMAIN_NAME"
+            else
+                print_warning "⚠️  DNS resolution failed for: $API_DOMAIN_NAME (may take a few minutes to propagate)"
+            fi
+        else
+            print_error "❌ API Gateway custom domain not found: $API_DOMAIN_NAME"
+            validation_failed=true
+        fi
+    fi
+    
+    # Validate WebSocket API domain
+    if [[ -n "$WEBSOCKET_DOMAIN_NAME" ]]; then
+        print_status "Validating WebSocket API domain: $WEBSOCKET_DOMAIN_NAME"
+        
+        # Check if WebSocket API custom domain exists
+        if aws apigatewayv2 get-domain-name --domain-name "$WEBSOCKET_DOMAIN_NAME" >/dev/null 2>&1; then
+            # Get the target DNS name
+            local target_dns=$(aws apigatewayv2 get-domain-name --domain-name "$WEBSOCKET_DOMAIN_NAME" --query 'DomainNameConfigurations[0].TargetDomainName' --output text 2>/dev/null)
+            print_success "✅ WebSocket API custom domain exists: $target_dns"
+            
+            # Check DNS resolution
+            if nslookup "$WEBSOCKET_DOMAIN_NAME" >/dev/null 2>&1; then
+                print_success "✅ DNS resolution works for: $WEBSOCKET_DOMAIN_NAME"
+            else
+                print_warning "⚠️  DNS resolution failed for: $WEBSOCKET_DOMAIN_NAME (may take a few minutes to propagate)"
+            fi
+        else
+            print_error "❌ WebSocket API custom domain not found: $WEBSOCKET_DOMAIN_NAME"
+            validation_failed=true
+        fi
+    fi
+    
+    if [ "$validation_failed" = true ]; then
+        print_error "❌ Route53 validation failed - some custom domains are not working"
+        print_error "   Check CloudFormation events for domain creation errors"
+        return 1
+    else
+        print_success "✅ All Route53 records validated successfully"
+        return 0
+    fi
+}
+
 # Deploy CloudFormation stack
 deploy_stack() {
     print_status "Deploying CloudFormation stack..."
     
     # Prepare CloudFormation parameters
-    local cf_params=""
+    local cf_params=(
+        "ParameterKey=Environment,ParameterValue=$ENVIRONMENT"
+        "ParameterKey=SharedKey,ParameterValue=$SHARED_KEY"
+        "ParameterKey=S3BucketName,ParameterValue=$REPORTS_BUCKET_NAME"
+        "ParameterKey=CloudFormationBucket,ParameterValue=$CLOUDFORMATION_BUCKET"
+        "ParameterKey=BackupBucketName,ParameterValue=$BACKUP_BUCKET_NAME"
+        "ParameterKey=ReportsBucketName,ParameterValue=$REPORTS_BUCKET_NAME"
+        "ParameterKey=StripeSecretKey,ParameterValue=$STRIPE_SECRET_KEY"
+        "ParameterKey=StripeWebhookSecret,ParameterValue=$STRIPE_WEBHOOK_SECRET"
+        "ParameterKey=Auth0Domain,ParameterValue=$AUTH0_DOMAIN"
+        "ParameterKey=Auth0Audience,ParameterValue=$AUTH0_AUDIENCE"
+        "ParameterKey=EnableFrontendWebsite,ParameterValue=$ENABLE_FRONTEND_WEBSITE"
+        "ParameterKey=FrontendDomainName,ParameterValue=$FRONTEND_DOMAIN_NAME"
+        "ParameterKey=FrontendHostedZoneId,ParameterValue=$FRONTEND_HOSTED_ZONE_ID"
+        "ParameterKey=FrontendAcmCertificateArn,ParameterValue=$FRONTEND_ACM_CERTIFICATE_ARN"
+        "ParameterKey=EnableCustomDomain,ParameterValue=$ENABLE_CUSTOM_DOMAIN"
+        "ParameterKey=FrontendRootUrl,ParameterValue=$FRONTEND_ROOT_URL"
+        "ParameterKey=MailSendingAddress,ParameterValue=$NO_REPLY_EMAIL"
+        "ParameterKey=SesRegion,ParameterValue=$SES_REGION"
+        "ParameterKey=MailReceivingAddress,ParameterValue=$MAIL_FROM_ADDRESS"
+        "ParameterKey=EmailStorageBucketName,ParameterValue=$EMAIL_STORAGE_BUCKET"
+        "ParameterKey=SESHostedZoneId,ParameterValue=${SES_HOSTED_ZONE_ID:-}"
+        "ParameterKey=SESDomainName,ParameterValue=${SES_DOMAIN_NAME:-autolabsolutions.com}"
+        "ParameterKey=EnableFirebaseNotifications,ParameterValue=${ENABLE_FIREBASE_NOTIFICATIONS:-false}"
+        "ParameterKey=FirebaseProjectId,ParameterValue=${FIREBASE_PROJECT_ID:-}"
+        "ParameterKey=FirebaseServiceAccountKey,ParameterValue=${FIREBASE_SERVICE_ACCOUNT_KEY:-}"
+        "ParameterKey=EnableBackupSystem,ParameterValue=${ENABLE_BACKUP_SYSTEM:-false}"
+        "ParameterKey=BackupSchedule,ParameterValue=${BACKUP_SCHEDULE:-cron(0 18 ? * SAT *)}"
+        "ParameterKey=EnableApiCustomDomains,ParameterValue=${ENABLE_API_CUSTOM_DOMAINS:-false}"
+        "ParameterKey=ApiDomainName,ParameterValue=${API_DOMAIN_NAME:-}"
+        "ParameterKey=WebSocketDomainName,ParameterValue=${WEBSOCKET_DOMAIN_NAME:-}"
+        "ParameterKey=ApiHostedZoneId,ParameterValue=${API_HOSTED_ZONE_ID:-}"
+        "ParameterKey=ApiAcmCertificateArn,ParameterValue=${API_ACM_CERTIFICATE_ARN:-}"
+        "ParameterKey=EnableReportsCustomDomain,ParameterValue=${ENABLE_REPORTS_CUSTOM_DOMAIN:-false}"
+        "ParameterKey=ReportsDomainName,ParameterValue=${REPORTS_DOMAIN_NAME:-}"
+        "ParameterKey=ReportsHostedZoneId,ParameterValue=${REPORTS_HOSTED_ZONE_ID:-}"
+        "ParameterKey=ReportsAcmCertificateArn,ParameterValue=${REPORTS_ACM_CERTIFICATE_ARN:-}"
+    )
     
-    # Core Environment Configuration
-    cf_params="$cf_params ParameterKey=Environment,ParameterValue=$ENVIRONMENT"
-    cf_params="$cf_params ParameterKey=SharedKey,ParameterValue=$SHARED_KEY"
-    
-    # S3 Bucket Configuration
-    cf_params="$cf_params ParameterKey=S3BucketName,ParameterValue=$REPORTS_BUCKET_NAME"
-    cf_params="$cf_params ParameterKey=CloudFormationBucket,ParameterValue=$CLOUDFORMATION_BUCKET"
-    cf_params="$cf_params ParameterKey=BackupBucketName,ParameterValue=$BACKUP_BUCKET_NAME"
-    cf_params="$cf_params ParameterKey=ReportsBucketName,ParameterValue=$REPORTS_BUCKET_NAME"
-    
-    # Payment Integration (Stripe)
-    cf_params="$cf_params ParameterKey=StripeSecretKey,ParameterValue=$STRIPE_SECRET_KEY"
-    cf_params="$cf_params ParameterKey=StripeWebhookSecret,ParameterValue=$STRIPE_WEBHOOK_SECRET"
-    
-    # Authentication (Auth0)
-    cf_params="$cf_params ParameterKey=Auth0Domain,ParameterValue=$AUTH0_DOMAIN"
-    cf_params="$cf_params ParameterKey=Auth0Audience,ParameterValue=$AUTH0_AUDIENCE"
-    
-    # Frontend Website Configuration
-    cf_params="$cf_params ParameterKey=EnableFrontendWebsite,ParameterValue=$ENABLE_FRONTEND_WEBSITE"
-    cf_params="$cf_params ParameterKey=FrontendDomainName,ParameterValue=$FRONTEND_DOMAIN_NAME"
-    cf_params="$cf_params ParameterKey=FrontendHostedZoneId,ParameterValue=$FRONTEND_HOSTED_ZONE_ID"
-    cf_params="$cf_params ParameterKey=FrontendAcmCertificateArn,ParameterValue=$FRONTEND_ACM_CERTIFICATE_ARN"
-    cf_params="$cf_params ParameterKey=EnableCustomDomain,ParameterValue=$ENABLE_CUSTOM_DOMAIN"
-    cf_params="$cf_params ParameterKey=FrontendRootUrl,ParameterValue=$FRONTEND_ROOT_URL"
-    
-    # Email Service (SES) Configuration
-    cf_params="$cf_params ParameterKey=MailSendingAddress,ParameterValue=$NO_REPLY_EMAIL"
-    cf_params="$cf_params ParameterKey=SesRegion,ParameterValue=$SES_REGION"
-    cf_params="$cf_params ParameterKey=MailReceivingAddress,ParameterValue=$MAIL_FROM_ADDRESS"
-    cf_params="$cf_params ParameterKey=EmailStorageBucketName,ParameterValue=$EMAIL_STORAGE_BUCKET"
-    cf_params="$cf_params ParameterKey=SESHostedZoneId,ParameterValue=${SES_HOSTED_ZONE_ID:-}"
-    cf_params="$cf_params ParameterKey=SESDomainName,ParameterValue=${SES_DOMAIN_NAME:-autolabsolutions.com}"
-    
-    # # Firebase Notifications (Optional)
-    cf_params="$cf_params ParameterKey=EnableFirebaseNotifications,ParameterValue=${ENABLE_FIREBASE_NOTIFICATIONS:-false}"
-    cf_params="$cf_params ParameterKey=FirebaseProjectId,ParameterValue=${FIREBASE_PROJECT_ID:-}"
-    cf_params="$cf_params ParameterKey=FirebaseServiceAccountKey,ParameterValue=${FIREBASE_SERVICE_ACCOUNT_KEY:-}"
-    
-    # API Custom Domains (Optional)
-    cf_params="$cf_params ParameterKey=EnableApiCustomDomains,ParameterValue=${ENABLE_API_CUSTOM_DOMAINS:-false}"
-    cf_params="$cf_params ParameterKey=ApiDomainName,ParameterValue=${API_DOMAIN_NAME:-}"
-    cf_params="$cf_params ParameterKey=WebSocketDomainName,ParameterValue=${WEBSOCKET_DOMAIN_NAME:-}"
-    cf_params="$cf_params ParameterKey=ApiHostedZoneId,ParameterValue=${API_HOSTED_ZONE_ID:-}"
-    cf_params="$cf_params ParameterKey=ApiAcmCertificateArn,ParameterValue=${API_ACM_CERTIFICATE_ARN:-}"
-    
-    # Reports Custom Domain (Optional)
-    cf_params="$cf_params ParameterKey=EnableReportsCustomDomain,ParameterValue=${ENABLE_REPORTS_CUSTOM_DOMAIN:-false}"
-    cf_params="$cf_params ParameterKey=ReportsDomainName,ParameterValue=${REPORTS_DOMAIN_NAME:-}"
-    cf_params="$cf_params ParameterKey=ReportsHostedZoneId,ParameterValue=${REPORTS_HOSTED_ZONE_ID:-}"
-    cf_params="$cf_params ParameterKey=ReportsAcmCertificateArn,ParameterValue=${REPORTS_ACM_CERTIFICATE_ARN:-}"
+    # Determine the correct S3 URL format based on region
+    local s3_url_base
+    if [ "$AWS_REGION" = "us-east-1" ]; then
+        s3_url_base="https://$CLOUDFORMATION_BUCKET.s3.amazonaws.com"
+    else
+        s3_url_base="https://$CLOUDFORMATION_BUCKET.s3.$AWS_REGION.amazonaws.com"
+    fi
     
     # Check if stack exists
     if aws cloudformation describe-stacks --stack-name "$STACK_NAME" &> /dev/null; then
         print_status "Updating existing CloudFormation stack: $STACK_NAME"
         aws cloudformation update-stack \
             --stack-name "$STACK_NAME" \
-            --template-url "https://$CLOUDFORMATION_BUCKET.s3.$AWS_REGION.amazonaws.com/main-stack.yaml" \
-            --parameters $cf_params \
+            --template-url "$s3_url_base/main-stack.yaml" \
+            --parameters "${cf_params[@]}" \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --region "$AWS_REGION"
     else
         print_status "Creating new CloudFormation stack: $STACK_NAME"
         aws cloudformation create-stack \
             --stack-name "$STACK_NAME" \
-            --template-url "https://$CLOUDFORMATION_BUCKET.s3.$AWS_REGION.amazonaws.com/main-stack.yaml" \
-            --parameters $cf_params \
+            --template-url "$s3_url_base/main-stack.yaml" \
+            --parameters "${cf_params[@]}" \
             --capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM \
             --region "$AWS_REGION"
     fi
@@ -732,14 +861,25 @@ except:
             ;;
     esac
     
-    # Check email storage bucket
+    # Check email storage bucket - get the actual bucket name from CloudFormation
+    local actual_bucket_name=$(aws cloudformation describe-stacks \
+        --stack-name "$STACK_NAME" \
+        --region "$AWS_REGION" \
+        --query 'Stacks[0].Outputs[?OutputKey==`EmailStorageBucket`].OutputValue' \
+        --output text 2>/dev/null || echo "")
+    
     local email_bucket_status="unknown"
-    if aws s3 ls "s3://$EMAIL_STORAGE_BUCKET" --region "$AWS_REGION" >/dev/null 2>&1; then
-        email_bucket_status="exists"
-        print_success "✅ Email storage bucket exists: $EMAIL_STORAGE_BUCKET"
+    if [[ -n "$actual_bucket_name" ]]; then
+        if aws s3 ls "s3://$actual_bucket_name" --region "$AWS_REGION" >/dev/null 2>&1; then
+            email_bucket_status="exists"
+            print_success "✅ Email storage bucket exists: $actual_bucket_name"
+        else
+            email_bucket_status="missing"
+            print_error "❌ Email storage bucket not found: $actual_bucket_name"
+        fi
     else
         email_bucket_status="missing"
-        print_error "❌ Email storage bucket not found: $EMAIL_STORAGE_BUCKET"
+        print_error "❌ Could not get email storage bucket name from CloudFormation outputs"
     fi
     
     # Check SES receipt rules
@@ -760,7 +900,7 @@ except:
     print_status "=== EMAIL RECEIVING SETUP SUMMARY ==="
     echo "📧 Email Domain: $SES_DOMAIN_NAME"
     echo "🌍 SES Region: $SES_REGION"
-    echo "📂 Storage Bucket: $EMAIL_STORAGE_BUCKET"
+    echo "📂 Storage Bucket: ${actual_bucket_name:-$EMAIL_STORAGE_BUCKET}"
     echo "✉️  Receiving Address: $MAIL_FROM_ADDRESS"
     echo "📋 Domain Verification: $verification_status"
     echo "🪣 Storage Bucket: $email_bucket_status"
@@ -914,6 +1054,9 @@ main() {
     
     check_prerequisites
     
+    # Check for orphaned Route53 records before deployment
+    check_route53_records
+    
     create_cf_bucket
     
     # Upload CloudFormation templates
@@ -928,6 +1071,18 @@ main() {
     fi
     
     deploy_stack
+
+    # Validate Route53 records after stack deployment
+    validate_route53_records
+
+    # Force API Gateway redeployment to ensure new methods are available
+    print_status "Redeploying API Gateway stage to ensure new endpoints are available..."
+    if ./redeploy-api-gateway.sh "$ENVIRONMENT" --force; then
+        print_success "✅ API Gateway redeployed successfully with latest changes"
+    else
+        print_warning "⚠️  API Gateway redeployment failed - but continuing with deployment"
+        print_warning "You may need to manually redeploy API Gateway for new endpoints to work"
+    fi
 
     # Conditionally update Lambda functions
     if [[ "${SKIP_LAMBDAS:-false}" == "true" ]]; then
@@ -965,7 +1120,7 @@ main() {
     verify_ses_email_setup
     
     # Always update Lambda environment variables (even when SKIP_LAMBDAS=true)
-    print_status "Updating Lambda environment variables (WebSocket endpoints and notification queues)..."
+    print_status "Updating Lambda environment variables (WebSocket endpoints and notification queues - excluding websocket queues)..."
     ./update-lambda-variables.sh --env "$ENVIRONMENT"
     
     update_auth0_config
@@ -1036,8 +1191,30 @@ except:
     print_status "Important endpoints:"
     aws cloudformation describe-stacks \
         --stack-name $STACK_NAME \
-        --query 'Stacks[0].Outputs[?OutputKey==`RestApiEndpoint`||OutputKey==`WebSocketApiEndpoint`||OutputKey==`InvoiceQueueUrl`||OutputKey==`EmailNotificationQueueUrl`||OutputKey==`WebSocketNotificationQueueUrl`||OutputKey==`FirebaseNotificationQueueUrl`||OutputKey==`SESBounceTopicArn`||OutputKey==`SESComplaintTopicArn`||OutputKey==`EmailSuppressionTableName`||OutputKey==`EmailAnalyticsTableName`].[OutputKey,OutputValue]' \
+        --query 'Stacks[0].Outputs[?OutputKey==`RestApiEndpoint`||OutputKey==`WebSocketApiEndpoint`||OutputKey==`InvoiceQueueUrl`||OutputKey==`EmailNotificationQueueUrl`||OutputKey==`FirebaseNotificationQueueUrl`||OutputKey==`SESBounceTopicArn`||OutputKey==`SESComplaintTopicArn`||OutputKey==`EmailSuppressionTableName`||OutputKey==`EmailAnalyticsTableName`].[OutputKey,OutputValue]' \
         --output table
+
+    # Print Route53 and API Gateway status
+    if [[ "${ENABLE_API_CUSTOM_DOMAINS}" == "true" ]]; then
+        echo ""
+        print_status "🌐 API GATEWAY CUSTOM DOMAINS:"
+        if [[ -n "$API_DOMAIN_NAME" ]]; then
+            if nslookup "$API_DOMAIN_NAME" >/dev/null 2>&1; then
+                print_success "  ✅ REST API: https://$API_DOMAIN_NAME"
+            else
+                print_warning "  ⏳ REST API: https://$API_DOMAIN_NAME (DNS propagating...)"
+            fi
+        fi
+        if [[ -n "$WEBSOCKET_DOMAIN_NAME" ]]; then
+            if nslookup "$WEBSOCKET_DOMAIN_NAME" >/dev/null 2>&1; then
+                print_success "  ✅ WebSocket: wss://$WEBSOCKET_DOMAIN_NAME"
+            else
+                print_warning "  ⏳ WebSocket: wss://$WEBSOCKET_DOMAIN_NAME (DNS propagating...)"
+            fi
+        fi
+        echo ""
+        print_status "📝 Note: DNS propagation can take 5-10 minutes for new domains"
+    fi
 
     # Print deployment summary
     echo ""
@@ -1067,7 +1244,7 @@ except:
         echo "  🔔 5. Notifications sent via SNS/SQS for further processing"
         echo ""
         print_success "✅ ASYNC PROCESSING SYSTEM DEPLOYED:"
-        echo "  ✓ SQS queues for invoice, email, and WebSocket notifications"
+        echo "  ✓ SQS queues for invoice, email, and Firebase notifications"
         echo "  ✓ Lambda processors for all async operations"
         echo "  ✓ Firebase notifications (if enabled)"
         echo "  ✓ Automated backup system with scheduling"
@@ -1076,6 +1253,18 @@ except:
         echo "  ✓ SES bounce/complaint handlers"
         echo "  ✓ Email suppression list management"
         echo "  ✓ Delivery tracking and analytics"
+    fi
+    
+    # Final validation of the deployment
+    echo ""
+    print_status "🔍 Running final deployment validation..."
+    if ./validate-deployment.sh --env "$ENVIRONMENT"; then
+        print_success "🎉 DEPLOYMENT VALIDATION PASSED!"
+        print_success "All components are working correctly."
+    else
+        print_warning "⚠️  Some validation checks failed."
+        print_warning "The deployment may be partially working. Check the validation output above."
+        print_warning "You can re-run validation later with: ./validate-deployment.sh --env $ENVIRONMENT"
     fi
 }
 

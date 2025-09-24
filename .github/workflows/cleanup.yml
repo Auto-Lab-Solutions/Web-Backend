@@ -12,7 +12,8 @@ on:
         - production
 
 env:
-  AWS_REGION: ap-southeast-2
+  # Set AWS region based on environment: us-east-1 for development, ap-southeast-2 for production
+  AWS_REGION: ${{ github.event.inputs.environment == 'development' && 'us-east-1' || 'ap-southeast-2' }}
 
 jobs:
   cleanup:
@@ -51,6 +52,12 @@ jobs:
       run: |
         chmod +x *.sh
         chmod +x config/environments.sh
+
+    - name: Check Route53 records before cleanup
+      run: |
+        echo "Checking Route53 records before cleanup..."
+        ./cleanup-route53-records.sh
+      continue-on-error: true
 
     - name: Confirm cleanup
       run: |
@@ -97,6 +104,16 @@ jobs:
         fi
       env:
         AUTO_LAB_ENV: ${{ github.event.inputs.environment }}
+      continue-on-error: true
+
+    - name: Check for orphaned Route53 records after cleanup
+      run: |
+        echo "Checking for orphaned Route53 records after cleanup..."
+        ./cleanup-route53-records.sh
+        
+        echo ""
+        echo "If orphaned Route53 records were found, they need to be cleaned up manually via AWS Console:"
+        echo "::warning::Orphaned Route53 records may require AWS Console cleanup - see cleanup-route53-records.sh output above"
       continue-on-error: true
 
     - name: Upload backup artifacts

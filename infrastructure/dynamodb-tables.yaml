@@ -144,6 +144,8 @@ Resources:
           AttributeType: S
         - AttributeName: scheduledDate
           AttributeType: S
+        - AttributeName: status
+          AttributeType: S
       KeySchema:
         - AttributeName: appointmentId
           KeyType: HASH
@@ -163,6 +165,12 @@ Resources:
         - IndexName: scheduledDate-index
           KeySchema:
             - AttributeName: scheduledDate
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+        - IndexName: status-index
+          KeySchema:
+            - AttributeName: status
               KeyType: HASH
           Projection:
             ProjectionType: ALL
@@ -305,15 +313,15 @@ Resources:
       AttributeDefinitions:
         - AttributeName: invoiceId
           AttributeType: S
-        - AttributeName: invoiceDate
-          AttributeType: S
+        - AttributeName: createdAt
+          AttributeType: N
       KeySchema:
         - AttributeName: invoiceId
           KeyType: HASH
       GlobalSecondaryIndexes:
-        - IndexName: invoiceDate-index
+        - IndexName: createdAt-index
           KeySchema:
-            - AttributeName: invoiceDate
+            - AttributeName: createdAt
               KeyType: HASH
           Projection:
             ProjectionType: ALL
@@ -321,6 +329,98 @@ Resources:
       Tags:
         - Key: Environment
           Value: !Ref Environment
+
+  # Email Threads Table - for email threading management
+  EmailThreadsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'EmailThreads-${Environment}'
+      AttributeDefinitions:
+        - AttributeName: threadId
+          AttributeType: S
+        - AttributeName: createdAt
+          AttributeType: N
+      KeySchema:
+        - AttributeName: threadId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: createdAt-index
+          KeySchema:
+            - AttributeName: createdAt
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: "Email threading system"
+
+  # Email Metadata Table - for email message metadata and threading
+  EmailMetadataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'EmailMetadata-${Environment}'
+      AttributeDefinitions:
+        - AttributeName: messageId
+          AttributeType: S
+        - AttributeName: threadId
+          AttributeType: S
+        - AttributeName: createdAt
+          AttributeType: N
+      KeySchema:
+        - AttributeName: messageId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: threadId-index
+          KeySchema:
+            - AttributeName: threadId
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: "Email message metadata and threading"
+
+  # Email Attachments Table - for storing email attachment metadata
+  EmailAttachmentsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'EmailAttachments-${Environment}'
+      AttributeDefinitions:
+        - AttributeName: attachmentId
+          AttributeType: S
+        - AttributeName: messageId
+          AttributeType: S
+        - AttributeName: createdAt
+          AttributeType: N
+      KeySchema:
+        - AttributeName: attachmentId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: messageId-index
+          KeySchema:
+            - AttributeName: messageId
+              KeyType: HASH
+            - AttributeName: createdAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      BillingMode: PAY_PER_REQUEST
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Purpose
+          Value: "Email attachment storage and metadata"
 
 Outputs:
   StaffTable:
@@ -394,3 +494,22 @@ Outputs:
     Value: !Ref InvoicesTable
     Export:
       Name: !Sub '${AWS::StackName}-InvoicesTable'
+
+  EmailThreadsTable:
+    Description: Email Threads Table Name
+    Value: !Ref EmailThreadsTable
+    Export:
+      Name: !Sub '${AWS::StackName}-EmailThreadsTable'
+
+  EmailMetadataTable:
+    Description: Email Metadata Table Name
+    Value: !Ref EmailMetadataTable
+    Export:
+      Name: !Sub '${AWS::StackName}-EmailMetadataTable'
+
+  EmailAttachmentsTable:
+    Description: Email Attachments Table Name
+    Value: !Ref EmailAttachmentsTable
+    Export:
+      Name: !Sub '${AWS::StackName}-EmailAttachmentsTable'
+

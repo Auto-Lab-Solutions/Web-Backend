@@ -305,14 +305,14 @@ You need to add these DNS records to dev.autolabsolutions.com:
 2. Email Receiving (MX Record):
    Type: MX
    Name: dev.autolabsolutions.com
-   Value: 10 inbound-smtp.ap-southeast-2.amazonaws.com
+   Value: 10 inbound-smtp.${SES_REGION}.amazonaws.com
    Priority: 10
 
 3. MAIL FROM Domain (Recommended):
    MX Record:
    Type: MX
    Name: mail.dev.autolabsolutions.com
-   Value: 10 feedback-smtp.ap-southeast-2.amazonses.com
+   Value: 10 feedback-smtp.${SES_REGION}.amazonses.com
    Priority: 10
    
    TXT Record:
@@ -323,7 +323,7 @@ You need to add these DNS records to dev.autolabsolutions.com:
 Step 2: Verify Identities in SES Console
 ----------------------------------------
 1. Go to AWS SES Console: https://console.aws.amazon.com/ses/
-2. Select region: ap-southeast-2
+2. Select region: ${SES_REGION} (us-east-1 for development, ap-southeast-2 for production)
 3. Navigate to "Verified identities"
 4. Check status of:
    - dev.autolabsolutions.com (Domain)

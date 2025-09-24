@@ -44,7 +44,7 @@ repos:
           - |
             for template in infrastructure/*.yaml; do
               echo "Validating $template"
-              aws cloudformation validate-template --template-body file://$template --region ap-southeast-2 || exit 1
+              aws cloudformation validate-template --template-body file://$template --region ${AWS_REGION:-us-east-1} || exit 1
             done
         language: system
         files: ^infrastructure/.*\.yaml$

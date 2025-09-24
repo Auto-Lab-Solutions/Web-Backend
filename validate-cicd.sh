@@ -60,7 +60,7 @@ if command -v aws &> /dev/null; then
         template_path="infrastructure/$template"
         if [ -f "$template_path" ]; then
             echo "  Validating $template..."
-            if aws cloudformation validate-template --template-body file://$template_path --region ap-southeast-2 &>/dev/null; then
+            if aws cloudformation validate-template --template-body file://$template_path --region ${AWS_REGION:-us-east-1} &>/dev/null; then
                 echo "    ✓ $template is valid"
             else
                 print_error "    ✗ $template validation failed"

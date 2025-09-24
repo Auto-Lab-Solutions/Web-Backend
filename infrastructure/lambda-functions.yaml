@@ -110,7 +110,7 @@ Parameters:
 
   SesRegion:
     Type: String
-    Description: AWS SES region
+    Description: AWS SES region (us-east-1 for development, ap-southeast-2 for production)
     Default: "us-east-1"
 
   FrontendRootUrl:
@@ -137,6 +137,21 @@ Parameters:
     Description: DynamoDB table for email metadata
     Default: ""
 
+  EmailThreadsTable:
+    Type: String
+    Description: DynamoDB table for email threading
+    Default: ""
+
+  EmailAttachmentsTable:
+    Type: String
+    Description: DynamoDB table for email attachments
+    Default: ""
+
+  EmailAttachmentsBucket:
+    Type: String
+    Description: S3 bucket for storing email attachments
+    Default: ""
+
   MailReceivingAddress:
     Type: String
     Description: Email address for receiving emails (environment-specific)
@@ -148,10 +163,8 @@ Parameters:
     Description: SQS Queue URL for email notifications
     Default: ""
 
-  WebSocketNotificationQueueUrl:
-    Type: String
-    Description: SQS Queue URL for WebSocket notifications
-    Default: ""
+  # Removed: WebSocketNotificationQueueUrl parameter
+  # WebSocket notifications are now handled synchronously for messaging scenarios only
 
   FirebaseNotificationQueueUrl:
     Type: String
@@ -221,6 +234,10 @@ Resources:
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${InvoicesTable}/index/*'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailMetadataTable}'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailMetadataTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailThreadsTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailThreadsTable}/index/*'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailAttachmentsTable}'
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailAttachmentsTable}/index/*'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailSuppressionTableName}'
                   - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailSuppressionTableName}/index/*'
         - PolicyName: S3Access
@@ -234,6 +251,12 @@ Resources:
                   - s3:DeleteObject
                   - s3:GetObjectUrl
                 Resource: '*'
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:HeadBucket
+                  - s3:GetBucketLocation
+                Resource: '*'
         - PolicyName: ApiGatewayAccess
           PolicyDocument:
             Version: '2012-10-17'
@@ -241,6 +264,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - execute-api:ManageConnections
+                  - execute-api:Invoke
                 Resource: '*'
         - PolicyName: SQSAccess
           PolicyDocument:
@@ -261,6 +285,9 @@ Resources:
                   - ses:SendRawEmail
                   - ses:GetSendQuota
                   - ses:GetSendStatistics
+                  - ses:GetSuppressedDestination
+                  - ses:PutSuppressedDestination
+                  - ses:DeleteSuppressedDestination
                 Resource: '*'
         - PolicyName: S3EmailStorageAccess
           PolicyDocument:
@@ -290,10 +317,54 @@ Resources:
         S3Key: lambda/staff-authorizer.zip
       Environment:
         Variables:
+          # Core Infrastructure
           ENVIRONMENT: !Ref Environment
-          LOG_LEVEL: !If [IsProduction, 'INFO', 'DEBUG']
+          STAGE: !Ref Stage
+          
+          # Database Tables
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
           AUTH0_DOMAIN: !Ref Auth0Domain
           AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+          LOG_LEVEL: !If [IsProduction, 'INFO', 'DEBUG']
       Timeout: !If [IsProduction, 60, 30]
       MemorySize: !If [IsProduction, 512, 256]
       Tags:
@@ -313,9 +384,53 @@ Resources:
         S3Key: lambda/staff-authorizer-optional.zip
       Environment:
         Variables:
+          # Core Infrastructure
           ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
           AUTH0_DOMAIN: !Ref Auth0Domain
           AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -333,10 +448,53 @@ Resources:
         S3Key: lambda/api-get-prices.zip
       Environment:
         Variables:
-          STAFF_TABLE: !Ref StaffTable
-          ITEM_PRICES_TABLE: !Ref ItemPricesTable
-          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          # Core Infrastructure
           ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -353,9 +511,179 @@ Resources:
         S3Key: lambda/api-get-users.zip
       Environment:
         Variables:
+          # Core Infrastructure
+          ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
           STAFF_TABLE: !Ref StaffTable
           USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiCheckUser:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'api-check-user-${Environment}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-check-user.zip
+      Environment:
+        Variables:
+          # Core Infrastructure
           ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiUpdateUserInfo:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'api-update-user-info-${Environment}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-update-user-info.zip
+      Environment:
+        Variables:
+          # Core Infrastructure
+          ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -372,10 +700,53 @@ Resources:
         S3Key: lambda/api-get-appointments.zip
       Environment:
         Variables:
+          # Core Infrastructure
+          ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
           STAFF_TABLE: !Ref StaffTable
           USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
-          ENVIRONMENT: !Ref Environment
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -392,17 +763,53 @@ Resources:
         S3Key: lambda/api-create-appointment.zip
       Environment:
         Variables:
+          # Core Infrastructure
+          ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
           STAFF_TABLE: !Ref StaffTable
-          APPOINTMENTS_TABLE: !Ref AppointmentsTable
           USERS_TABLE: !Ref UsersTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
           SERVICE_PRICES_TABLE: !Ref ServicePricesTable
-          ENVIRONMENT: !Ref Environment
-          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
-          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
-          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
-          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
           EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -419,17 +826,53 @@ Resources:
         S3Key: lambda/api-update-appointment.zip
       Environment:
         Variables:
+          # Core Infrastructure
+          ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
           STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
           SERVICE_PRICES_TABLE: !Ref ServicePricesTable
-          USERS_TABLE: !Ref UsersTable
-          ENVIRONMENT: !Ref Environment
-          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
-          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
-          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
-          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
           EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -446,9 +889,53 @@ Resources:
         S3Key: lambda/api-get-unavailable-slots.zip
       Environment:
         Variables:
-          APPOINTMENTS_TABLE: !Ref AppointmentsTable
-          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          # Core Infrastructure
           ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -465,9 +952,53 @@ Resources:
         S3Key: lambda/api-update-unavailable-slots.zip
       Environment:
         Variables:
-          STAFF_TABLE: !Ref StaffTable
-          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          # Core Infrastructure
           ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -484,10 +1015,53 @@ Resources:
         S3Key: lambda/api-get-orders.zip
       Environment:
         Variables:
+          # Core Infrastructure
+          ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
           STAFF_TABLE: !Ref StaffTable
           USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
           ORDERS_TABLE: !Ref OrdersTable
-          ENVIRONMENT: !Ref Environment
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -504,17 +1078,53 @@ Resources:
         S3Key: lambda/api-create-order.zip
       Environment:
         Variables:
+          # Core Infrastructure
+          ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
           STAFF_TABLE: !Ref StaffTable
-          ORDERS_TABLE: !Ref OrdersTable
           USERS_TABLE: !Ref UsersTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
           ITEM_PRICES_TABLE: !Ref ItemPricesTable
-          ENVIRONMENT: !Ref Environment
-          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
-          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
-          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
-          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
           EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -531,17 +1141,53 @@ Resources:
         S3Key: lambda/api-update-order.zip
       Environment:
         Variables:
+          # Core Infrastructure
+          ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
           STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
           ORDERS_TABLE: !Ref OrdersTable
           ITEM_PRICES_TABLE: !Ref ItemPricesTable
-          USERS_TABLE: !Ref UsersTable
-          ENVIRONMENT: !Ref Environment
-          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
-          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
-          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
-          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
           EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -558,6 +1204,11 @@ Resources:
         S3Key: lambda/api-confirm-cash-payment.zip
       Environment:
         Variables:
+          # Core Infrastructure
+          ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
           STAFF_TABLE: !Ref StaffTable
           USERS_TABLE: !Ref UsersTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
@@ -567,18 +1218,39 @@ Resources:
           SERVICE_PRICES_TABLE: !Ref ServicePricesTable
           ORDERS_TABLE: !Ref OrdersTable
           ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
           PAYMENTS_TABLE: !Ref PaymentsTable
           INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
           STRIPE_SECRET_KEY: !Ref StripeSecretKey
-          ENVIRONMENT: !Ref Environment
-          REPORTS_BUCKET: !Ref ReportsBucketName
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
           CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
           INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
-          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
           FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
-          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -595,12 +1267,53 @@ Resources:
         S3Key: lambda/api-create-payment-intent.zip
       Environment:
         Variables:
-          USERS_TABLE: !Ref UsersTable
-          APPOINTMENTS_TABLE: !Ref AppointmentsTable
-          ORDERS_TABLE: !Ref OrdersTable
-          PAYMENTS_TABLE: !Ref PaymentsTable
-          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          # Core Infrastructure
           ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -617,6 +1330,11 @@ Resources:
         S3Key: lambda/api-confirm-stripe-payment.zip
       Environment:
         Variables:
+          # Core Infrastructure
+          ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
           STAFF_TABLE: !Ref StaffTable
           USERS_TABLE: !Ref UsersTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
@@ -626,18 +1344,40 @@ Resources:
           SERVICE_PRICES_TABLE: !Ref ServicePricesTable
           ORDERS_TABLE: !Ref OrdersTable
           ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
           PAYMENTS_TABLE: !Ref PaymentsTable
           INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
           STRIPE_SECRET_KEY: !Ref StripeSecretKey
-          ENVIRONMENT: !Ref Environment
-          REPORTS_BUCKET: !Ref ReportsBucketName
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
           CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
           INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
-          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
           FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
-          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+      Timeout: 20
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -654,6 +1394,11 @@ Resources:
         S3Key: lambda/api-webhook-stripe-payment.zip
       Environment:
         Variables:
+          # Core Infrastructure
+          ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
           STAFF_TABLE: !Ref StaffTable
           USERS_TABLE: !Ref UsersTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
@@ -663,19 +1408,39 @@ Resources:
           SERVICE_PRICES_TABLE: !Ref ServicePricesTable
           ORDERS_TABLE: !Ref OrdersTable
           ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
           PAYMENTS_TABLE: !Ref PaymentsTable
           INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
           STRIPE_SECRET_KEY: !Ref StripeSecretKey
           STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
-          ENVIRONMENT: !Ref Environment
-          REPORTS_BUCKET: !Ref ReportsBucketName
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
           CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
           FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
           INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
-          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
           FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
-          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -692,9 +1457,53 @@ Resources:
         S3Key: lambda/api-get-inquiries.zip
       Environment:
         Variables:
-          STAFF_TABLE: !Ref StaffTable
-          INQUIRIES_TABLE: !Ref InquiriesTable
+          # Core Infrastructure
           ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -711,35 +1520,116 @@ Resources:
         S3Key: lambda/api-create-inquiry.zip
       Environment:
         Variables:
-          CONNECTIONS_TABLE: !Ref ConnectionsTable
-          INQUIRIES_TABLE: !Ref InquiriesTable
-          USERS_TABLE: !Ref UsersTable
+          # Core Infrastructure
           ENVIRONMENT: !Ref Environment
-          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
-          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
-          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+          STAGE: !Ref Stage
+          
+          # Database Tables
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
           EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
 
-  ApiGetReportUploadUrl:
+  ApiGetUploadUrl:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub 'api-get-report-upload-url-${Environment}'
+      FunctionName: !Sub 'api-get-upload-url-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt LambdaExecutionRole.Arn
       Code:
         S3Bucket: !Ref CloudFormationBucket
-        S3Key: lambda/api-get-report-upload-url.zip
+        S3Key: lambda/api-get-upload-url.zip
       Environment:
         Variables:
-          APPOINTMENTS_TABLE: !Ref AppointmentsTable
-          STAFF_TABLE: !Ref StaffTable
-          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
-          REPORTS_BUCKET_NAME: !Ref ReportsBucketName
+          # Core Infrastructure
           ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -756,13 +1646,53 @@ Resources:
         S3Key: lambda/api-get-analytics.zip
       Environment:
         Variables:
+          # Core Infrastructure
+          ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
           STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
           APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
           ORDERS_TABLE: !Ref OrdersTable
           ITEM_PRICES_TABLE: !Ref ItemPricesTable
-          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
-          USERS_TABLE: !Ref UsersTable
-          ENVIRONMENT: !Ref Environment
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -779,9 +1709,53 @@ Resources:
         S3Key: lambda/api-get-staff-roles.zip
       Environment:
         Variables:
-          STAFF_TABLE: !Ref StaffTable
-          SHARED_KEY: !Ref SharedKey
+          # Core Infrastructure
           ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -798,13 +1772,52 @@ Resources:
         S3Key: lambda/api-notify.zip
       Environment:
         Variables:
+          # Core Infrastructure
+          ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
           STAFF_TABLE: !Ref StaffTable
           USERS_TABLE: !Ref UsersTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
           MESSAGES_TABLE: !Ref MessagesTable
-          ENVIRONMENT: !Ref Environment
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
-          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
           FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
@@ -822,12 +1835,52 @@ Resources:
         S3Key: lambda/api-take-user.zip
       Environment:
         Variables:
+          # Core Infrastructure
+          ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
           STAFF_TABLE: !Ref StaffTable
           USERS_TABLE: !Ref UsersTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
-          ENVIRONMENT: !Ref Environment
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
-          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
           FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
@@ -845,9 +1898,53 @@ Resources:
         S3Key: lambda/api-get-connections.zip
       Environment:
         Variables:
-          STAFF_TABLE: !Ref StaffTable
-          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          # Core Infrastructure
           ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -864,10 +1961,53 @@ Resources:
         S3Key: lambda/api-get-messages.zip
       Environment:
         Variables:
-          STAFF_TABLE: !Ref StaffTable
-          MESSAGES_TABLE: !Ref MessagesTable
-          USERS_TABLE: !Ref UsersTable
+          # Core Infrastructure
           ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -884,9 +2024,53 @@ Resources:
         S3Key: lambda/api-get-last-messages.zip
       Environment:
         Variables:
-          STAFF_TABLE: !Ref StaffTable
-          MESSAGES_TABLE: !Ref MessagesTable
+          # Core Infrastructure
           ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -903,13 +2087,52 @@ Resources:
         S3Key: lambda/api-send-message.zip
       Environment:
         Variables:
+          # Core Infrastructure
+          ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
           STAFF_TABLE: !Ref StaffTable
           USERS_TABLE: !Ref UsersTable
-          MESSAGES_TABLE: !Ref MessagesTable
           CONNECTIONS_TABLE: !Ref ConnectionsTable
-          ENVIRONMENT: !Ref Environment
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
           EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
-          WEBSOCKET_NOTIFICATION_QUEUE_URL: !Ref WebSocketNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
           FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
@@ -928,8 +2151,53 @@ Resources:
         S3Key: lambda/ws-connect.zip
       Environment:
         Variables:
-          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          # Core Infrastructure
           ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -946,9 +2214,53 @@ Resources:
         S3Key: lambda/ws-disconnect.zip
       Environment:
         Variables:
-          CONNECTIONS_TABLE: !Ref ConnectionsTable
-          USERS_TABLE: !Ref UsersTable
+          # Core Infrastructure
           ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -965,9 +2277,53 @@ Resources:
         S3Key: lambda/ws-init.zip
       Environment:
         Variables:
-          CONNECTIONS_TABLE: !Ref ConnectionsTable
-          USERS_TABLE: !Ref UsersTable
+          # Core Infrastructure
           ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -984,7 +2340,53 @@ Resources:
         S3Key: lambda/ws-ping.zip
       Environment:
         Variables:
+          # Core Infrastructure
           ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -1022,9 +2424,53 @@ Resources:
         S3Key: lambda/api-get-invoices.zip
       Environment:
         Variables:
-          STAFF_TABLE: !Ref StaffTable
-          INVOICES_TABLE: !Ref InvoicesTable
+          # Core Infrastructure
           ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -1041,12 +2487,182 @@ Resources:
         S3Key: lambda/api-generate-invoice.zip
       Environment:
         Variables:
-          INVOICES_TABLE: !Ref InvoicesTable
-          REPORTS_BUCKET: !Ref ReportsBucketName
-          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
-          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
-          SHARED_KEY: !Ref SharedKey
+          # Core Infrastructure
           ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+      Timeout: 20
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiCancelInvoice:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'api-cancel-invoice-${Environment}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-cancel-invoice.zip
+      Environment:
+        Variables:
+          # Core Infrastructure
+          ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+      Timeout: 10
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  ApiUpdateStaffRoles:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'api-update-staff-roles-${Environment}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: lambda/api-update-staff-roles.zip
+      Environment:
+        Variables:
+          # Core Infrastructure
+          ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+      Timeout: 10
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -1061,13 +2677,127 @@ Resources:
       Role: !GetAtt LambdaExecutionRole.Arn
       Environment:
         Variables:
+          # Core Infrastructure
           ENVIRONMENT: !Ref Environment
-          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
-          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          STAGE: !Ref Stage
+          
+          # Database Tables
           STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_ATTACHMENTS_TABLE: !Ref EmailAttachmentsTable
+          EMAIL_ATTACHMENTS_BUCKET: !Ref EmailAttachmentsBucket
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Code:
         S3Bucket: !Ref CloudFormationBucket
         S3Key: 'lambda/api-get-emails.zip'
+      Timeout: 30
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: AutoLabSolutions
+        - Key: Purpose
+          Value: EmailAPI
+
+  # API Update Email Function
+  ApiUpdateEmail:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'api-update-email-${Environment}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          # Core Infrastructure
+          ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: 'lambda/api-update-email.zip'
       Timeout: 30
       Tags:
         - Key: Environment
@@ -1087,12 +2817,57 @@ Resources:
       Role: !GetAtt LambdaExecutionRole.Arn
       Environment:
         Variables:
+          # Core Infrastructure
           ENVIRONMENT: !Ref Environment
-          NO_REPLY_EMAIL: !Ref MailSendingAddress
-          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
-          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
-          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          STAGE: !Ref Stage
+          
+          # Database Tables
           STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_ATTACHMENTS_TABLE: !Ref EmailAttachmentsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # S3 Buckets
+          EMAIL_ATTACHMENTS_BUCKET: !Ref EmailAttachmentsBucket
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Code:
         S3Bucket: !Ref CloudFormationBucket
         S3Key: 'lambda/api-send-email.zip'
@@ -1115,9 +2890,53 @@ Resources:
       Role: !GetAtt LambdaExecutionRole.Arn
       Environment:
         Variables:
+          # Core Infrastructure
           ENVIRONMENT: !Ref Environment
-          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          STAGE: !Ref Stage
+          
+          # Database Tables
           STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          CONNECTIONS_TABLE: !Ref ConnectionsTable
+          MESSAGES_TABLE: !Ref MessagesTable
+          UNAVAILABLE_SLOTS_TABLE: !Ref UnavailableSlotsTable
+          APPOINTMENTS_TABLE: !Ref AppointmentsTable
+          SERVICE_PRICES_TABLE: !Ref ServicePricesTable
+          ORDERS_TABLE: !Ref OrdersTable
+          ITEM_PRICES_TABLE: !Ref ItemPricesTable
+          INQUIRIES_TABLE: !Ref InquiriesTable
+          PAYMENTS_TABLE: !Ref PaymentsTable
+          INVOICES_TABLE: !Ref InvoicesTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_SUPPRESSION_TABLE_NAME: !Ref EmailSuppressionTableName
+          
+          # External Services
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+          
+          # AWS Resources
+          CLOUDFRONT_DOMAIN: !Ref CloudFrontDomain
+          REPORTS_BUCKET: !Ref ReportsBucketName
+          EMAIL_STORAGE_BUCKET: !Ref EmailStorageBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          FRONTEND_ROOT_URL: !Ref FrontendRootUrl
+          
+          # Email Configuration
+          NO_REPLY_EMAIL: !Ref MailSendingAddress
+          MAIL_FROM_ADDRESS: !Ref MailReceivingAddress
+          SES_REGION: !Ref SesRegion
+          
+          # Queue URLs
+          INVOICE_GENERATION_QUEUE_URL: !Ref InvoiceGenerationQueueUrl
+          INVOICE_QUEUE_URL: !Ref InvoiceQueueUrl
+          EMAIL_NOTIFICATION_QUEUE_URL: !Ref EmailNotificationQueueUrl
+          # Removed: WEBSOCKET_NOTIFICATION_QUEUE_URL - websocket notifications are now synchronous for messaging only
+          FIREBASE_NOTIFICATION_QUEUE_URL: !Ref FirebaseNotificationQueueUrl
       Code:
         S3Bucket: !Ref CloudFormationBucket
         S3Key: 'lambda/api-email-suppression-manager.zip'
@@ -1129,6 +2948,49 @@ Resources:
           Value: AutoLabSolutions
         - Key: Purpose
           Value: EmailSuppressionAPI
+
+  # API Email Attachments Function
+  ApiEmailAttachments:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'api-email-attachments-${Environment}'
+      Runtime: python3.13
+      Handler: main.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          # Core Infrastructure
+          ENVIRONMENT: !Ref Environment
+          STAGE: !Ref Stage
+          
+          # Database Tables
+          STAFF_TABLE: !Ref StaffTable
+          USERS_TABLE: !Ref UsersTable
+          EMAIL_METADATA_TABLE: !Ref EmailMetadataTable
+          EMAIL_THREADS_TABLE: !Ref EmailThreadsTable
+          EMAIL_ATTACHMENTS_TABLE: !Ref EmailAttachmentsTable
+          
+          # S3 Buckets
+          EMAIL_ATTACHMENTS_BUCKET: !Ref EmailAttachmentsBucket
+          
+          # Configuration
+          SHARED_KEY: !Ref SharedKey
+          
+          # Authentication
+          AUTH0_DOMAIN: !Ref Auth0Domain
+          AUTH0_AUDIENCE: !Ref Auth0Audience
+      Code:
+        S3Bucket: !Ref CloudFormationBucket
+        S3Key: 'lambda/api-attachments.zip'
+      Timeout: 30
+      MemorySize: 512  # Higher memory for attachment processing
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: AutoLabSolutions
+        - Key: Purpose
+          Value: AttachmentAPI
 
 Outputs:
   StaffAuthorizerArn:
@@ -1150,6 +3012,14 @@ Outputs:
   GetUsersArn:
     Description: Get Users Lambda ARN
     Value: !GetAtt ApiGetUsers.Arn
+
+  CheckUserArn:
+    Description: Check User Lambda ARN
+    Value: !GetAtt ApiCheckUser.Arn
+
+  UpdateUserInfoArn:
+    Description: Update User Info Lambda ARN
+    Value: !GetAtt ApiUpdateUserInfo.Arn
 
   GetAppointmentsArn:
     Description: Get Appointments Lambda ARN
@@ -1207,9 +3077,9 @@ Outputs:
     Description: Create Inquiry Lambda ARN
     Value: !GetAtt ApiCreateInquiry.Arn
 
-  GetReportUploadUrlArn:
-    Description: Get Report Upload URL Lambda ARN
-    Value: !GetAtt ApiGetReportUploadUrl.Arn
+  GetUploadUrlArn:
+    Description: Get Upload URL Lambda ARN
+    Value: !GetAtt ApiGetUploadUrl.Arn
 
   GetAnalyticsArn:
     Description: Get Analytics Lambda ARN
@@ -1271,11 +3141,25 @@ Outputs:
     Description: Generate Invoice Lambda ARN
     Value: !GetAtt ApiGenerateInvoice.Arn
 
+  ApiCancelInvoiceArn:
+    Description: Cancel Invoice Lambda ARN
+    Value: !GetAtt ApiCancelInvoice.Arn
+
+  ApiUpdateStaffRolesArn:
+    Description: Update Staff Roles Lambda ARN
+    Value: !GetAtt ApiUpdateStaffRoles.Arn
+
   ApiGetEmailsArn:
     Description: Get Emails API Lambda ARN
     Value: !GetAtt ApiGetEmails.Arn
     Export:
       Name: !Sub '${AWS::StackName}-ApiGetEmailsArn'
+
+  ApiUpdateEmailArn:
+    Description: Update Email API Lambda ARN
+    Value: !GetAtt ApiUpdateEmail.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiUpdateEmailArn'
 
   ApiSendEmailArn:
     Description: Send Email API Lambda ARN
@@ -1288,4 +3172,10 @@ Outputs:
     Value: !GetAtt ApiEmailSuppressionManager.Arn
     Export:
       Name: !Sub '${AWS::StackName}-ApiEmailSuppressionManagerArn'
+
+  ApiEmailAttachmentsArn:
+    Description: Email Attachments API Lambda ARN
+    Value: !GetAtt ApiEmailAttachments.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiEmailAttachmentsArn'
 

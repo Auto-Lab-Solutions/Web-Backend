@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # Update Lambda Environment Variables Script
-# This script updates WebSocket endpoints and notification queue URLs in Lambda functions
+# This script updates Lambda environment variables with API endpoints and notification queue URLs
+# REMOVED: WebSocket queue URL functionality - WebSocket notifications are now synchronous for messaging only
 # after the infrastructure has been deployed
 
 # Source environment configuration
@@ -42,14 +43,13 @@ print_error() {
 show_usage() {
     echo "Usage: $0 [OPTIONS] [ENVIRONMENT]"
     echo ""
-    echo "Update Lambda environment variables with WebSocket endpoints and notification queue URLs"
+    echo "Update Lambda environment variables with API endpoints and notification queue URLs"
     echo ""
     echo "Options:"
     echo "  --env, -e <env>     Specify environment (development/dev, production/prod)"
     echo "  --dry-run          Show what would be updated without making changes"
     echo "  --verbose, -v      Show verbose output for debugging"
     echo "  --list-functions   List expected Lambda functions and their status"
-    echo "  --websocket-only   Update only WebSocket endpoints"
     echo "  --queues-only      Update only notification queue URLs"
     echo "  --verify           Verify current environment variables"
     echo "  --help, -h         Show this help message"
@@ -60,7 +60,6 @@ show_usage() {
     echo "Examples:"
     echo "  $0 dev              # Update all environment variables for development"
     echo "  $0 --env production # Update all environment variables for production"
-    echo "  $0 --websocket-only dev    # Update only WebSocket endpoints for development"
     echo "  $0 --queues-only prod      # Update only notification queues for production"
     echo "  $0 --dry-run dev    # Show what would be updated for development"
     echo ""
@@ -156,22 +155,21 @@ get_lambda_env() {
     fi
 }
 
-# Function to update Lambda environment variables with WebSocket endpoints and notification queues
+# Function to update Lambda environment variables with API endpoints and notification queues
 update_lambda_environment_vars() {
     local dry_run=$1
     local verbose=${2:-false}
-    local websocket_only=${3:-false}
-    local queues_only=${4:-false}
+    local queues_only=${3:-false}
     
     local websocket_endpoint=""
     local email_queue_url=""
-    local websocket_queue_url=""
+    # Removed: websocket_queue_url - WebSocket notifications are now synchronous for messaging only
     local firebase_queue_url=""
     
     # Get WebSocket API endpoint if needed
     if [[ "$queues_only" != "true" ]]; then
         print_status "Getting WebSocket API endpoint from CloudFormation stack..."
-        websocket_endpoint=$(get_stack_output "$STACK_NAME" "WebSocketApiEndpoint")
+        websocket_endpoint=$(get_stack_output "$STACK_NAME" "WebSocketApiHTTPEndpoint")
         
         if [[ -z "$websocket_endpoint" || "$websocket_endpoint" == "None" ]]; then
             print_error "WebSocket API endpoint not found in stack outputs!"
@@ -180,23 +178,20 @@ update_lambda_environment_vars() {
         
         print_status "WebSocket API Endpoint: $websocket_endpoint"
         # Convert wss:// to https:// for WEBSOCKET_ENDPOINT_URL environment variable
-        websocket_endpoint="${websocket_endpoint//wss:\/\//https:\/\/}"
         print_status "HTTPS Endpoint for environment variable: $websocket_endpoint"
     fi
     
-    # Get notification queue URLs if needed
-    if [[ "$websocket_only" != "true" ]]; then
-        print_status "Getting notification queue URLs from CloudFormation stack..."
+    # Get notification queue URLs
+    print_status "Getting notification queue URLs from CloudFormation stack..."
+    
+    email_queue_url=$(get_stack_output "$STACK_NAME" "EmailNotificationQueueUrl")
+    # Removed: websocket_queue_url - WebSocket notifications are now synchronous for messaging only
+    firebase_queue_url=$(get_stack_output "$STACK_NAME" "FirebaseNotificationQueueUrl")
         
-        email_queue_url=$(get_stack_output "$STACK_NAME" "EmailNotificationQueueUrl")
-        websocket_queue_url=$(get_stack_output "$STACK_NAME" "WebSocketNotificationQueueUrl")
-        firebase_queue_url=$(get_stack_output "$STACK_NAME" "FirebaseNotificationQueueUrl")
-        
-        print_status "📦 Retrieved queue URLs:"
-        print_status "  Email: ${email_queue_url:-'Not found'}"
-        print_status "  WebSocket: ${websocket_queue_url:-'Not found'}"
-        print_status "  Firebase: ${firebase_queue_url:-'Not found or disabled'}"
-    fi
+    print_status "📦 Retrieved queue URLs:"
+    print_status "  Email: ${email_queue_url:-'Not found'}"
+    # Removed: WebSocket queue status print
+    print_status "  Firebase: ${firebase_queue_url:-'Not found or disabled'}"
     
     echo ""
     
@@ -214,6 +209,9 @@ update_lambda_environment_vars() {
         "api-update-order-${ENVIRONMENT}"
         "api-create-inquiry-${ENVIRONMENT}"
         "api-generate-invoice-${ENVIRONMENT}"
+        "ws-init-${ENVIRONMENT}"
+        "ws-staff-init-${ENVIRONMENT}"
+        # Removed: "sqs-process-websocket-notification-queue-${ENVIRONMENT}" - no longer needed
     )
     
     local updated_count=0
@@ -252,19 +250,15 @@ update_lambda_environment_vars() {
             update_description="WebSocket endpoint"
         fi
         
-        if [[ "$websocket_only" != "true" ]]; then
-            if [[ -n "$email_queue_url" ]]; then
-                jq_expression="$jq_expression | .EMAIL_NOTIFICATION_QUEUE_URL = \$email_url"
-                update_description="${update_description:+$update_description, }email queue"
-            fi
-            if [[ -n "$websocket_queue_url" ]]; then
-                jq_expression="$jq_expression | .WEBSOCKET_NOTIFICATION_QUEUE_URL = \$websocket_url"
-                update_description="${update_description:+$update_description, }WebSocket queue"
-            fi
-            if [[ -n "$firebase_queue_url" ]]; then
-                jq_expression="$jq_expression | .FIREBASE_NOTIFICATION_QUEUE_URL = \$firebase_url"
-                update_description="${update_description:+$update_description, }Firebase queue"
-            fi
+        if [[ -n "$email_queue_url" ]]; then
+            jq_expression="$jq_expression | .EMAIL_NOTIFICATION_QUEUE_URL = \$email_url"
+            update_description="${update_description:+$update_description, }email queue"
+        fi
+        # Removed: WebSocket queue environment variable assignment
+        # WebSocket notifications are now synchronous for messaging scenarios only
+        if [[ -n "$firebase_queue_url" ]]; then
+            jq_expression="$jq_expression | .FIREBASE_NOTIFICATION_QUEUE_URL = \$firebase_url"
+            update_description="${update_description:+$update_description, }Firebase queue"
         fi
         
         # Update the environment variables JSON
@@ -272,7 +266,6 @@ update_lambda_environment_vars() {
         local updated_env=$(echo "$current_env" | jq \
             --arg websocket_endpoint "$websocket_endpoint" \
             --arg email_url "$email_queue_url" \
-            --arg websocket_url "$websocket_queue_url" \
             --arg firebase_url "$firebase_queue_url" \
             "$jq_expression" 2>/dev/null)
         local jq_exit_code=$?
@@ -375,9 +368,7 @@ update_lambda_environment_vars() {
             if [[ "$queues_only" != "true" ]]; then
                 print_status "All functions now have WEBSOCKET_ENDPOINT_URL=$websocket_endpoint"
             fi
-            if [[ "$websocket_only" != "true" ]]; then
-                print_status "All functions now have notification queue URLs configured"
-            fi
+            print_status "All functions now have notification queue URLs configured"
         fi
     fi
 }
@@ -386,16 +377,13 @@ update_lambda_environment_vars() {
 verify_websocket_endpoints() {
     print_status "Verifying WebSocket endpoints in Lambda functions..."
     
-    local websocket_endpoint=$(get_stack_output "$STACK_NAME" "WebSocketApiEndpoint")
+    local websocket_endpoint=$(get_stack_output "$STACK_NAME" "WebSocketApiHTTPEndpoint")
     
     if [[ -z "$websocket_endpoint" || "$websocket_endpoint" == "None" ]]; then
         print_error "WebSocket API endpoint not found in stack outputs!"
         return 1
     fi
-    
-    # Convert wss:// to https:// for comparison with environment variables
-    local https_endpoint="${websocket_endpoint//wss:\/\//https:\/\/}"
-    
+
     local websocket_functions=(
         "api-notify-${ENVIRONMENT}"
         "api-send-message-${ENVIRONMENT}"
@@ -408,6 +396,10 @@ verify_websocket_endpoints() {
         "api-update-appointment-${ENVIRONMENT}"
         "api-update-order-${ENVIRONMENT}"
         "api-create-inquiry-${ENVIRONMENT}"
+        "api-generate-invoice-${ENVIRONMENT}"
+        "ws-init-${ENVIRONMENT}"
+        "ws-staff-init-${ENVIRONMENT}"
+        # Removed: "sqs-process-websocket-notification-queue-${ENVIRONMENT}" - no longer needed
     )
     
     local verified_count=0
@@ -418,12 +410,12 @@ verify_websocket_endpoints() {
             local current_env=$(get_lambda_env "$func")
             local current_endpoint=$(echo "$current_env" | jq -r '.WEBSOCKET_ENDPOINT_URL // "NOT_SET"')
             
-            if [[ "$current_endpoint" == "$https_endpoint" ]]; then
+            if [[ "$current_endpoint" == "$websocket_endpoint" ]]; then
                 print_success "$func: ✓ Correct endpoint"
                 verified_count=$((verified_count + 1))
             else
                 print_error "$func: ✗ Endpoint mismatch"
-                print_error "  Expected: $https_endpoint"
+                print_error "  Expected: $websocket_endpoint"
                 print_error "  Current:  $current_endpoint"
                 mismatch_count=$((mismatch_count + 1))
             fi
@@ -478,7 +470,6 @@ main() {
     local verify_only=false
     local verbose=false
     local list_functions=false
-    local websocket_only=false
     local queues_only=false
     
     # Parse command line arguments
@@ -498,10 +489,6 @@ main() {
                 ;;
             --list-functions)
                 list_functions=true
-                shift
-                ;;
-            --websocket-only)
-                websocket_only=true
                 shift
                 ;;
             --queues-only)
@@ -534,21 +521,13 @@ main() {
         esac
     done
     
-    # Validate mutually exclusive options
-    if [[ "$websocket_only" == "true" && "$queues_only" == "true" ]]; then
-        print_error "Options --websocket-only and --queues-only are mutually exclusive"
-        exit 1
-    fi
-    
     # Load environment configuration
     if ! load_environment "$environment"; then
         exit 1
     fi
     
-    local update_description="WebSocket endpoints and notification queues"
-    if [[ "$websocket_only" == "true" ]]; then
-        update_description="WebSocket endpoints only"
-    elif [[ "$queues_only" == "true" ]]; then
+    local update_description="API endpoints and notification queues"
+    if [[ "$queues_only" == "true" ]]; then
         update_description="notification queues only"
     fi
     
@@ -572,7 +551,7 @@ main() {
     if [[ "$verify_only" == "true" ]]; then
         verify_websocket_endpoints
     else
-        update_lambda_environment_vars "$dry_run" "$verbose" "$websocket_only" "$queues_only"
+        update_lambda_environment_vars "$dry_run" "$verbose" "$queues_only"
     fi
 }
 

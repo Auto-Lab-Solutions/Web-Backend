@@ -7,7 +7,7 @@
 # Skip Lambda function packaging and updates during development deployments
 # Set to "true" to skip Lambda updates, "false" to include them
 # This is useful for faster deployments when only infrastructure changes are needed
-SKIP_LAMBDAS=true
+SKIP_LAMBDAS==false
 
 # Example usage scenarios:
 # - SKIP_LAMBDAS=true  : Skip Lambda updates for faster infrastructure-only deployments
@@ -20,3 +20,4 @@ SKIP_LAMBDAS=true
 
 # Note: This file is only loaded for development environment deployments.
 # Production deployments will always include all Lambda function updates for safety.
+

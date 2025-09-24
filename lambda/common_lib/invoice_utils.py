@@ -1,12 +1,32 @@
 import boto3
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from io import BytesIO
 import base64
 from decimal import Decimal
 import json
 import email_utils as email
+import validation_utils as valid
+
+# PDF invoice generator will be imported only when needed
+ProfessionalInvoicePDFGenerator = None
+
+def _ensure_pdf_generator():
+    """Import PDF generator only when needed"""
+    global ProfessionalInvoicePDFGenerator
+    if ProfessionalInvoicePDFGenerator is None:
+        try:
+            from pdf_invoice_generator import ProfessionalInvoicePDFGenerator as PDFGen
+            ProfessionalInvoicePDFGenerator = PDFGen
+            print("✓ PDF invoice generator imported successfully")
+        except SyntaxError as e:
+            print(f"✗ Syntax error importing PDF generator: {e}")
+            raise ImportError(f"Failed to import PDF generator due to syntax error: {e}")
+        except ImportError as e:
+            print(f"✗ Import error importing PDF generator: {e}")
+            raise
 
 # AWS clients
 s3_client = boto3.client('s3')
@@ -15,49 +35,211 @@ s3_client = boto3.client('s3')
 REPORTS_BUCKET = os.environ.get('REPORTS_BUCKET')
 CLOUDFRONT_DOMAIN = os.environ.get('CLOUDFRONT_DOMAIN')
 FRONTEND_ROOT_URL = os.environ.get('FRONTEND_ROOT_URL')
+MAIL_FROM_ADDRESS = os.environ.get('MAIL_FROM_ADDRESS')
+FRONTEND_URL = os.environ.get('FRONTEND_ROOT_URL')
+
+
+
+def send_invoice_email(invoice_result, customer_email, customer_name, email_subject=None):
+    """
+    Send invoice email to customer with PDF attachment from S3
+    
+    Args:
+        invoice_result (dict): Result from generate_invoice containing file info
+        customer_email (str): Customer's email address
+        customer_name (str): Customer's name
+        email_subject (str, optional): Custom email subject
+        
+    Returns:
+        dict: Email sending result
+    """
+    try:
+        if not invoice_result.get('success'):
+            return {
+                'success': False,
+                'error': 'Invalid invoice result provided'
+            }
+        
+        invoice_id = invoice_result.get('invoice_id')
+        s3_key = invoice_result.get('s3_key')
+        
+        if not all([invoice_id, s3_key, customer_email]):
+            return {
+                'success': False,
+                'error': 'Missing required parameters: invoice_id, s3_key, or customer_email'
+            }
+        
+        # Download PDF from S3 for attachment
+        try:
+            bucket_name = os.environ.get('S3_BUCKET_NAME')
+            if not bucket_name:
+                raise Exception("S3_BUCKET_NAME environment variable not set")
+            
+            response = s3_client.get_object(Bucket=bucket_name, Key=s3_key)
+            pdf_content = response['Body'].read()
+            
+        except Exception as e:
+            print(f"Error downloading PDF from S3: {str(e)}")
+            return {
+                'success': False,
+                'error': f'Failed to download PDF: {str(e)}'
+            }
+        
+        # Prepare email content
+        if not email_subject:
+            email_subject = f"Invoice {invoice_id} - Auto Lab Solutions"
+        
+        # HTML email body
+        html_body = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                <div style="background: linear-gradient(135deg, #1e40af, #3b82f6); color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0;">
+                    <h1 style="margin: 0; font-size: 2em;">Auto Lab Solutions</h1>
+                    <p style="margin: 10px 0 0 0; opacity: 0.9;">Professional Automotive Services</p>
+                </div>
+                
+                <div style="background: #f8f9fa; padding: 30px; border-radius: 0 0 8px 8px; border: 1px solid #e5e7eb;">
+                    <h2 style="color: #1e40af; margin-top: 0;">Thank you for your business!</h2>
+                    
+                    <p>Dear {customer_name},</p>
+                    
+                    <p>Thank you for choosing Auto Lab Solutions. Your invoice is attached to this email as a PDF document.</p>
+                    
+                    <div style="background: white; padding: 20px; border-radius: 6px; border-left: 4px solid #1e40af; margin: 20px 0;">
+                        <h3 style="margin-top: 0; color: #1e40af;">Invoice Details</h3>
+                        <p><strong>Invoice Number:</strong> {invoice_id}</p>
+                        <p><strong>Date:</strong> {datetime.now(ZoneInfo('Australia/Perth')).strftime('%d %B %Y')}</p>
+                    </div>
+                    
+                    <p>If you have any questions about this invoice or our services, please don't hesitate to contact us:</p>
+                    
+                    <div style="background: white; padding: 15px; border-radius: 6px; margin: 20px 0;">
+                        <p style="margin: 5px 0;"><strong>Email:</strong> {MAIL_FROM_ADDRESS or 'mail@autolabsolutions.com'}</p>
+                        <p style="margin: 5px 0;"><strong>Phone:</strong> +61 451 237 048</p>
+                        <p style="margin: 5px 0;"><strong>Address:</strong> 70b Division St, Welshpool WA 6106, Australia</p>
+                    </div>
+                    
+                    <p>We appreciate your business and look forward to serving you again!</p>
+                    
+                    <p style="margin-top: 30px;">
+                        Best regards,<br>
+                        <strong>Auto Lab Solutions Team</strong>
+                    </p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        # Plain text fallback
+        text_body = f"""
+        Auto Lab Solutions - Invoice {invoice_id}
+        
+        Dear {customer_name},
+        
+        Thank you for choosing Auto Lab Solutions. Your invoice is attached to this email as a PDF document.
+        
+        Invoice Details:
+        - Invoice Number: {invoice_id}
+        - Date: {datetime.now(ZoneInfo('Australia/Perth')).strftime('%d %B %Y')}
+        
+        If you have any questions about this invoice or our services, please contact us:
+        
+        Email: {MAIL_FROM_ADDRESS or 'mail@autolabsolutions.com'}
+        Phone: +61 451 237 048
+        Address: 70b Division St, Welshpool WA 6106, Australia
+        
+        We appreciate your business and look forward to serving you again!
+        
+        Best regards,
+        Auto Lab Solutions Team
+        """
+        
+        # Send email with PDF attachment
+        email_result = email.send_email_with_attachment(
+            to_email=customer_email,
+            subject=email_subject,
+            html_body=html_body,
+            text_body=text_body,
+            attachment_data=pdf_content,
+            attachment_filename=f"Invoice_{invoice_id}.pdf",
+            attachment_content_type="application/pdf"
+        )
+        
+        if email_result.get('success'):
+            print(f"Invoice email sent successfully to {customer_email}")
+            return {
+                'success': True,
+                'message_id': email_result.get('message_id'),
+                'invoice_id': invoice_id
+            }
+        else:
+            print(f"Failed to send invoice email: {email_result.get('error')}")
+            return {
+                'success': False,
+                'error': email_result.get('error', 'Unknown email sending error')
+            }
+            
+    except Exception as e:
+        print(f"Error sending invoice email: {str(e)}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
 
 class InvoiceGenerator:
     """
-    Invoice generator creating professional HTML invoices optimized for web and mobile viewing
+    Professional PDF invoice generator for Auto Lab Solutions
     """
     
     def __init__(self):
         self.company_info = {
             'name': 'Auto Lab Solutions',
             'address': '70b Division St, Welshpool WA 6106, Australia',
+            'address_line1': '70b Division St',
+            'address_line2': 'Welshpool WA 6106, Australia',
             'phone': '+61 451 237 048',
-            'email': 'autolabsolutions1@gmail.com',
-            'website': 'www.autolabsolutions.com',
+            'email': MAIL_FROM_ADDRESS or 'mail@autolabsolutions.com',
+            'website': FRONTEND_URL.replace('https://', '').replace('http://', '') if FRONTEND_URL else 'www.autolabsolutions.com',
             'description': 'We deliver cutting-edge automotive inspection and repair solutions with state-of-the-art technology, expert service, and a commitment to safety and quality.'
         }
+        
+        # Initialize PDF generator only when needed
+        _ensure_pdf_generator()
+        self.pdf_generator = ProfessionalInvoicePDFGenerator()
+        print("PDF invoice generator initialized")
     
     def generate_invoice(self, invoice_data):
         """
-        Generate an HTML invoice and upload to S3
+        Generate a professional PDF invoice
         
         Args:
             invoice_data (dict): Invoice data containing:
-                - payment_intent_id: Stripe payment intent ID
+                - payment_intent_id: Payment intent ID
                 - user_info: Customer information
-                - items: List of service/item details
+                - items: List of service/item details. Each item should include:
+                  * name: Item/service name
+                  * description: (Optional) Item description
+                  * type: 'service' or 'item' - services display empty quantity/unit price
+                  * quantity: Number of items (ignored for services)
+                  * unit_price: Price per unit (ignored for services)
+                  * amount: Total amount for this line item
                 - payment_info: Payment details
-                - invoice_number: Invoice number
-                - qr_code_url: (Optional) URL to encode in QR code
-                - invoice_type: (Optional) "order" or "appointment" for context-specific QR messaging
-                - discount_percentage: (Optional) Percentage discount
-                - discount_amount: (Optional) Fixed discount amount
                 - currency: (Optional) Currency code, defaults to 'AUD'
-                - total_amount: (Optional) Pre-calculated total amount. If not provided, will be calculated from items and discounts
-                - calculated_discount: (Optional) Pre-calculated discount amount for display purposes
+                - total_amount: Total amount
+                - calculated_discount: Discount amount for display purposes
                 
         Returns:
             dict: {
                 'success': bool,
                 'invoice_id': str,
+                'payment_intent_id': str,
                 's3_key': str,
                 'file_url': str,
-                'html_size': int,
-                'format': str,
+                'pdf_size': int,
+                'format': str ('pdf'),
                 'error': str (if any)
             }
         """
@@ -66,929 +248,34 @@ class InvoiceGenerator:
             if 'currency' not in invoice_data or not invoice_data.get('currency'):
                 invoice_data['currency'] = 'AUD'
             
-            # Generate unique invoice ID
-            invoice_id = f"INV-{uuid.uuid4().hex[:8].upper()}"
+            print("Generating PDF invoice using ReportLab")
             
-            # Create HTML content
-            try:
-                html_content = self._create_html_invoice(invoice_data, invoice_id)
-            except Exception as html_error:
-                print(f"ERROR in _create_html_invoice: {html_error}")
-                raise html_error
+            # Generate PDF invoice
+            result = self.pdf_generator.generate_invoice_pdf(invoice_data)
             
-            # Generate HTML invoice
-            try:
-                html_bytes = html_content.encode('utf-8')
-                s3_key = f"invoices/{datetime.now().year}/{datetime.now().month:02d}/{invoice_id}.html"
-                
-                upload_result = self._upload_html_to_s3(html_bytes, s3_key)
-                
-                if upload_result['success']:
-                    return {
-                        'success': True,
-                        'invoice_id': invoice_id,
-                        's3_key': s3_key,
-                        'file_url': upload_result['file_url'],
-                        'html_size': len(html_bytes),
-                        'format': 'html'
-                    }
-                else:
-                    return {
-                        'success': False,
-                        'error': upload_result.get('error', 'Failed to upload HTML invoice to S3')
-                    }
-                    
-            except Exception as html_error:
-                return {
-                    'success': False,
-                    'error': f"HTML invoice generation failed: {html_error}"
-                }
+            return result
                 
         except Exception as e:
-            print(f"Error generating invoice: {str(e)}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
-    
-    def _create_html_invoice(self, invoice_data, invoice_id):
-        """Create HTML content for the invoice"""
-        
-        # Get currency symbol
-        currency_code = invoice_data.get('currency', 'AUD')
-        currency_symbol = self._get_currency_symbol(currency_code)
-        
-        # Use pre-calculated values from invoice_data
-        total_amount = Decimal(str(invoice_data.get('total_amount')))
-        subtotal = sum(Decimal(str(item.get('amount', 0))) for item in invoice_data.get('items', []))
-        calculated_discount = Decimal(str(invoice_data.get('calculated_discount', 0)))
-        discount_amount = Decimal(str(invoice_data.get('discount_amount', 0)))
-        discount_percentage = Decimal(str(invoice_data.get('discount_percentage', 0)))
-        
-        # Generate QR code if URL is provided and determine context
-        qr_code_url = invoice_data.get('qr_code_url')
-        qr_code_base64 = None
-        qr_context = {
-            'title': 'View Details',
-            'description': 'Scan to access your information online'
-        }
-        
-        # Generate QR code if URL is provided
-        if qr_code_url:
-            qr_code_base64 = self._generate_qr_code(qr_code_url)
-        else:
-            qr_code_base64 = None
-            
-        # Determine context based on invoice type or URL pattern
-        invoice_type = invoice_data.get('invoice_type', '').lower()
-        
-        if qr_code_url and invoice_type == 'order' or (qr_code_url and 'order' in qr_code_url.lower()):
-            qr_context = {
-                'title': 'Track Your Order',
-                'description': 'Scan to view order status'
-            }
-        elif qr_code_url and invoice_type == 'appointment' or (qr_code_url and 'appointment' in qr_code_url.lower()):
-            qr_context = {
-                'title': 'View Appointment',
-                'description': 'Scan to view appointment status'
-            }
-        elif qr_code_url and 'service' in qr_code_url.lower():
-            qr_context = {
-                'title': 'Service Details',
-                'description': 'Scan to view service details'
-            }
-        else:
-            # Generic fallback
-            qr_context = {
-                'title': 'View Details Online',
-                'description': 'Scan to access your information online'
-            }
-        
-        # Format current date
-        invoice_date = invoice_data.get('invoice_date', datetime.now().strftime('%d/%m/%Y'))
-        html_template = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Invoice {invoice_id}</title>
-            <style>
-                @page {{
-                    size: A4;
-                    margin: 1cm;
-                }}
-                
-                body {{
-                    font-family: 'Arial', sans-serif;
-                    font-size: 14px;
-                    line-height: 1.6;
-                    color: #0F172A;
-                    margin: 0;
-                    padding: 15px;
-                    background-color: #ffffff;
-                    min-height: 100vh;
-                    display: flex;
-                    flex-direction: column;
-                }}
-                
-                .header {{
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: flex-start;
-                    margin-bottom: 20px;
-                    border-bottom: 3px solid #18181B;
-                    background: linear-gradient(135deg, #27272a 0%, #18181B 100%);
-                    color: #F3F4F6;
-                    padding: 20px;
-                    margin: -15px -15px 20px -15px;
-                    gap: 20px;
-                }}
-                
-                .company-info {{
-                    flex: 1;
-                }}
-                
-                .company-name {{
-                    font-size: 38px;
-                    font-weight: bold;
-                    color: #22C55E;
-                    margin-bottom: 6px;
-                    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
-                    line-height: 1.2;
-                }}
-                
-                .company-details {{
-                    font-size: 14px;
-                    color: #a1a1aa;
-                    line-height: 1.4;
-                }}
-                
-                .invoice-info {{
-                    text-align: right;
-                    flex: 1;
-                }}
-                
-                .invoice-title {{
-                    font-size: 48px;
-                    font-weight: bold;
-                    color: #F59E0B;
-                    margin-bottom: 8px;
-                    text-shadow: 0 1px 2px rgba(0,0,0,0.3);
-                    line-height: 1.1;
-                }}
-                
-                .invoice-number {{
-                    font-size: 20px;
-                    color: #F3F4F6;
-                    margin-bottom: 4px;
-                    font-weight: 600;
-                }}
-                
-                .invoice-date {{
-                    font-size: 16px;
-                    color: #a1a1aa;
-                }}
-                
-                .billing-section {{
-                    display: flex;
-                    justify-content: space-between;
-                    margin-bottom: 25px;
-                    gap: 20px;
-                }}
-                
-                .billing-info {{
-                    flex: 1;
-                    background-color: #f8f9fa;
-                    padding: 16px;
-                    border-radius: 8px;
-                    border-left: 4px solid #22C55E;
-                }}
-                
-                .payment-info {{
-                    flex: 1;
-                    background-color: #f8f9fa;
-                    padding: 16px;
-                    border-radius: 8px;
-                    border-left: 4px solid #F59E0B;
-                }}
-                
-                .section-title {{
-                    font-size: 18px;
-                    font-weight: bold;
-                    color: #18181B;
-                    margin-bottom: 10px;
-                    border-bottom: 2px solid #3f3f46;
-                    padding-bottom: 4px;
-                }}
-                
-                .billing-info div:not(.section-title) {{
-                    font-size: 17px;
-                    line-height: 1.5;
-                }}
-                
-                .payment-info div:not(.section-title) {{
-                    font-size: 17px;
-                    line-height: 1.5;
-                }}
-                
-                .items-table {{
-                    width: 100%;
-                    border-collapse: collapse;
-                    margin-bottom: 25px;
-                    border-radius: 8px;
-                    overflow: hidden;
-                    box-shadow: 0 2px 8px rgba(24, 24, 27, 0.1);
-                }}
-                
-                .items-table th {{
-                    background: linear-gradient(135deg, #27272a 0%, #18181B 100%);
-                    color: #F3F4F6;
-                    padding: 16px 14px;
-                    text-align: left;
-                    font-weight: bold;
-                    font-size: 18px;
-                    letter-spacing: 0.5px;
-                    vertical-align: middle;
-                }}
-                
-                .items-table th.text-center {{
-                    text-align: center;
-                }}
-                
-                .items-table th.text-right {{
-                    text-align: right;
-                }}
-                
-                .items-table td {{
-                    padding: 16px 14px;
-                    border-bottom: 1px solid #D1D5DB;
-                    vertical-align: middle;
-                    font-size: 18px;
-                }}
-                
-                .items-table tr:nth-child(even) {{
-                    background-color: #f8f9fa;
-                }}
-                
-                .items-table tr:hover {{
-                    background-color: rgba(34, 197, 94, 0.05);
-                }}
-                
-                .text-right {{
-                    text-align: right;
-                }}
-                
-                .text-center {{
-                    text-align: center;
-                }}
-                
-                .totals-section {{
-                    display: flex;
-                    justify-content: flex-end;
-                    align-items: flex-start;
-                    margin-bottom: 40px;
-                    gap: 25px;
-                }}
-                
-                .totals-table {{
-                    width: 350px;
-                    border-collapse: collapse;
-                    border-radius: 8px;
-                    overflow: hidden;
-                    box-shadow: 0 2px 8px rgba(24, 24, 27, 0.1);
-                }}
-                
-                .totals-table td {{
-                    padding: 14px 22px;
-                    border-bottom: 1px solid #D1D5DB;
-                    background-color: #f8f9fa;
-                    font-size: 18px;
-                }}
-                
-                .totals-table .total-row {{
-                    font-weight: bold;
-                    font-size: 22px;
-                    background: linear-gradient(135deg, #22C55E 0%, #16A34A 100%);
-                    color: #000000;
-                    text-shadow: none;
-                }}
-                
-                .totals-table .total-row td {{
-                    color: #000000 !important;
-                    font-weight: bold;
-                }}
-                
-                .totals-table .subtotal-row {{
-                    color: #18181B;
-                    font-weight: 600;
-                }}
-                
-                .totals-table .discount-row {{
-                    color: #F59E0B;
-                    font-weight: 600;
-                    font-style: italic;
-                }}
-                
-                .footer {{
-                    margin-top: 40px;
-                    padding-top: 18px;
-                    border-top: 2px solid #D1D5DB;
-                    font-size: 11px;
-                    color: #71717A;
-                    text-align: center;
-                    background-color: #f8f9fa;
-                    padding: 18px;
-                    border-radius: 8px;
-                }}
-                
-                .note-section {{
-                    margin-top: 60px;
-                    padding: 18px;
-                    background: linear-gradient(135deg, rgba(34, 197, 94, 0.05) 0%, rgba(34, 197, 94, 0.02) 100%);
-                    border-left: 5px solid #22C55E;
-                    border-radius: 0 8px 8px 0;
-                    box-shadow: 0 2px 4px rgba(34, 197, 94, 0.1);
-                }}
-                
-                .note-title {{
-                    font-weight: bold;
-                    color: #18181B;
-                    margin-bottom: 8px;
-                    font-size: 14px;
-                }}
-                
-                .note-section div:not(.note-title) {{
-                    font-size: 14px;
-                }}
-                
-                .payment-status {{
-                    color: #22C55E;
-                    font-weight: 700;
-                    font-size: 17px;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                }}
-                
-                .amount-highlight {{
-                    color: #18181B;
-                    font-weight: bold;
-                }}
-                
-                .payment-method {{
-                    color: #1D4ED8;
-                    font-weight: 600;
-                    font-size: 17px;
-                }}
-                
-                .qr-code-section {{
-                    width: 200px;
-                    padding: 18px;
-                    background: linear-gradient(135deg, rgba(34, 197, 94, 0.05) 0%, rgba(34, 197, 94, 0.02) 100%);
-                    border: 2px solid #22C55E;
-                    border-radius: 8px;
-                    text-align: center;
-                    box-shadow: 0 2px 8px rgba(34, 197, 94, 0.1);
-                }}
-                
-                .qr-code-title {{
-                    font-weight: bold;
-                    color: #18181B;
-                    margin-bottom: 12px;
-                    font-size: 13px;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                }}
-                
-                .qr-code-image {{
-                    display: inline-block;
-                    padding: 6px;
-                    background-color: white;
-                    border-radius: 6px;
-                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                    margin-bottom: 8px;
-                }}
-                
-                .qr-code-description {{
-                    font-size: 11px;
-                    color: #71717A;
-                    margin-top: 6px;
-                    line-height: 1.3;
-                    font-style: italic;
-                }}
-                
-                .main-content {{
-                    flex: 1;
-                    display: flex;
-                    flex-direction: column;
-                }}
-                
-                .content-spacer {{
-                    flex: 1;
-                    min-height: 40px;
-                }}
-                
-                .company-details-mobile {{
-                    display: none;
-                }}
-                
-                .company-details-desktop {{
-                    display: block;
-                }}
-                
-                /* Mobile responsive styles */
-                @media screen and (max-width: 768px) {{
-                    body {{
-                        font-size: 12px !important;
-                        padding: 10px !important;
-                    }}
-                    
-                    .company-name {{
-                        font-size: 24px !important;
-                    }}
-                    
-                    .company-details {{
-                        font-size: 10px !important;
-                    }}
-                    
-                    .invoice-title {{
-                        font-size: 36px !important;
-                    }}
-                    
-                    .invoice-number {{
-                        font-size: 16px !important;
-                    }}
-                    
-                    .invoice-date {{
-                        font-size: 12px !important;
-                    }}
-                    
-                    .section-title {{
-                        font-size: 14px !important;
-                    }}
-                    
-                    .billing-info div:not(.section-title) {{
-                        font-size: 14px !important;
-                    }}
-                    
-                    .payment-info div:not(.section-title) {{
-                        font-size: 14px !important;
-                    }}
-                    
-                    .billing-info div:not(.section-title) span {{
-                        font-size: 14px !important;
-                    }}
-                    
-                    .payment-info div:not(.section-title) span {{
-                        font-size: 14px !important;
-                    }}
-                    
-                    .items-table th {{
-                        font-size: 14px !important;
-                        padding: 10px 12px !important;
-                        font-weight: 700 !important;
-                    }}
-                    
-                    .items-table td {{
-                        font-size: 12px !important;
-                        padding: 8px 12px !important;
-                    }}
-                    
-                    .item-name {{
-                        font-size: 16px !important;
-                        font-weight: 600 !important;
-                    }}
-                    
-                    .item-description {{
-                        font-size: 11px !important;
-                    }}
-                    
-                    .totals-table td {{
-                        font-size: 12px !important;
-                        padding: 8px 12px !important;
-                    }}
-                    
-                    .totals-table .total-row {{
-                        font-size: 16px !important;
-                    }}
-                    
-                    .payment-status {{
-                        font-size: 12px !important;
-                    }}
-                    
-                    .payment-method {{
-                        font-size: 12px !important;
-                    }}
-                    
-                    .qr-code-section {{
-                        width: 180px !important;
-                        padding: 20px !important;
-                    }}
-                    
-                    .qr-code-title {{
-                        font-size: 14px !important;
-                    }}
-                    
-                    .qr-code-description {{
-                        font-size: 12px !important;
-                    }}
-                    
-                    .qr-code-image img {{
-                        width: 100px !important;
-                        height: 100px !important;
-                    }}
-                    
-                    .footer {{
-                        font-size: 8px !important;
-                        padding: 12px !important;
-                    }}
-                    
-                    .note-section {{
-                        padding: 12px !important;
-                    }}
-                    
-                    .note-title {{
-                        font-size: 10px !important;
-                    }}
-                    
-                    .note-section div:not(.note-title) {{
-                        font-size: 9px !important;
-                    }}
-                    
-                    .header {{
-                        flex-direction: row !important;
-                        justify-content: space-between !important;
-                        align-items: flex-start !important;
-                        text-align: left !important;
-                        gap: 15px !important;
-                    }}
-                    
-                    .company-info {{
-                        flex: 1 !important;
-                        text-align: left !important;
-                        order: 1 !important;
-                    }}
-                    
-                    .invoice-info {{
-                        flex: 1 !important;
-                        text-align: right !important;
-                        order: 2 !important;
-                        margin-left: auto !important;
-                    }}
-                    
-                    .invoice-info * {{
-                        text-align: right !important;
-                    }}
-                    
-                    .company-details-mobile {{
-                        display: block !important;
-                    }}
-                    
-                    .company-details-desktop {{
-                        display: none !important;
-                    }}
-                    
-                    .billing-section {{
-                        flex-direction: column !important;
-                        gap: 15px !important;
-                    }}
-                    
-                    .totals-section {{
-                        flex-direction: column !important;
-                        align-items: flex-end !important;
-                        gap: 15px !important;
-                    }}
-                    
-                    .qr-code-section {{
-                        order: 2 !important;
-                        align-self: center !important;
-                    }}
-                    
-                    .totals-table {{
-                        order: 1 !important;
-                        width: 100% !important;
-                        max-width: 300px !important;
-                    }}
-                }}
-                
-                @media screen and (max-width: 480px) {{
-                    body {{
-                        font-size: 10px !important;
-                        padding: 5px !important;
-                    }}
-                    
-                    .company-name {{
-                        font-size: 18px !important;
-                    }}
-                    
-                    .invoice-title {{
-                        font-size: 32px !important;
-                    }}
-                    
-                    .items-table th {{
-                        font-size: 12px !important;
-                        padding: 8px 10px !important;
-                        font-weight: 700 !important;
-                    }}
-                    
-                    .items-table th,
-                    .items-table td {{
-                        font-size: 10px !important;
-                        padding: 6px 10px !important;
-                    }}
-                    
-                    .item-name {{
-                        font-size: 14px !important;
-                        font-weight: 600 !important;
-                    }}
-                    
-                    .item-description {{
-                        font-size: 10px !important;
-                    }}
-                    
-                    .totals-table td {{
-                        font-size: 10px !important;
-                        padding: 6px 8px !important;
-                    }}
-                    
-                    .totals-table .total-row {{
-                        font-size: 14px !important;
-                    }}
-                    
-                    .qr-code-section {{
-                        width: 160px !important;
-                        padding: 16px !important;
-                        order: 2 !important;
-                        align-self: center !important;
-                    }}
-                    
-                    .qr-code-title {{
-                        font-size: 12px !important;
-                    }}
-                    
-                    .qr-code-description {{
-                        font-size: 10px !important;
-                    }}
-                    
-                    .qr-code-image img {{
-                        width: 90px !important;
-                        height: 90px !important;
-                    }}
-                    
-                    .footer {{
-                        font-size: 7px !important;
-                        padding: 8px !important;
-                    }}
-                    
-                    .note-section div:not(.note-title) {{
-                        font-size: 8px !important;
-                    }}
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="header">
-                <div class="company-info">
-                    <div class="company-name">{self.company_info['name']}</div>
-                    <div class="company-details company-details-desktop">
-                        {self.company_info['address']}<br>
-                        Phone: {self.company_info['phone']}<br>
-                        Email: {self.company_info['email']}<br>
-                        Website: {self.company_info['website']}
-                    </div>
-                    <div class="company-details company-details-mobile">
-                        {self.company_info['address']}<br>
-                        {self.company_info['phone']}<br>
-                        {self.company_info['email']}<br>
-                        {self.company_info['website']}
-                    </div>
-                </div>
-                <div class="invoice-info">
-                    <div class="invoice-title">INVOICE</div>
-                    <div class="invoice-number">#{invoice_id}</div>
-                    <div class="invoice-date">Date: {invoice_date}</div>
-                </div>
-            </div>
-            
-            <div class="main-content">
-                <div class="billing-section">
-                    <div class="billing-info">
-                        <div class="section-title">Billed To:</div>
-                        <div>
-                            <strong style="color: #18181B; font-size: 17px;">{invoice_data.get('user_info', {}).get('name', 'N/A')}</strong><br>
-                            <span style="color: #3f3f46; font-size: 17px;">{invoice_data.get('user_info', {}).get('email', 'N/A')}</span><br>
-                            <span style="color: #3f3f46; font-size: 17px;">{invoice_data.get('user_info', {}).get('phone', '')}</span><br>
-                        </div>
-                    </div>
-                    <div class="payment-info">
-                        <div class="section-title">Payment Information:</div>
-                        <div>
-                            Payment Method: <span class="payment-method">{invoice_data.get('payment_info', {}).get('method', 'N/A').upper()}</span><br>
-                            Payment Status: <span class="payment-status">{invoice_data.get('payment_info', {}).get('status', 'N/A')}</span><br>
-                            Reference: <span style="color: #3f3f46; font-size: 17px;">{invoice_data.get('payment_intent_id', 'N/A')}</span><br>
-                            Transaction Date: <span style="color: #18181B; font-weight: 600; font-size: 17px;">{invoice_data.get('payment_info', {}).get('date', invoice_date)}</span>
-                        </div>
-                    </div>
-                </div>
-            
-            <table class="items-table">
-                <thead>
-                    <tr>
-                        <th style="width: 50%">Item/Service</th>
-                        <th style="width: 15%" class="text-center">Quantity</th>
-                        <th style="width: 17.5%" class="text-right">Unit Price ({currency_symbol})</th>
-                        <th style="width: 17.5%" class="text-right">Amount ({currency_symbol})</th>
-                    </tr>
-                </thead>
-                <tbody>
-        """
-        
-        # Add items to the table
-        for item in invoice_data.get('items', []):
-            item_name = item.get('name', 'N/A')
-            item_description = item.get('description', '')
-            quantity = item.get('quantity', 1)
-            unit_price = Decimal(str(item.get('unit_price', 0)))
-            amount = Decimal(str(item.get('amount', 0)))
-            
-            if item_description:
-                item_display = f"<span class='item-name'>{item_name}</span><br><small class='item-description' style='color: #71717A; font-style: italic; font-size: 16px;'>{item_description}</small>"
-            else:
-                item_display = f"<span class='item-name'>{item_name}</span>"
-            
-            html_template += f"""
-                    <tr>
-                        <td style="color: #18181B; font-weight: 500; font-size: 18px;">{item_display}</td>
-                        <td class="text-center" style="color: #3f3f46; font-weight: 600; font-size: 18px;">{quantity}</td>
-                        <td class="text-right" style="color: #18181B; font-weight: bold; font-size: 18px;">{currency_symbol} {unit_price:.2f}</td>
-                        <td class="text-right" style="color: #18181B; font-weight: bold; font-size: 18px;">{currency_symbol} {amount:.2f}</td>
-                    </tr>
-            """
-        
-        html_template += f"""
-                </tbody>
-            </table>
-            
-            <div class="totals-section">"""
-        
-        # Add QR code section first if QR code is available
-        if qr_code_base64:
-            html_template += f"""
-                <div class="qr-code-section">
-                    <div class="qr-code-title">{qr_context['title']}</div>
-                    <div class="qr-code-image">
-                        <img src="data:image/png;base64,{qr_code_base64}" alt="QR Code" style="width: 100px; height: 100px;"/>
-                    </div>
-                    <div class="qr-code-description">
-                        {qr_context['description']}
-                    </div>
-                </div>"""
-        
-        html_template += f"""
-                <table class="totals-table">
-                    <tr class="subtotal-row">
-                        <td style="color: #18181B;">Subtotal:</td>
-                        <td class="text-right" style="color: #18181B; font-weight: bold;">{currency_symbol} {subtotal:.2f}</td>
-                    </tr>"""
-        
-        # Add discount row only if there's a discount
-        if calculated_discount > 0:
-            if discount_percentage > 0:
-                discount_label = f"Discount ({discount_percentage:.1f}%):"
-            else:
-                discount_label = "Discount:"
-            
-            html_template += f"""
-                    <tr class="discount-row">
-                        <td style="color: #F59E0B;">{discount_label}</td>
-                        <td class="text-right" style="color: #F59E0B; font-weight: bold;">-{currency_symbol} {calculated_discount:.2f}</td>
-                    </tr>"""
-        
-        html_template += f"""
-                    <tr class="total-row">
-                        <td style="color: #000000; font-weight: bold;">TOTAL:</td>
-                        <td class="text-right" style="color: #000000; font-weight: bold;">{currency_symbol} {total_amount:.2f}</td>
-                    </tr>
-                </table>
-            </div>
-            
-            <div class="content-spacer"></div>
-            
-            <div class="note-section">
-                <div class="note-title">Thank You for Your Business!</div>
-                <div style="color: #3f3f46;">Thank you for choosing <strong style="color: #22C55E;">{self.company_info['name']}</strong>! This invoice has been automatically generated for your payment. We appreciate your trust in our automotive services.</div>
-            </div>
-            </div>
-            
-            <div class="footer">
-                <div style="margin-bottom: 10px;">
-                    <strong style="color: #18181B;">Auto Lab Solutions</strong> - Professional Automotive Inspection Services
-                </div>
-                <div style="margin-bottom: 8px; color: #3f3f46;">
-                    We deliver cutting-edge automotive inspection and repair solutions with expert service and a commitment to safety and quality.
-                </div>
-                <div>
-                    This is a computer-generated invoice. For any queries, please contact us at <strong style="color: #22C55E;">{self.company_info['email']}</strong>.
-                </div>
-            </div>
-        </body>
-        </html>
-        """
-        
-        return html_template
-    
-    def _upload_html_to_s3(self, html_bytes, s3_key):
-        """Upload HTML invoice to S3 bucket"""
-        try:
-            if not REPORTS_BUCKET:
-                raise ValueError("REPORTS_BUCKET environment variable not set")
-
-            s3_client.put_object(
-                Bucket=REPORTS_BUCKET,
-                Key=s3_key,
-                Body=html_bytes,
-                ContentType='text/html',
-                Metadata={
-                    'generated_at': datetime.now(timezone.utc).isoformat(),
-                    'generator': 'auto-lab-invoice-generator',
-                    'format': 'html'
-                }
-            )
-            
-            # Generate file URL with fallback logic
-            if CLOUDFRONT_DOMAIN:
-                file_url = f"https://{CLOUDFRONT_DOMAIN}/{s3_key}"
-            else:
-                # Fallback to S3 URL if CloudFront domain is not available
-                file_url = f"https://{REPORTS_BUCKET}.s3.amazonaws.com/{s3_key}"
-
-            return {
-                'success': True,
-                'file_url': file_url
-            }
-            
-        except Exception as e:
-            print(f"Error uploading HTML to S3: {str(e)}")
+            print(f"Error generating PDF invoice: {str(e)}")
             return {
                 'success': False,
                 'error': str(e)
             }
 
-    def _generate_qr_code(self, url):
-        """
-        Generate a QR code for the given URL and return it as base64 encoded string
-        
-        Args:
-            url (str): The URL to encode in the QR code
-            
-        Returns:
-            str: Base64 encoded QR code image or None if generation fails
-        """
-        try:
-            # Import qrcode with error handling
-            try:
-                import qrcode
-            except ImportError as import_error:
-                return None
-            except Exception as import_error:
-                return None
-            
-            # Create QR code
-            qr = qrcode.QRCode(
-                version=1,
-                error_correction=qrcode.constants.ERROR_CORRECT_L,
-                box_size=10,
-                border=4,
-            )
-            
-            qr.add_data(url)
-            qr.make(fit=True)
-            
-            # Create image
-            img = qr.make_image(fill_color="black", back_color="white")
-            
-            # Convert to base64
-            buffered = BytesIO()
-            img.save(buffered, format="PNG")
-            img_str = base64.b64encode(buffered.getvalue()).decode()
-            
-            return img_str
-            
-        except Exception as e:
-            return None
 
-    def _get_currency_symbol(self, currency_code):
-        """Get currency symbol for display"""
-        currency_symbols = {
-            'AUD': 'A$',
-            'USD': '$',
-            'EUR': '€',
-            'GBP': '£',
-            'JPY': '¥',
-            'CAD': 'C$',
-            'NZD': 'NZ$'
-        }
-        return currency_symbols.get(currency_code.upper(), currency_code.upper())
+def get_s3_bucket_name():
+    """Get the S3 bucket name from environment variables"""
+    return os.environ.get('S3_BUCKET_NAME')
+
+
+def get_cloudfront_domain():
+    """Get the CloudFront domain from environment variables"""
+    return os.environ.get('CLOUDFRONT_DOMAIN')
+
+
+def get_frontend_url():
+    """Get the frontend URL from environment variables"""
+    return os.environ.get('FRONTEND_ROOT_URL')
 
 
 def create_invoice_for_order_or_appointment(record, record_type, payment_intent_id=None):
@@ -1047,6 +334,7 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
                 items.append({
                     'name': item_name,
                     'description': f"{vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']} | {category_name}",
+                    'type': 'item',  # Physical item
                     'quantity': item.get('quantity', 1),
                     'unit_price': float(item.get('price', 0)),
                     'amount': float(item.get('totalPrice', 0))
@@ -1065,6 +353,7 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
             items.append({
                 'name': service_name,
                 'description': f"{vehicle_info['make']} {vehicle_info['model']} {vehicle_info['year']} | {plan_name}",
+                'type': 'service',  # Service item
                 'quantity': 1,
                 'unit_price': float(record.get('price', 0)),
                 'amount': float(record.get('price', 0))
@@ -1074,7 +363,7 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
         payment_info = {
             'method': record.get('paymentMethod', 'Unknown'),
             'status': 'completed' if record.get('paymentStatus') == 'paid' else 'pending',
-            'date': datetime.now().strftime('%d/%m/%Y')
+            'date': datetime.now(ZoneInfo('Australia/Perth')).strftime('%d/%m/%Y')
         }
         
         # Generate QR code URL for order/appointment tracking
@@ -1085,7 +374,7 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
         invoice_data = {
             'payment_intent_id': payment_intent_id or 'N/A',
             'currency': record.get('currency', 'AUD'),
-            'invoice_date': datetime.now().strftime('%d/%m/%Y'),
+            'invoice_date': datetime.now(ZoneInfo('Australia/Perth')).strftime('%d/%m/%Y'),
             'invoice_type': record_type,
             'qr_code_url': qr_code_url,
             'user_info': user_data,
@@ -1117,20 +406,23 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
         result = generator.generate_invoice(invoice_data)
         
         if result['success']:
+            # Generate analytics data for the invoice
+            analytics_data = generate_analytics_data(record, record_type, payment_intent_id)
+            
             # Save invoice record to database
-            current_timestamp = int(datetime.now().timestamp())
+            current_timestamp = int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())
             invoice_record = {
                 'invoiceId': result['invoice_id'],
-                'paymentIntentId': payment_intent_id or 'N/A',
+                'paymentIntentId': result.get('payment_intent_id', 'N/A'),
                 'referenceNumber': reference_id,
                 'referenceType': record_type,
                 's3Key': result['s3_key'],
                 'fileUrl': result['file_url'],
-                'fileSize': result.get('html_size', 0),
-                'format': 'html',
+                'fileSize': result.get('pdf_size', 0),
+                'format': result.get('format', 'pdf'),  # Always PDF now
                 'createdAt': current_timestamp,
-                'invoiceDate': datetime.fromtimestamp(current_timestamp).strftime('%d/%m/%Y'),
-                'status': 'generated'
+                'status': 'generated',
+                'analyticsData': analytics_data
             }
 
             # Remove the note field and simplify metadata
@@ -1145,23 +437,26 @@ def create_invoice_for_order_or_appointment(record, record_type, payment_intent_
                 'paymentMethod': payment_info['method'],
                 'paymentStatus': payment_info['status'],
                 'totalAmount': float(total_amount),
-                'invoiceFormat': 'html'
+                'invoiceFormat': 'pdf'  # Always PDF now
             }
             
             try:
                 create_result = db_utils.create_invoice_record(invoice_record)
+                if not create_result:
+                    print("Warning: Invoice generated but failed to save record to database")
             except Exception as db_error:
-                create_result = False
+                print(f"Warning: Invoice generated but failed to save record to database: {db_error}")
+                # Don't fail the invoice generation if database save fails
                 
-            if not create_result:
-                print("Warning: Invoice generated but failed to save record to database")
-            
             # Add invoice_url to result for updating the order/appointment record
             result['invoice_url'] = result['file_url']
         
         return result
         
     except Exception as e:
+        print(f"Error creating invoice for order/appointment: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return {
             'success': False,
             'error': str(e)
@@ -1182,14 +477,20 @@ def generate_invoice_for_payment(record_data):
     try:
         # Import db_utils here to avoid circular imports
         import db_utils
+
+        payment_date = record_data.get('paymentDate', 
+            datetime.fromtimestamp(
+                int(record_data.get('createdAt', datetime.now(ZoneInfo('Australia/Perth')).timestamp()))
+            ).strftime('%d/%m/%Y')
+        )
         
         # Prepare invoice data
         invoice_data = {
             'payment_intent_id': record_data.get('paymentIntentId'),
             'currency': record_data.get('currency', 'AUD'),
-            'invoice_date': record_data.get('invoiceDate', 
+            'invoice_date': record_data.get('paymentDate',
                 datetime.fromtimestamp(
-                    int(record_data.get('createdAt', datetime.now().timestamp()))
+                    int(record_data.get('createdAt', datetime.now(ZoneInfo('Australia/Perth')).timestamp()))
                 ).strftime('%d/%m/%Y')
             ),
             'user_info': {
@@ -1198,13 +499,9 @@ def generate_invoice_for_payment(record_data):
                 'phone': record_data.get('customerPhone', '')
             },
             'payment_info': {
-                'method': record_data.get('paymentMethod', 'Card'),
+                'method': record_data.get('paymentMethod', 'Stripe'),
                 'status': record_data.get('paymentStatus', 'completed'),
-                'date': record_data.get('paymentDate', record_data.get('invoiceDate', 
-                    datetime.fromtimestamp(
-                        int(record_data.get('createdAt', datetime.now().timestamp()))
-                    ).strftime('%d/%m/%Y')
-                ))
+                'date': payment_date
             },
             'items': [],
             'discount_amount': 0,  # Default no discount
@@ -1215,9 +512,22 @@ def generate_invoice_for_payment(record_data):
         if record_data.get('items'):
             processed_items = []
             for item in record_data['items']:
+                # Use the type that was already determined during enhancement, if available
+                # Otherwise, determine if it's a service or item based on data structure
+                if 'type' in item:
+                    # Trust the type that was already determined (e.g., by API enhancement)
+                    item_type = item['type']
+                else:
+                    # Fallback: determine type based on original data structure
+                    # If only totalAmount is provided (no unitPrice/quantity), treat as service
+                    has_unit_price = item.get('unitPrice') is not None
+                    has_quantity = item.get('quantity') is not None
+                    item_type = 'item' if (has_unit_price and has_quantity) else 'service'
+                
                 processed_item = {
                     'name': item.get('name', 'Service'),
                     'description': item.get('description', ''),
+                    'type': item_type,
                     'quantity': item.get('quantity', 1),
                     'unit_price': float(item.get('unitPrice', item.get('totalAmount', 0))),
                     'amount': float(item.get('totalAmount', 0))
@@ -1230,6 +540,7 @@ def generate_invoice_for_payment(record_data):
             invoice_data['items'] = [{
                 'name': 'Auto Service',
                 'description': f"Payment Reference: {record_data.get('invoiceId', 'N/A')}",
+                'type': 'service',  # Default to service for legacy data
                 'quantity': 1,
                 'unit_price': amount,
                 'amount': amount
@@ -1257,20 +568,25 @@ def generate_invoice_for_payment(record_data):
         result = generator.generate_invoice(invoice_data)
         
         if result['success']:
+            payment_intent_id = result.get('payment_intent_id')
+            reference_type = 'invoice_id' if payment_intent_id.split('_')[1] == 'inv' else 'admin_set'
+            # Generate analytics data for the manual invoice
+            analytics_data = generate_analytics_data(record_data, reference_type, result.get('payment_intent_id'))
+            
             # Save invoice record to database
-            current_timestamp = int(datetime.now().timestamp())
+            current_timestamp = int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())
             invoice_record = {
-                'invoiceId': result['invoice_id'],
-                'paymentIntentId': record_data.get('paymentIntentId', 'N/A'),
-                'referenceNumber': record_data.get('invoiceId', result['invoice_id']),
-                'referenceType': 'api_generated',
+                'invoiceId': result.get('invoice_id'),
+                'paymentIntentId': payment_intent_id,
+                'referenceNumber': payment_intent_id,
+                'referenceType': reference_type,
                 's3Key': result['s3_key'],
                 'fileUrl': result['file_url'],
-                'fileSize': result.get('html_size', 0),
-                'format': 'html',
+                'fileSize': result.get('pdf_size', 0),
+                'format': result.get('format', 'pdf'),  # Always PDF now
                 'createdAt': current_timestamp,
-                'invoiceDate': datetime.fromtimestamp(current_timestamp).strftime('%d/%m/%Y'),
-                'status': 'generated'
+                'status': 'generated',
+                'analyticsData': analytics_data
             }
             
             # Add metadata for the manual invoice
@@ -1279,10 +595,10 @@ def generate_invoice_for_payment(record_data):
                 'userEmail': record_data.get('customerEmail', 'N/A'),
                 'userPhone': record_data.get('customerPhone', 'N/A'),
                 'paymentMethod': record_data.get('paymentMethod', 'unknown'),
+                'paymentDate': payment_date,
                 'paymentStatus': record_data.get('paymentStatus', 'completed'),
                 'totalAmount': record_data.get('totalAmount', 0),
-                'invoiceFormat': 'html',
-                'invoiceType': 'manual'
+                'invoiceFormat': 'pdf',  # Always PDF now
             }
             
             try:
@@ -1291,7 +607,8 @@ def generate_invoice_for_payment(record_data):
                     print("Warning: Invoice generated but failed to save record to database")
             except Exception as db_error:
                 print(f"Warning: Invoice generated but failed to save record to database: {db_error}")
-            
+                # Don't fail the invoice generation if database save fails
+                
             # Add invoice_url to result for API response
             result['invoice_url'] = result['file_url']
             
@@ -1305,8 +622,8 @@ def generate_invoice_for_payment(record_data):
                     payment_data = {
                         'amount': f"{record_data.get('totalAmount', 0):.2f}",
                         'paymentMethod': record_data.get('paymentMethod', 'Unknown'),
-                        'referenceNumber': record_data.get('invoiceId', result['invoice_id']),
-                        'paymentDate': current_timestamp
+                        'referenceNumber': payment_intent_id,
+                        'paymentDate': payment_date
                     }
                     
                     # Send final payment confirmation email with invoice
@@ -1328,7 +645,304 @@ def generate_invoice_for_payment(record_data):
         
     except Exception as e:
         print(f"Error generating invoice for payment: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return {
             'success': False,
             'error': str(e)
         }
+
+
+def generate_analytics_data(record, record_type, payment_intent_id=None):
+    """
+    Generate analytics data for invoice records based on the format specified in analyticsData.md
+    
+    Args:
+        record (dict): Appointment or order record, or manual payment data
+        record_type (str): 'appointment', 'order', or 'manual'
+        payment_intent_id (str, optional): Payment intent ID if available
+        
+    Returns:
+        dict: Analytics data in the required format
+    """
+    try:
+        # Import db_utils here to avoid circular imports
+        import db_utils
+        
+        analytics_data = {
+            "operation_type": "transaction",
+            "operation_data": {
+                "services": [],
+                "orders": [],
+                "customerId": "",
+                "vehicleDetails": {},
+                "paymentDetails": {},
+                "bookingDetails": {}
+            }
+        }
+        
+        # Set customer ID (email)
+        if record_type == 'appointment':
+            if record.get('isBuyer'):
+                analytics_data["operation_data"]["customerId"] = record.get('buyerEmail', '')
+            else:
+                analytics_data["operation_data"]["customerId"] = record.get('sellerEmail', '')
+        elif record_type == 'order':
+            analytics_data["operation_data"]["customerId"] = record.get('customerEmail', '')
+        else:  # manual
+            analytics_data["operation_data"]["customerId"] = record.get('customerEmail', '')
+        
+        # Set vehicle details
+        vehicle_details = {
+            "make": record.get('carMake', ''),
+            "model": record.get('carModel', ''),
+            "year": record.get('carYear', '')
+        }
+        analytics_data["operation_data"]["vehicleDetails"] = vehicle_details
+        
+        # Set payment details
+        if record.get('paidAt'):
+            # convert timestamp to date using Perth timezone
+            payment_date = datetime.fromtimestamp(record.get('paidAt'), ZoneInfo('Australia/Perth')).strftime('%d/%m/%Y')
+        else:
+            payment_date = record.get('paymentDate', '')
+        payment_method = record.get('paymentMethod', 'unknown')
+        payment_amount = record.get('paymentAmount') or record.get('price') or record.get('totalAmount', 0)
+
+        # Determine if payment was made before operation
+        paid_before_operation = False
+        if record_type in ['appointment', 'order']:
+            # For booked appointments/orders, check if payment status is paid
+            paid_before_operation = record.get('paymentStatus') == 'paid'
+        # For manual transactions, always false as specified
+        
+        # Calculate effective date - use scheduled date if available, otherwise payment date
+        effective_date = ''
+        if record_type in ['appointment', 'order']:
+            scheduled_date = record.get('scheduledDate', '')
+            if scheduled_date:
+                # Use validation function to convert to analytics format (DD/MM/YYYY)
+                try:
+                    effective_date = valid.DataValidator.validate_and_convert_date_to_analytics_format(
+                        scheduled_date, 'scheduledDate'
+                    )
+                except valid.ValidationError as e:
+                    print(f"Warning: Invalid scheduled date format '{scheduled_date}': {e.message}")
+                    # Fall back to payment_date if scheduled_date is invalid
+                    try:
+                        effective_date = valid.DataValidator.validate_and_convert_date_to_analytics_format(
+                            payment_date, 'paymentDate'
+                        )
+                    except valid.ValidationError:
+                        effective_date = payment_date
+            else:
+                # Use payment_date and convert to analytics format
+                try:
+                    effective_date = valid.DataValidator.validate_and_convert_date_to_analytics_format(
+                        payment_date, 'paymentDate'
+                    )
+                except valid.ValidationError:
+                    effective_date = payment_date
+        else:
+            # For manual transactions, use payment date and convert to analytics format
+            try:
+                effective_date = valid.DataValidator.validate_and_convert_date_to_analytics_format(
+                    payment_date, 'paymentDate'
+                )
+            except valid.ValidationError:
+                effective_date = payment_date
+        
+        analytics_data["operation_data"]["paymentDetails"] = {
+            "payment_method": payment_method,
+            "amount": str(payment_amount),
+            "date": payment_date,
+            "paid_before_operation": 1 if paid_before_operation else 0
+        }
+        
+        # Set effective date at operation_data level
+        analytics_data["operation_data"]["effectiveDate"] = effective_date        # Set booking details
+        booking_details = {
+            "bookedBy": "",
+            "bookedDate": "",
+            "bookedAt": ""
+        }
+        
+        if record_type == 'appointment' or record_type == 'order':
+            created_user_id = record.get('createdUserId', '')
+            
+            # Determine bookedBy value
+            if created_user_id:
+                # Check if it's a staff member or regular user
+                staff_record = db_utils.get_staff_record_by_user_id(created_user_id)
+                if staff_record:
+                    booking_details["bookedBy"] = "STAFF"
+                else:
+                    # Check if user exists in Users table
+                    user_record = db_utils.get_user_record(created_user_id)
+                    if user_record:
+                        booking_details["bookedBy"] = created_user_id
+                    else:
+                        booking_details["bookedBy"] = "NONE"
+            else:
+                booking_details["bookedBy"] = "NONE"
+            
+            # Set booking date and timestamp
+            if booking_details["bookedBy"] != "NONE":
+                booking_details["bookedDate"] = record.get('createdDate', '')
+                booking_details["bookedAt"] = str(record.get('createdAt', ''))
+            
+        else:  # manual transaction
+            booking_details["bookedBy"] = "NONE"
+        
+        analytics_data["operation_data"]["bookingDetails"] = booking_details
+        
+        # Set services and orders based on record type
+        if record_type == 'appointment':
+            # For appointments, add service information
+            service_id = record.get('serviceId')
+            plan_id = record.get('planId')
+            
+            try:
+                service_name, plan_name = db_utils.get_service_plan_names(service_id, plan_id)
+            except:
+                service_name, plan_name = "Unknown Service", "Unknown Plan"
+            
+            # Use plan name as service name as specified
+            analytics_data["operation_data"]["services"].append({
+                "service_name": plan_name,
+                "price": str(record.get('price', 0))
+            })
+            
+        elif record_type == 'order':
+            # For orders, add items information
+            order_items = record.get('items', [])
+            
+            for item in order_items:
+                try:
+                    category_name, item_name = db_utils.get_category_item_names(
+                        item.get('categoryId'), 
+                        item.get('itemId')
+                    )
+                except:
+                    item_name = "Unknown Item"
+                
+                analytics_data["operation_data"]["orders"].append({
+                    "item_name": item_name,
+                    "unit_price": str(item.get('price', 0)),
+                    "quantity": str(item.get('quantity', 1)),
+                    "total_price": str(item.get('totalPrice', 0))
+                })
+                
+        else:  # manual transaction
+            # For manual transactions, extract from items in record
+            items = record.get('items', [])
+            
+            for item in items:
+                item_type = item.get('type', 'item')
+                
+                if item_type == 'service':
+                    analytics_data["operation_data"]["services"].append({
+                        "service_name": item.get('name', ''),
+                        "price": str(item.get('totalAmount', 0))
+                    })
+                else:
+                    analytics_data["operation_data"]["orders"].append({
+                        "item_name": item.get('name', ''),
+                        "unit_price": str(item.get('unitPrice', 0)),
+                        "quantity": str(item.get('quantity', 1)),
+                        "total_price": str(item.get('totalAmount', 0))
+                    })
+        
+        return analytics_data
+        
+    except Exception as e:
+        print(f"Error generating analytics data: {str(e)}")
+        # Return a basic structure with empty data if generation fails
+        return {
+            "operation_type": "transaction",
+            "operation_data": {
+                "services": [],
+                "orders": [],
+                "customerId": "",
+                "vehicleDetails": {
+                    "make": "",
+                    "model": "",
+                    "year": ""
+                },
+                "paymentDetails": {
+                    "payment_method": "unknown",
+                    "amount": "0",
+                    "date": "",
+                    "paid_before_operation": 0
+                },
+                "bookingDetails": {
+                    "bookedBy": "NONE",
+                    "bookedDate": "",
+                    "bookedAt": ""
+                },
+                "effectiveDate": ""
+            }
+        }
+
+def update_invoice_effective_date(reference_number, reference_type, scheduled_date):
+    """
+    Update the effectiveDate in invoice analytics data when appointment/order is scheduled
+    
+    Args:
+        reference_number (str): Reference number for appointment or order
+        reference_type (str): 'appointment' or 'order'
+        scheduled_date (str): Scheduled date in YYYY-MM-DD format
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        import db_utils
+        from datetime import datetime
+        
+        # Get the existing invoice
+        invoice = db_utils.get_invoice_by_reference(reference_number, reference_type)
+        if not invoice:
+            print(f"No invoice found for {reference_type} {reference_number}")
+            return False
+        
+        # Get the analytics data
+        analytics_data = invoice.get('analyticsData', {})
+        if not analytics_data:
+            print(f"No analytics data found in invoice for {reference_type} {reference_number}")
+            return False
+        
+        # Convert scheduled_date from YYYY-MM-DD to DD/MM/YYYY format for consistency in Perth timezone
+        try:
+            # Parse the date and assign Perth timezone
+            date_obj = datetime.strptime(scheduled_date, '%Y-%m-%d').replace(tzinfo=ZoneInfo('Australia/Perth'))
+            effective_date = date_obj.strftime('%d/%m/%Y')
+        except:
+            print(f"Invalid date format for scheduled_date: {scheduled_date}")
+            return False
+        
+        # Update the effectiveDate at operation_data level
+        operation_data = analytics_data.get('operation_data', {})
+        
+        # Only update if the current effective date is different
+        current_effective_date = operation_data.get('effectiveDate', '')
+        if current_effective_date != effective_date:
+            operation_data['effectiveDate'] = effective_date
+            
+            # Update the invoice analytics data
+            success = db_utils.update_invoice_analytics_data(invoice['invoiceId'], analytics_data)
+            if success:
+                print(f"Updated effectiveDate to {effective_date} for invoice {invoice['invoiceId']}")
+                return True
+            else:
+                print(f"Failed to update invoice analytics data for {invoice['invoiceId']}")
+                return False
+        else:
+            print(f"EffectiveDate already set to {effective_date} for invoice {invoice['invoiceId']}")
+            return True
+        
+    except Exception as e:
+        print(f"Error updating invoice effective date: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return False

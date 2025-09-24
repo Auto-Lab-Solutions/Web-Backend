@@ -1,5 +1,7 @@
 import json
 import logging
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 # Set up logging
 logger = logging.getLogger()
@@ -130,8 +132,8 @@ def record_complaint_analytics(email_address, complaint_feedback_type, complaint
     Record complaint analytics in DynamoDB
     """
     try:
-        current_time = datetime.utcnow()
-        iso_timestamp = current_time.isoformat() + 'Z'
+        current_time = datetime.now(ZoneInfo('Australia/Perth'))
+        iso_timestamp = current_time.isoformat()  # Note: No 'Z' since it's now Perth time
         date_partition = current_time.strftime('%Y-%m-%d')
         
         # TTL: keep analytics data for 2 years
@@ -166,8 +168,8 @@ def suppress_email_address(email_address, reason, complaint_type=None, complaint
     Add email address to suppression list due to complaint
     """
     try:
-        current_time = datetime.utcnow()
-        iso_timestamp = current_time.isoformat() + 'Z'
+        current_time = datetime.now(ZoneInfo('Australia/Perth'))
+        iso_timestamp = current_time.isoformat()
         
         # TTL: keep suppression for 2 years for complaints (longer than bounces)
         ttl = int((current_time + timedelta(days=730)).timestamp())

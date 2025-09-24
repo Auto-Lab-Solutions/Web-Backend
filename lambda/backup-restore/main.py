@@ -1,6 +1,7 @@
 import json
 import os
-import datetime
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 import csv
 import io
 from botocore.exceptions import ClientError
@@ -75,7 +76,7 @@ def handle_backup_with_cleanup(event, context):
         if not backup_bucket:
             return resp.error_response("BACKUP_BUCKET environment variable not set", 500)
         
-        timestamp = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
+        timestamp = datetime.now(ZoneInfo("Australia/Perth")).strftime('%Y-%m-%d-%H-%M-%S')
         backup_prefix = f"backups/{environment}/{timestamp}"
         cleanup_prefix = f"cleanup/{environment}/{timestamp}"
         
@@ -195,7 +196,7 @@ def handle_restore(event, context):
         
         results = {
             'operation': 'restore',
-            'timestamp': datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S'),
+            'timestamp': datetime.now(ZoneInfo("Australia/Perth")).strftime('%Y-%m-%d-%H-%M-%S'),
             'environment': environment,
             'backup_timestamp': backup_timestamp,
             'backup_location': f"s3://{backup_bucket}/{backup_prefix}",
@@ -221,7 +222,7 @@ def handle_restore(event, context):
         # Create pre-restore backup if requested
         if create_pre_restore_backup:
             try:
-                pre_restore_timestamp = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
+                pre_restore_timestamp = datetime.now(ZoneInfo("Australia/Perth")).strftime('%Y-%m-%d-%H-%M-%S')
                 pre_restore_prefix = build_s3_key("backups", environment, f"pre-restore-{pre_restore_timestamp}")
                 
                 for table_name in tables_to_restore:
@@ -291,7 +292,7 @@ def handle_cleanup_only(event, context):
         if not backup_bucket:
             return resp.error_response("BACKUP_BUCKET environment variable not set", 500)
         
-        timestamp = datetime.datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
+        timestamp = datetime.now(ZoneInfo("Australia/Perth")).strftime('%Y-%m-%d-%H-%M-%S')
         cleanup_prefix = f"cleanup/{environment}/{timestamp}"
         
         results = {
@@ -365,7 +366,7 @@ def backup_table_data(table_name, bucket, s3_key):
         
         backup_data = {
             'table_name': table_name,
-            'backup_timestamp': datetime.datetime.now().isoformat(),
+            'backup_timestamp': datetime.now(ZoneInfo("Australia/Perth")).isoformat(),
             'item_count': len(items),
             'items': items
         }
@@ -413,7 +414,7 @@ def backup_s3_objects(source_bucket, backup_bucket, backup_prefix):
 
 def cleanup_old_backups(bucket, prefix, retention_days):
     """Delete backups older than retention_days (but preserve archive CSV files)"""
-    cutoff_date = datetime.datetime.now() - datetime.timedelta(days=retention_days)
+    cutoff_date = datetime.now(ZoneInfo("Australia/Perth")) - datetime.timedelta(days=retention_days)
     
     objects = s3.list_objects_with_metadata(bucket, prefix)
     deleted_count = 0
@@ -615,7 +616,7 @@ def cleanup_old_records(table_name, backup_bucket, cleanup_prefix):
         else:
             cutoff_days = 60  # 2 months
         
-        cutoff_date = datetime.datetime.now() - datetime.timedelta(days=cutoff_days)
+        cutoff_date = datetime.now(ZoneInfo('Australia/Perth')) - timedelta(days=cutoff_days)
         cutoff_timestamp = int(cutoff_date.timestamp())
         
         print(f"Cleaning up records older than {cutoff_days} days ({cutoff_date.isoformat()}) from {table_name}")
@@ -719,12 +720,15 @@ def parse_timestamp(timestamp_value):
         elif isinstance(timestamp_value, str):
             # Try parsing ISO format
             try:
-                dt = datetime.datetime.fromisoformat(timestamp_value.replace('Z', '+00:00'))
+                dt = datetime.fromisoformat(timestamp_value.replace('Z', '+00:00'))
+                # Convert to Perth timezone if it's not already timezone-aware
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=ZoneInfo('Australia/Perth'))
                 return int(dt.timestamp())
             except:
                 # Try parsing date format (YYYY-MM-DD)
                 try:
-                    dt = datetime.datetime.strptime(timestamp_value, '%Y-%m-%d')
+                    dt = datetime.strptime(timestamp_value, '%Y-%m-%d').replace(tzinfo=ZoneInfo('Australia/Perth'))
                     return int(dt.timestamp())
                 except:
                     return None
@@ -784,7 +788,7 @@ def append_records_to_csv(records, bucket, s3_key, table_name):
             writer.writerow(csv_record)
         
         # Write new records with archive timestamp
-        archive_timestamp = datetime.datetime.now().isoformat()
+        archive_timestamp = datetime.now(ZoneInfo("Australia/Perth")).isoformat()
         for record in records:
             # Convert complex objects to strings for CSV
             csv_record = {'archived_at': archive_timestamp}

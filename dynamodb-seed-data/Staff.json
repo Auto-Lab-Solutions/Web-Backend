@@ -23,7 +23,7 @@
       "S": "c712121f-c47f-47cb-a115-7e3ce1cf3877"
     },
     "userName": {
-      "S": "Janitha"
+      "S": "Jani"
     }
   },
   {
@@ -56,6 +56,12 @@
     },
     "roles": {
       "L": [
+        {
+          "S": "ADMIN"
+        },
+        {
+          "S": "MECHANIC"
+        },
         {
           "S": "CUSTOMER_SUPPORT"
         }

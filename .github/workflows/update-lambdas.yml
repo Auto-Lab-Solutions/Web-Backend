@@ -18,7 +18,7 @@ on:
         type: string
 
 env:
-  AWS_REGION: ap-southeast-2
+  AWS_REGION: ap-southeast-2  # This uses production region by default
 
 jobs:
   update-lambdas:

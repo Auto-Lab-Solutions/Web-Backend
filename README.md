@@ -27,10 +27,11 @@ The backend consists of the following components:
 ### 📬 **Asynchronous Notification System**
 - **SQS Queues**: Decoupled notification processing
   - Email notification queue with DLQ
-  - WebSocket notification queue with DLQ
+  - Firebase notification queue with DLQ (optional)
 - **Notification Processors**: Dedicated Lambda functions
   - Email notification processor
-  - WebSocket notification processor
+  - Firebase notification processor (optional)
+- **WebSocket Notifications**: Real-time messaging (synchronous for messaging scenarios only)
 - **Notification Utils**: Shared library for queueing notifications
 
 ### 🌐 **API Layer**
@@ -271,7 +272,70 @@ The guide covers:
 ./deploy.sh production
 ```
 
-## �📊 Post-Deployment Configuration
+## 💾 **Backup System (Optional)**
+
+The backup system is **completely optional** and configured centrally per environment.
+
+### **Default Behavior**
+- ✅ **Development**: Backup DISABLED (simpler setup, faster deployment, no S3 costs)
+- ✅ **Production**: Backup ENABLED (data protection and compliance)
+- ✅ **All other features work normally** when backup is disabled
+
+### **Configuration Overview**
+
+Backup system is controlled in `config/environments.sh` with environment-specific defaults:
+- **Enable/Disable state**: Set per environment in configuration file
+- **Backup schedule**: Configurable cron expression (default: weekly)
+- **S3 storage**: Uses external S3 bucket (not managed by CloudFormation)
+
+### **Quick Setup**
+
+```bash
+# Ensure backup S3 bucket exists (must be created manually)
+aws s3 mb s3://auto-lab-backups-dev-${AWS_ACCOUNT_ID}      # For development
+aws s3 mb s3://auto-lab-backups-${AWS_ACCOUNT_ID}          # For production
+
+# Deploy with backup system enabled
+./deploy.sh production
+```
+
+### **Override Environment Defaults**
+
+```bash
+# To disable backup in production (cost optimization)
+# Edit config/environments.sh: export ENABLE_BACKUP_SYSTEM="false"
+
+# To enable backup in development (testing)
+# Edit config/environments.sh: export ENABLE_BACKUP_SYSTEM="true"
+
+# To change backup schedule (example: daily at 2 AM Perth time / 6 PM UTC previous day)
+# Edit config/environments.sh: export BACKUP_SCHEDULE="cron(0 18 * * ? *)"
+```
+
+### **Manual Backup Operations**
+
+```bash
+# Trigger manual backup
+aws lambda invoke --function-name sys-manual-backup-production \
+  --payload '{"reason":"Manual backup requested"}' response.json
+
+# List available backups  
+aws s3 ls s3://auto-lab-backups-${AWS_ACCOUNT_ID}/backups/production/ --recursive
+
+# View backup logs
+./dev-tools.sh logs sys-backup
+```
+
+### **Backup Features**
+
+When enabled, the backup system provides:
+- 📅 **Scheduled backups**: Automated DynamoDB and S3 data backups
+- 🔄 **Manual backups**: On-demand backup via API or CLI
+- 🗑️ **Automatic cleanup**: Removes old backups based on retention policy
+- 📊 **Monitoring**: CloudWatch alarms and SNS notifications
+- 🚨 **Failure alerts**: Automatic notification on backup failures
+
+## 📊 Post-Deployment Configuration
 
 ### 1. Auth0 Setup
 
@@ -305,16 +369,20 @@ The platform includes comprehensive email notification capabilities for customer
 ```bash
 # Configure SES environment variables
 export FROM_EMAIL="noreply@autolabsolutions.com"
-export SES_REGION="ap-southeast-2"
+# SES Region varies by environment:
+# - Development: us-east-1
+# - Production: ap-southeast-2
+export SES_REGION="us-east-1"  # For development
+# export SES_REGION="ap-southeast-2"  # For production
 
 # Validate SES configuration
-./validate-ses.sh production
+./validate-ses.sh development
 
 # Show detailed setup instructions
-./validate-ses.sh production --setup
+./validate-ses.sh development --setup
 
 # Test email sending
-./validate-ses.sh production --test
+./validate-ses.sh development --test
 ```
 
 📖 **Detailed SES Setup**: See [SES_SETUP_GUIDE.md](./SES_SETUP_GUIDE.md) for complete domain verification, DNS configuration, and troubleshooting.
@@ -350,7 +418,7 @@ case $ENVIRONMENT in
     "production"|"prod")  
         export API_DOMAIN_NAME="api.yourdomain.com"
         export HOSTED_ZONE_ID="Z1234567890ABC"
-        export API_CERTIFICATE_ARN="arn:aws:acm:us-east-1:123456789012:certificate/87654321-4321-4321-4321-210987654321"
+        export API_CERTIFICATE_ARN="arn:aws:acm:ap-southeast-2:123456789012:certificate/87654321-4321-4321-4321-210987654321"
         ;;
 esac
 ```
@@ -447,7 +515,7 @@ Your CloudFront distribution will be available at the domain provided in the dep
 - `api-get-connections`: Connection management
 - `api-get-messages`: Message retrieval
 - `api-send-message`: Message sending
-- `api-get-report-upload-url`: File upload URLs
+- `api-get-upload-url`: File upload URLs
 
 #### WebSocket Functions
 - `ws-connect`: Handle WebSocket connections
@@ -462,11 +530,11 @@ Your CloudFront distribution will be available at the domain provided in the dep
 
 #### Asynchronous Notification System
 - `sqs-process-email-notification-queue`: Email notification processor
-- `sqs-process-websocket-notification-queue`: WebSocket notification processor
+- `sqs-process-firebase-notification-queue`: Firebase notification processor (optional)
 
 ### SQS Queues
 - **Email Notification Queue**: Decoupled email processing
-- **WebSocket Notification Queue**: Decoupled WebSocket processing
+- **Email Notification Queue**: Decoupled email processing
 - **Dead Letter Queues**: Failed notification handling
 - **Invoice Generation Queue**: Async invoice processing
 
@@ -827,4 +895,5 @@ git push origin prod
 # 🧹 Complete resource removal
 # 📊 Verification report
 ```
+
 

@@ -6,8 +6,11 @@ Handles notification queuing and SQS-related business logic
 import os
 import time
 import json
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import boto3
 from botocore.exceptions import ClientError
+import response_utils as resp
 from exceptions import BusinessLogicError
 
 
@@ -19,7 +22,7 @@ class NotificationManager:
         
         # Queue URLs from environment
         self.email_queue_url = os.environ.get('EMAIL_NOTIFICATION_QUEUE_URL', '')
-        self.websocket_queue_url = os.environ.get('WEBSOCKET_NOTIFICATION_QUEUE_URL', '')
+        # Removed: websocket_queue_url - websocket notifications are now synchronous for messaging only
         self.firebase_queue_url = os.environ.get('FIREBASE_NOTIFICATION_QUEUE_URL', '')
         self.invoice_queue_url = os.environ.get('INVOICE_QUEUE_URL', '')
     
@@ -41,11 +44,14 @@ class NotificationManager:
             bool: True if queued successfully, False otherwise
         """
         try:
+            # Convert any Decimal objects to JSON-serializable types
+            clean_data = resp.convert_decimal(data)
+            
             message = {
                 'notification_type': notification_type,
                 'customer_email': customer_email,
                 'customer_name': customer_name,
-                'data': data
+                'data': clean_data
             }
             
             response = self.sqs.send_message(
@@ -134,18 +140,6 @@ class NotificationManager:
         data['update_type'] = update_type
         return self.queue_email_notification('order_updated', customer_email, customer_name, data)
     
-    def queue_order_status_email(self, customer_email, customer_name, order_data, new_status, status_message=None):
-        """Queue order status change email notification"""
-        if not customer_email or not order_data:
-            print("Warning: Missing customer email or order data for email notification")
-            return False
-        
-        data = order_data.copy() if isinstance(order_data, dict) else {}
-        data['new_status'] = new_status
-        if status_message:
-            data['status_message'] = status_message
-        return self.queue_email_notification('order_status_change', customer_email, customer_name, data)
-    
     def queue_inquiry_response_email(self, customer_email, customer_name, inquiry_data, response_message):
         """Queue inquiry response email notification"""
         if not customer_email or not inquiry_data:
@@ -177,6 +171,24 @@ class NotificationManager:
             data['invoice_url'] = invoice_url
         return self.queue_email_notification('payment_confirmed', customer_email, customer_name, data)
     
+    def queue_payment_cancellation_email(self, customer_email, customer_name, payment_data):
+        """Queue payment cancellation email notification"""
+        if not customer_email or not payment_data:
+            print("Warning: Missing customer email or payment data for payment cancellation email notification")
+            return False
+        
+        data = payment_data.copy() if isinstance(payment_data, dict) else {}
+        return self.queue_email_notification('payment_cancelled', customer_email, customer_name, data)
+    
+    def queue_payment_reactivation_email(self, customer_email, customer_name, payment_data):
+        """Queue payment reactivation email notification"""
+        if not customer_email or not payment_data:
+            print("Warning: Missing customer email or payment data for payment reactivation email notification")
+            return False
+        
+        data = payment_data.copy() if isinstance(payment_data, dict) else {}
+        return self.queue_email_notification('payment_reactivated', customer_email, customer_name, data)
+    
     def queue_welcome_email(self, customer_email, customer_name, user_data=None):
         """Queue welcome email notification for new customers"""
         if not customer_email:
@@ -195,172 +207,10 @@ class NotificationManager:
         return self.queue_email_notification('password_reset', customer_email, customer_name, reset_data)
     
     # ===============================================================================
-    # WebSocket Notification Queue Functions
+    # WebSocket Notification Functions - REMOVED
     # ===============================================================================
-    
-    def queue_websocket_notification(self, notification_type, notification_data, user_id=None, connection_id=None):
-        """
-        Queue a WebSocket notification for asynchronous processing
-        
-        Args:
-            notification_type (str): Type of WebSocket notification
-            notification_data (dict): Notification data to send via WebSocket
-            user_id (str, optional): User ID to send notification to
-            connection_id (str, optional): Specific connection ID to send to
-        
-        Returns:
-            bool: True if queued successfully, False otherwise
-        """
-        try:
-            message = {
-                'notification_type': notification_type,
-                'notification_data': notification_data
-            }
-            
-            if user_id:
-                message['user_id'] = user_id
-            if connection_id:
-                message['connection_id'] = connection_id
-            
-            message_attributes = {
-                'NotificationType': {
-                    'StringValue': notification_type,
-                    'DataType': 'String'
-                }
-            }
-            
-            if user_id:
-                message_attributes['UserId'] = {
-                    'StringValue': user_id,
-                    'DataType': 'String'
-                }
-            
-            response = self.sqs.send_message(
-                QueueUrl=self.websocket_queue_url,
-                MessageBody=json.dumps(message),
-                MessageAttributes=message_attributes
-            )
-            
-            print(f"WebSocket notification queued successfully. MessageId: {response['MessageId']}")
-            return True
-            
-        except ClientError as e:
-            error_code = e.response['Error']['Code']
-            error_message = e.response['Error']['Message']
-            print(f"Failed to queue WebSocket notification. Error: {error_code} - {error_message}")
-            return False
-        except Exception as e:
-            print(f"Unexpected error queuing WebSocket notification: {str(e)}")
-            return False
-    
-    def queue_appointment_websocket_notification(self, appointment_id, scenario, update_data=None, user_id=None):
-        """Queue appointment WebSocket notification"""
-        if not appointment_id or not scenario:
-            print("Warning: Missing appointment ID or scenario for WebSocket notification")
-            return False
-        
-        notification_data = {
-            "type": "appointment",
-            "subtype": "update", 
-            "scenario": scenario,
-            "appointmentId": appointment_id,
-            "changes": list(update_data.keys()) if isinstance(update_data, dict) else [],
-            "timestamp": int(time.time())
-        }
-        
-        if update_data:
-            notification_data["updateData"] = update_data
-        
-        return self.queue_websocket_notification('appointment_update', notification_data, user_id=user_id)
-    
-    def queue_order_websocket_notification(self, order_id, scenario, update_data=None, user_id=None):
-        """Queue order WebSocket notification"""
-        if not order_id or not scenario:
-            print("Warning: Missing order ID or scenario for WebSocket notification")
-            return False
-        
-        notification_data = {
-            "type": "order",
-            "subtype": "update",
-            "scenario": scenario,
-            "orderId": order_id,
-            "changes": list(update_data.keys()) if isinstance(update_data, dict) else [],
-            "timestamp": int(time.time())
-        }
-        
-        if update_data:
-            notification_data["updateData"] = update_data
-        
-        return self.queue_websocket_notification('order_update', notification_data, user_id=user_id)
-    
-    def queue_staff_websocket_notification(self, notification_data, assigned_to=None, exclude_user_id=None):
-        """Queue WebSocket notification for staff members"""
-        if not notification_data:
-            print("Warning: Missing notification data for staff WebSocket notification")
-            return False
-        
-        staff_notification_data = notification_data.copy() if isinstance(notification_data, dict) else {}
-        staff_notification_data['staff_broadcast'] = True
-        staff_notification_data['timestamp'] = int(time.time())
-        
-        if assigned_to:
-            staff_notification_data['assigned_to'] = assigned_to
-        if exclude_user_id:
-            staff_notification_data['exclude_user_id'] = exclude_user_id
-        
-        return self.queue_websocket_notification('staff_notification', staff_notification_data)
-    
-    def queue_inquiry_websocket_notification(self, inquiry_id, user_id=None, staff_only=False):
-        """Queue inquiry WebSocket notification"""
-        if not inquiry_id:
-            print("Warning: Missing inquiry ID for WebSocket notification")
-            return False
-        
-        notification_data = {
-            "type": "inquiry",
-            "subtype": "new",
-            "inquiryId": inquiry_id,
-            "timestamp": int(time.time())
-        }
-        
-        if staff_only:
-            return self.queue_staff_websocket_notification(notification_data)
-        else:
-            return self.queue_websocket_notification('inquiry_update', notification_data, user_id=user_id)
-    
-    def queue_message_websocket_notification(self, message_id, sender_id, recipient_id, message_type='general'):
-        """Queue message WebSocket notification"""
-        if not message_id or not sender_id:
-            print("Warning: Missing message ID or sender ID for WebSocket notification")
-            return False
-        
-        notification_data = {
-            "type": "message",
-            "subtype": "new",
-            "messageId": message_id,
-            "senderId": sender_id,
-            "messageType": message_type,
-            "timestamp": int(time.time())
-        }
-        
-        return self.queue_websocket_notification('message_update', notification_data, user_id=recipient_id)
-    
-    def queue_payment_websocket_notification(self, payment_id, reference_id, payment_method, user_id=None):
-        """Queue payment WebSocket notification"""
-        if not payment_id or not reference_id:
-            print("Warning: Missing payment ID or reference ID for WebSocket notification")
-            return False
-        
-        notification_data = {
-            "type": "payment",
-            "subtype": "confirmed",
-            "paymentId": payment_id,
-            "referenceId": reference_id,
-            "paymentMethod": payment_method,
-            "timestamp": int(time.time())
-        }
-        
-        return self.queue_websocket_notification('payment_update', notification_data, user_id=user_id)
+    # WebSocket notifications are now handled synchronously for messaging scenarios only
+    # via sync_websocket_utils.py module. All queued websocket functionality removed.
     
     # ===============================================================================
     # Firebase Push Notification Queue Functions
@@ -388,11 +238,14 @@ class NotificationManager:
                 print("Firebase notifications disabled - queue URL not configured")
                 return False
             
+            # Convert any Decimal objects to JSON-serializable types
+            clean_data = resp.convert_decimal(data or {})
+            
             message = {
                 'notification_type': notification_type,
                 'title': title,
                 'body': body,
-                'data': data or {},
+                'data': clean_data,
                 'target_type': target_type
             }
             
@@ -459,7 +312,7 @@ class NotificationManager:
             'type': 'order',
             'orderId': order_id,
             'scenario': scenario,
-            'timestamp': int(time.time())
+            'timestamp': int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())
         }
         
         if staff_user_ids:
@@ -498,7 +351,7 @@ class NotificationManager:
             'type': 'appointment',
             'appointmentId': appointment_id,
             'scenario': scenario,
-            'timestamp': int(time.time())
+            'timestamp': int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())
         }
         
         if staff_user_ids:
@@ -538,7 +391,7 @@ class NotificationManager:
             'type': 'payment',
             'referenceId': reference_id,
             'scenario': scenario,
-            'timestamp': int(time.time())
+            'timestamp': int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())
         }
         
         if amount:
@@ -563,7 +416,7 @@ class NotificationManager:
         data = {
             'type': 'inquiry',
             'inquiryId': inquiry_id,
-            'timestamp': int(time.time())
+            'timestamp': int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())
         }
         
         if customer_name:
@@ -588,7 +441,7 @@ class NotificationManager:
             'messageId': message_id,
             'senderName': sender_name,
             'recipientType': recipient_type,
-            'timestamp': int(time.time())
+            'timestamp': int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())
         }
         
         if recipient_type == 'staff':
@@ -613,7 +466,7 @@ class NotificationManager:
             'type': 'user_assignment',
             'clientId': client_id,
             'assignedStaffName': assigned_staff_name,
-            'timestamp': int(time.time())
+            'timestamp': int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())
         }
         
         excluded_users = [exclude_user_id] if exclude_user_id else None
@@ -629,7 +482,7 @@ class NotificationManager:
         data = {
             'type': 'system',
             'urgent': urgent,
-            'timestamp': int(time.time())
+            'timestamp': int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())
         }
         
         roles = target_roles or ['CUSTOMER_SUPPORT', 'CLERK', 'MECHANIC', 'ADMIN']
@@ -682,7 +535,7 @@ class NotificationManager:
             'isImportant': is_important,
             'tags': tags,
             'receivedDate': email_metadata.get('receivedDate'),
-            'timestamp': int(time.time())
+            'timestamp': int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())
         }
         
         # Queue Firebase notification
@@ -702,6 +555,16 @@ class InvoiceManager:
     def __init__(self):
         self.sqs = boto3.client('sqs')
         self.invoice_queue_url = os.environ.get('INVOICE_QUEUE_URL', '')
+        # Initialize database access utilities
+        self.db = None
+        try:
+            import db_utils as db
+            self.db = db
+            print("Database utilities imported successfully")
+        except ImportError as e:
+            print(f"Warning: Could not import database utilities: {e}")
+        except Exception as e:
+            print(f"Warning: Error initializing database utilities: {e}")
     
     def queue_invoice_generation(self, record, record_type, payment_intent_id):
         """
@@ -713,18 +576,23 @@ class InvoiceManager:
             payment_intent_id (str): Payment intent identifier
         
         Returns:
-            bool: True if queued successfully, False otherwise
+            bool or dict: True if successfully queued, or complete invoice result object if fallback to synchronous processing
+                         Format when queued: True
+                         Format when synchronous: {'success': bool, 'invoice_url': str, 'error': str (if failure)}
         """
         if not record or not record_type or not payment_intent_id:
             print("Warning: Missing required parameters for invoice generation")
             return False
         
         try:
+            # Convert any Decimal objects to JSON-serializable types
+            clean_record = resp.convert_decimal(record)
+            
             message_body = {
-                'record': record,
+                'record': clean_record,
                 'record_type': record_type,
                 'payment_intent_id': payment_intent_id,
-                'timestamp': int(time.time()),
+                'timestamp': int(datetime.now(ZoneInfo('Australia/Perth')).timestamp()),
                 'retry_count': 0
             }
             
@@ -772,66 +640,83 @@ class InvoiceManager:
             payment_intent_id (str): Payment intent identifier
         
         Returns:
-            bool: True if invoice generated successfully, False otherwise
+            dict: Complete invoice result object with success status, invoice_url, etc.
+                  Format: {'success': bool, 'invoice_url': str, 'error': str (if failure)}
         """
         try:
             import invoice_utils as invc
-            import data_retrieval_utils as db
+            import time
             
-            print(f"Generating invoice synchronously for {record_type} with payment_intent_id: {payment_intent_id}")
+            # Check if an invoice has already been generated for this record
+            if record_type in ['appointment', 'order']:
+                reference_number = record.get(f'{record_type}Id')
+                if reference_number and self.db:
+                    try:
+                        # Check for existing active (non-cancelled) invoices
+                        reference_type = 'appointment' if record_type == 'appointment' else 'order'
+                        has_active_invoice = self.db.has_active_invoices(reference_number, reference_type)
+                        
+                        if has_active_invoice:
+                            # Get the active invoice details
+                            existing_invoice = self.db.get_active_invoice_by_reference(reference_number, reference_type)
+                            invoice_url = existing_invoice.get('fileUrl', '') if existing_invoice else ''
+                            
+                            print(f"Active invoice already exists for {record_type} {reference_number}: {invoice_url}")
+                            
+                            # Return success with existing invoice URL
+                            return {
+                                'success': True, 
+                                'invoice_url': invoice_url,
+                                'message': 'Invoice already exists'
+                            }
+                    except Exception as db_error:
+                        print(f"Warning: Could not check for existing invoice due to database error: {str(db_error)}")
+                        # Continue with invoice generation if we can't check for existing invoice
             
             # Determine invoice generation method based on payment intent and record type
             if record_type == "invoice" and payment_intent_id and (
                 payment_intent_id.startswith('cash_') or 
-                payment_intent_id.startswith('bank_transfer_')
+                payment_intent_id.startswith('bank_transfer_') or
+                payment_intent_id.startswith('card_')
             ):
                 invoice_result = invc.generate_invoice_for_payment(record)
-            elif payment_intent_id and (payment_intent_id.startswith('cash_') or payment_intent_id.startswith('bank_transfer_')):
-                invoice_result = invc.create_invoice_for_order_or_appointment(record, record_type)
+            elif payment_intent_id and (payment_intent_id.startswith('cash_') or payment_intent_id.startswith('bank_transfer_') or payment_intent_id.startswith('card_')):
+                invoice_result = invc.create_invoice_for_order_or_appointment(record, record_type, payment_intent_id)
             else:
                 invoice_result = invc.create_invoice_for_order_or_appointment(record, record_type, payment_intent_id)
             
             if invoice_result.get('success'):
                 invoice_url = invoice_result.get('invoice_url')
-                print(f"Invoice generated successfully: {invoice_url}")
-                
                 reference_number = record.get(f'{record_type}Id', '')
                 
-                if (record_type in ['appointment', 'order']) and reference_number:
+                if (record_type in ['appointment', 'order']) and reference_number and self.db:
                     # Update the record with invoice URL
                     invoice_update = {
                         'invoiceUrl': invoice_url, 
-                        'updatedAt': int(time.time()),
-                        'invoiceGeneratedAt': int(time.time())
+                        'updatedAt': int(datetime.now(ZoneInfo('Australia/Perth')).timestamp()),
+                        'invoiceGeneratedAt': int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())
                     }
                     
                     try:
                         if record_type == 'appointment':
-                            db.update_appointment(reference_number, invoice_update)
+                            self.db.update_appointment(reference_number, invoice_update)
                         else:
-                            db.update_order(reference_number, invoice_update)
-                        print(f"Updated {record_type} {reference_number} with invoice URL")
+                            self.db.update_order(reference_number, invoice_update)
                     except Exception as update_error:
                         print(f"Warning: Failed to update {record_type} with invoice URL: {str(update_error)}")
                     
-                    # Send payment confirmation email after successful invoice generation
                     try:
                         self._send_payment_confirmation_email_with_invoice(record, record_type, invoice_url, payment_intent_id)
                     except Exception as email_error:
                         print(f"Warning: Error sending payment confirmation email: {str(email_error)}")
                 
-                return True
+                return invoice_result
             else:
-                error_message = invoice_result.get('error', 'Unknown error')
-                print(f"Failed to generate invoice: {error_message}")
-                return False
+                return invoice_result
                 
-        except ImportError as e:
-            print(f"Error importing required modules for invoice generation: {str(e)}")
-            return False
         except Exception as e:
             print(f"Error in synchronous invoice generation: {str(e)}")
-            return False
+            return {'success': False, 'error': str(e)}
     
     def process_invoice_generation(self, record, record_type, payment_intent_id):
         """
@@ -850,6 +735,25 @@ class InvoiceManager:
             import email_utils as email
             import time
             
+            # Check if an invoice has already been generated for this record
+            if record_type in ['appointment', 'order']:
+                reference_number = record.get(f'{record_type}Id')
+                if reference_number and self.db:
+                    try:
+                        # Check for existing active (non-cancelled) invoices
+                        reference_type = 'appointment' if record_type == 'appointment' else 'order'
+                        has_active_invoice = self.db.has_active_invoices(reference_number, reference_type)
+                        
+                        if has_active_invoice:
+                            existing_invoice = self.db.get_active_invoice_by_reference(reference_number, reference_type)
+                            invoice_url = existing_invoice.get('fileUrl', '') if existing_invoice else ''
+                            print(f"Active invoice already exists for {record_type} {reference_number}: {invoice_url}")
+                            
+                            return True  # Consider this successful since invoice already exists
+                    except Exception as db_error:
+                        print(f"Warning: Could not check for existing invoice due to database error: {str(db_error)}")
+                        # Continue with invoice generation if we can't check for existing invoice
+            
             # Generate the invoice
             invoice_result = invc.create_invoice_for_order_or_appointment(
                 record, 
@@ -864,8 +768,12 @@ class InvoiceManager:
                 # Update the record with invoice URL
                 invoice_update = {
                     'invoiceUrl': invoice_url, 
-                    'updatedAt': int(time.time())
+                    'updatedAt': int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())
                 }
+                
+                if self.db is None:
+                    print("Warning: Database connection not available, cannot update record")
+                    return True  # Still consider success since invoice was generated
                 
                 if record_type == 'appointment':
                     update_success = self.db.update_appointment(reference_number, invoice_update)
@@ -926,18 +834,58 @@ class InvoiceManager:
                 return
             
             # Determine payment method from payment_intent_id
-            payment_method = 'Card'  # Default for Stripe payments
+            payment_method = 'Stripe'  # Default for Stripe payments
             if payment_intent_id and payment_intent_id.startswith('cash_'):
                 payment_method = 'Cash'
             elif payment_intent_id and payment_intent_id.startswith('bank_transfer_'):
                 payment_method = 'Bank Transfer'
+            elif payment_intent_id and payment_intent_id.startswith('card_'):
+                payment_method = 'Card'
             
-            # Prepare payment data for email
+            # Prepare payment data for email with proper price calculation
+            # Calculate total price using multiple possible sources, similar to email formatting functions
+            total_price = 0.0
+            
+            # Try different price fields in order of preference
+            price_sources = ['totalPrice', 'price', 'paymentAmount']
+            for price_field in price_sources:
+                if price_field in record and record[price_field] is not None:
+                    try:
+                        total_price = float(record[price_field])
+                        break
+                    except (ValueError, TypeError):
+                        continue
+            
+            # If no direct price found, calculate from services/items
+            if total_price == 0.0:
+                try:
+                    # Calculate from services if available
+                    services = record.get('services', [])
+                    if services:
+                        for service in services:
+                            if isinstance(service, dict):
+                                service_price = service.get('price', 0)
+                                if service_price:
+                                    total_price += float(service_price)
+                    
+                    # Calculate from items if available (for orders)
+                    items = record.get('items', [])
+                    if items:
+                        for item in items:
+                            if isinstance(item, dict):
+                                item_price = item.get('price', 0)
+                                item_quantity = item.get('quantity', 1)
+                                if item_price:
+                                    total_price += float(item_price) * float(item_quantity)
+                except (ValueError, TypeError) as e:
+                    print(f"Error calculating price from services/items: {str(e)}")
+                    total_price = 0.0
+            
             payment_data = {
-                'amount': f"{record.get('price', 0):.2f}",
+                'amount': f"{total_price:.2f}",
                 'paymentMethod': payment_method,
                 'referenceNumber': record.get(f'{record_type}Id', 'N/A'),
-                'paymentDate': record.get('updatedAt', int(time.time())),
+                'paymentDate': record.get('paymentDate', datetime.now(ZoneInfo('Australia/Perth')).strftime('%d/%m/%Y')),
                 'invoice_url': invoice_url
             }
             
@@ -947,7 +895,8 @@ class InvoiceManager:
             
         except Exception as e:
             print(f"Error sending payment confirmation email: {str(e)}")
-            raise e
+            # Don't re-raise the exception to prevent it from failing the invoice generation
+            # raise e
 
     # ===============================================================================
     # Retry Queue Functions
@@ -970,9 +919,11 @@ class InvoiceManager:
             return False
         
         try:
-            retry_message = original_message_body.copy()
+            # Ensure retry message is also clean of Decimal objects
+            clean_original_message = resp.convert_decimal(original_message_body)
+            retry_message = clean_original_message.copy()
             retry_message['retry_count'] = retry_count + 1
-            retry_message['retry_timestamp'] = int(time.time())
+            retry_message['retry_timestamp'] = int(datetime.now(ZoneInfo('Australia/Perth')).timestamp())
             
             if self.invoice_queue_url:
                 # Add delay for retries (exponential backoff)
@@ -1020,21 +971,17 @@ queue_appointment_cancelled_email = notification_manager.queue_appointment_cance
 queue_appointment_reminder_email = notification_manager.queue_appointment_reminder_email
 queue_order_created_email = notification_manager.queue_order_created_email
 queue_order_updated_email = notification_manager.queue_order_updated_email
-queue_order_status_email = notification_manager.queue_order_status_email
 queue_inquiry_response_email = notification_manager.queue_inquiry_response_email
 queue_report_ready_email = notification_manager.queue_report_ready_email
 queue_payment_confirmation_email = notification_manager.queue_payment_confirmation_email
+queue_payment_cancellation_email = notification_manager.queue_payment_cancellation_email
+queue_payment_reactivation_email = notification_manager.queue_payment_reactivation_email
 queue_welcome_email = notification_manager.queue_welcome_email
 queue_password_reset_email = notification_manager.queue_password_reset_email
 
-# Export individual WebSocket notification functions for backward compatibility
-queue_websocket_notification = notification_manager.queue_websocket_notification
-queue_appointment_websocket_notification = notification_manager.queue_appointment_websocket_notification
-queue_order_websocket_notification = notification_manager.queue_order_websocket_notification
-queue_staff_websocket_notification = notification_manager.queue_staff_websocket_notification
-queue_inquiry_websocket_notification = notification_manager.queue_inquiry_websocket_notification
-queue_message_websocket_notification = notification_manager.queue_message_websocket_notification
-queue_payment_websocket_notification = notification_manager.queue_payment_websocket_notification
+# REMOVED: WebSocket notification functions exports
+# WebSocket notifications are now handled synchronously for messaging scenarios only
+# Use sync_websocket_utils.py module for messaging websocket notifications
 
 # Export individual Firebase notification functions for backward compatibility
 queue_firebase_notification = notification_manager.queue_firebase_notification

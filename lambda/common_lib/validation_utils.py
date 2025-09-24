@@ -5,6 +5,7 @@ Centralizes validation logic across Lambda functions
 
 import re
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from decimal import Decimal, InvalidOperation
 
 
@@ -107,7 +108,7 @@ class DataValidator:
         """
         try:
             year_int = int(year)
-            current_year = datetime.now().year
+            current_year = datetime.now(ZoneInfo('Australia/Perth')).year
             if year_int < 1900 or year_int > current_year + 1:
                 raise ValidationError(f"{field_name} must be between 1900 and {current_year + 1}", field_name)
             return True
@@ -189,6 +190,74 @@ class DataValidator:
             raise ValidationError(f"{field_name} cannot be empty", field_name)
         
         return True
+
+    @staticmethod
+    def validate_and_convert_date_to_analytics_format(date_value, field_name="date"):
+        """
+        Validate and convert various date formats to analytics format (DD/MM/YYYY)
+        
+        This function handles multiple input formats and converts them to the standardized
+        DD/MM/YYYY format required by the analytics system.
+        
+        Supported input formats:
+        - DD/MM/YYYY (analytics format - returned as-is)
+        - YYYY-MM-DD (ISO format)
+        - DD Month YYYY (e.g., "20 September 2025")
+        - DD-MM-YYYY
+        - MM/DD/YYYY (US format)
+        - YYYY/MM/DD
+        - DD Mon YYYY (e.g., "20 Sep 2025")
+        
+        Args:
+            date_value (str): Date string to validate and convert
+            field_name (str): Field name for error messages
+            
+        Returns:
+            str: Date in DD/MM/YYYY format (e.g., "20/09/2025")
+            
+        Raises:
+            ValidationError: If date format is invalid or date cannot be parsed
+        """
+        if not date_value or not isinstance(date_value, str):
+            raise ValidationError(f"{field_name} must be a non-empty string", field_name)
+        
+        date_value = date_value.strip()
+        
+        # If already in DD/MM/YYYY format, validate and return as-is
+        try:
+            parsed_date = datetime.strptime(date_value, '%d/%m/%Y')
+            return date_value  # Already in correct format
+        except ValueError:
+            pass
+        
+        # List of other date formats to try
+        date_formats = [
+            '%Y-%m-%d',      # ISO format
+            '%d %B %Y',      # DD Month YYYY (e.g., "20 September 2025")
+            '%d-%m-%Y',      # DD-MM-YYYY
+            '%m/%d/%Y',      # MM/DD/YYYY (US format)
+            '%Y/%m/%d',      # YYYY/MM/DD
+            '%d %b %Y',      # DD Mon YYYY (e.g., "20 Sep 2025")
+        ]
+        
+        parsed_date = None
+        
+        for date_format in date_formats:
+            try:
+                parsed_date = datetime.strptime(date_value, date_format)
+                break
+            except ValueError:
+                continue
+        
+        if parsed_date is None:
+            raise ValidationError(
+                f"Invalid date format for {field_name}: '{date_value}'. "
+                f"Supported formats: DD/MM/YYYY, YYYY-MM-DD, DD Month YYYY, etc.",
+                field_name
+            )
+        
+        # Return in analytics format (DD/MM/YYYY)
+        return parsed_date.strftime('%d/%m/%Y')
 
 
 class AppointmentDataValidator:
@@ -413,6 +482,46 @@ class OrderDataValidator:
         DataValidator.validate_email(customer_data['email'], 'customerData.email')
         DataValidator.validate_phone_number(customer_data[phone_field], f'customerData.{phone_field}')
         DataValidator.validate_string_length(customer_data['name'], min_length=1, max_length=100, field_name='customerData.name')
+
+
+class ValidationManager:
+    """
+    Legacy compatibility class for existing code that expects ValidationManager
+    Wraps the new validator classes for backward compatibility
+    """
+    
+    def __init__(self):
+        self.data_validator = DataValidator()
+        self.appointment_validator = AppointmentDataValidator()
+        self.order_validator = OrderDataValidator()
+    
+    def validate_required_fields(self, data, required_fields):
+        """Validate required fields using DataValidator"""
+        return self.data_validator.validate_required_fields(data, required_fields)
+    
+    def validate_email(self, email, field_name="email"):
+        """Validate email using DataValidator"""
+        return self.data_validator.validate_email(email, field_name)
+    
+    def validate_phone_number(self, phone, field_name="phone"):
+        """Validate phone number using DataValidator"""
+        return self.data_validator.validate_phone_number(phone, field_name)
+    
+    def validate_appointment_data(self, appointment_data, staff_user=False):
+        """Validate appointment data using AppointmentDataValidator"""
+        return self.appointment_validator.validate_appointment_data(appointment_data, staff_user)
+    
+    def validate_order_data(self, order_data, staff_user=False):
+        """Validate order data using OrderDataValidator"""
+        return self.order_validator.validate_order_data(order_data, staff_user)
+    
+    def validate_positive_number(self, value, field_name="value"):
+        """Validate positive number using DataValidator"""
+        return self.data_validator.validate_positive_number(value, field_name)
+    
+    def validate_string_length(self, value, min_length=None, max_length=None, field_name="value"):
+        """Validate string length using DataValidator"""
+        return self.data_validator.validate_string_length(value, min_length, max_length, field_name)
 
 
 def handle_validation_error(func):
