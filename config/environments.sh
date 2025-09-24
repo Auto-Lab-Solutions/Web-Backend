@@ -176,7 +176,7 @@ get_env_config() {
     export AUTH0_AUDIENCE="${AUTH0_AUDIENCE}"
 
     # Frontend GitHub Repository Configuration
-    FRONTEND_REPO_OWNER="Actions-Test-123"
+    FRONTEND_REPO_OWNER="Auto-Lab-Solutions"
     FRONTEND_REPO_NAME="Web-Frontend"
     FRONTEND_GITHUB_TOKEN="${FRONTEND_GITHUB_TOKEN}"
 
