@@ -112,43 +112,6 @@ check_domain_verification() {
     esac
 }
 
-# Function to check email address verification
-check_email_verification() {
-    print_status "Checking email address verification for: $MAIL_FROM_ADDRESS"
-    
-    local verification_result
-    verification_result=$(aws ses get-identity-verification-attributes \
-        --identities "$MAIL_FROM_ADDRESS" \
-        --region "$SES_REGION" \
-        --output json 2>/dev/null) || {
-        print_warning "Could not check email verification status"
-        return 1
-    }
-    
-    local verification_status
-    verification_status=$(echo "$verification_result" | \
-        python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('VerificationAttributes', {}).get('$MAIL_FROM_ADDRESS', {}).get('VerificationStatus', 'Unknown'))" 2>/dev/null || echo "Unknown")
-    
-    case "$verification_status" in
-        "Success")
-            print_success "Email address '$MAIL_FROM_ADDRESS' is verified ✓"
-            return 0
-            ;;
-        "Pending")
-            print_warning "Email address '$MAIL_FROM_ADDRESS' verification is pending"
-            return 1
-            ;;
-        "Failed")
-            print_error "Email address '$MAIL_FROM_ADDRESS' verification failed"
-            return 1
-            ;;
-        *)
-            print_warning "Email address '$MAIL_FROM_ADDRESS' is not yet added to SES"
-            return 1
-            ;;
-    esac
-}
-
 # Function to check SES sending quota and limits
 check_sending_quota() {
     print_status "Checking SES sending quota and limits"
@@ -253,7 +216,7 @@ check_dns_requirements() {
         echo ""
         echo "2. MX Record for Email Receiving:"
         echo "   Name: $domain"
-        echo "   Value: 10 inbound-smtp.$SES_REGION.amazonses.com"
+        echo "   Value: 10 inbound-smtp.$SES_REGION.amazonaws.com"
         echo ""
         echo "3. Optional MAIL FROM Domain (Recommended):"
         echo "   MX Record:"
@@ -342,7 +305,7 @@ You need to add these DNS records to dev.autolabsolutions.com:
 2. Email Receiving (MX Record):
    Type: MX
    Name: dev.autolabsolutions.com
-   Value: 10 inbound-smtp.ap-southeast-2.amazonses.com
+   Value: 10 inbound-smtp.ap-southeast-2.amazonaws.com
    Priority: 10
 
 3. MAIL FROM Domain (Recommended):
@@ -399,6 +362,9 @@ Support Links:
 - SES Console: https://console.aws.amazon.com/ses/
 - SES Documentation: https://docs.aws.amazon.com/ses/
 - DNS Verification: https://docs.aws.amazon.com/ses/latest/dg/verify-domain-procedure.html
+
+2. MAIL FROM MX Record:
+   Name: mail.$domain
    Value: 10 feedback-smtp.$SES_REGION.amazonses.com
 
 3. MAIL FROM TXT Record:
@@ -479,11 +445,6 @@ validate_ses() {
     
     # Check domain verification
     if ! check_domain_verification; then
-        validation_passed=false
-    fi
-    
-    # Check email verification
-    if ! check_email_verification; then
         validation_passed=false
     fi
     

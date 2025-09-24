@@ -39,6 +39,7 @@ upload_templates() {
     print_status "Uploading CloudFormation templates to S3 bucket: $CLOUDFORMATION_BUCKET"
     
     # Upload all CloudFormation templates
+    aws s3 cp infrastructure/main-stack.yaml s3://$CLOUDFORMATION_BUCKET/main-stack.yaml --region $AWS_REGION
     aws s3 cp infrastructure/dynamodb-tables.yaml s3://$CLOUDFORMATION_BUCKET/dynamodb-tables.yaml --region $AWS_REGION
     aws s3 cp infrastructure/invoice-queue.yaml s3://$CLOUDFORMATION_BUCKET/invoice-queue.yaml --region $AWS_REGION
     aws s3 cp infrastructure/notification-queue.yaml s3://$CLOUDFORMATION_BUCKET/notification-queue.yaml --region $AWS_REGION
@@ -50,9 +51,7 @@ upload_templates() {
     aws s3 cp infrastructure/backup-system.yaml s3://$CLOUDFORMATION_BUCKET/backup-system.yaml --region $AWS_REGION
     aws s3 cp infrastructure/ses-bounce-complaint-system.yaml s3://$CLOUDFORMATION_BUCKET/ses-bounce-complaint-system.yaml --region $AWS_REGION
     aws s3 cp infrastructure/ses-email-storage.yaml s3://$CLOUDFORMATION_BUCKET/ses-email-storage.yaml --region $AWS_REGION
-    aws s3 cp infrastructure/ses-identities-route53.yaml s3://$CLOUDFORMATION_BUCKET/ses-identities-route53.yaml --region $AWS_REGION
-    aws s3 cp infrastructure/ses-notification-config.yaml s3://$CLOUDFORMATION_BUCKET/ses-notification-config.yaml --region $AWS_REGION
-
+    aws s3 cp infrastructure/ses-identities-with-route53-records.yaml s3://$CLOUDFORMATION_BUCKET/ses-identities-with-route53-records.yaml --region $AWS_REGION
     
     print_success "All CloudFormation templates uploaded successfully!"
 }

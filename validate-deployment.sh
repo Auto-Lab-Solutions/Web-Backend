@@ -593,17 +593,42 @@ validate_deployment() {
     
     # Check backup system
     print_status "Checking backup system..."
-    local backup_stack_name="auto-lab-backup-system-${ENVIRONMENT}"
-    if aws cloudformation describe-stacks --stack-name "$backup_stack_name" --region $AWS_REGION &>/dev/null; then
-        local backup_stack_status=$(aws cloudformation describe-stacks --stack-name "$backup_stack_name" --region $AWS_REGION --query 'Stacks[0].StackStatus' --output text)
+    local backup_stack_name_prefix="${STACK_NAME}-BackupSystemStack"
+    if aws cloudformation describe-stacks --stack-name "$backup_stack_name_prefix" --region $AWS_REGION &>/dev/null; then
+        local backup_stack_status=$(aws cloudformation describe-stacks --stack-name "$backup_stack_name_prefix" --region $AWS_REGION --query 'Stacks[0].StackStatus' --output text)
         if [ "$backup_stack_status" = "CREATE_COMPLETE" ] || [ "$backup_stack_status" = "UPDATE_COMPLETE" ]; then
             print_success "✓ Backup system stack '$backup_stack_name' is in good state ($backup_stack_status)"
             
-            # Check backup Lambda functions
-            local backup_functions=("backup-restore" "api-backup-restore")
-            for func in "${backup_functions[@]}"; do
-                check_lambda_function "$func" || ((errors++))
-            done
+            # Check backup Lambda functions with new sys- prefix
+            # These functions have custom names that don't follow the standard pattern
+            local backup_function_name="sys-backup-${ENVIRONMENT}"
+            local manual_backup_function_name="sys-manual-backup-${ENVIRONMENT}"
+            
+            if aws lambda get-function --function-name "$backup_function_name" --region $AWS_REGION &>/dev/null; then
+                local state=$(aws lambda get-function --function-name "$backup_function_name" --region $AWS_REGION --query 'Configuration.State' --output text)
+                if [ "$state" = "Active" ]; then
+                    print_success "✓ Lambda function '$backup_function_name' is active"
+                else
+                    print_warning "⚠ Lambda function '$backup_function_name' exists but is not active (State: $state)"
+                    ((errors++))
+                fi
+            else
+                print_error "✗ Lambda function '$backup_function_name' not found"
+                ((errors++))
+            fi
+            
+            if aws lambda get-function --function-name "$manual_backup_function_name" --region $AWS_REGION &>/dev/null; then
+                local state=$(aws lambda get-function --function-name "$manual_backup_function_name" --region $AWS_REGION --query 'Configuration.State' --output text)
+                if [ "$state" = "Active" ]; then
+                    print_success "✓ Lambda function '$manual_backup_function_name' is active"
+                else
+                    print_warning "⚠ Lambda function '$manual_backup_function_name' exists but is not active (State: $state)"
+                    ((errors++))
+                fi
+            else
+                print_error "✗ Lambda function '$manual_backup_function_name' not found"
+                ((errors++))
+            fi
             
             # Check backup system outputs
             local backup_function_arn=$(get_stack_output "$backup_stack_name" "BackupLambdaFunctionArn")

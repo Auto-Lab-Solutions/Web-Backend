@@ -59,10 +59,25 @@ show_usage() {
     echo ""
 }
 
+# Helper function to get the correct full function name
+get_full_function_name() {
+    local function_name=$1
+    
+    # Handle special naming for backup functions
+    if [ "$function_name" = "backup-restore" ]; then
+        echo "sys-backup-${ENVIRONMENT}"
+    elif [ "$function_name" = "api-backup-restore" ]; then
+        echo "sys-manual-backup-${ENVIRONMENT}"
+    else
+        # Standard naming pattern
+        echo "${function_name}-${ENVIRONMENT}"
+    fi
+}
+
 # Function to get recent CloudWatch logs
 get_logs() {
     local function_name=$1
-    local full_function_name="${function_name}-${ENVIRONMENT}"
+    local full_function_name=$(get_full_function_name "$function_name")
     local log_group="/aws/lambda/$full_function_name"
     
     print_status "Getting recent logs for $full_function_name..."
@@ -92,7 +107,7 @@ get_logs() {
 # Function to watch logs in real-time
 watch_logs() {
     local function_name=$1
-    local full_function_name="${function_name}-${ENVIRONMENT}"
+    local full_function_name=$(get_full_function_name "$function_name")
     local log_group="/aws/lambda/$full_function_name"
     
     print_status "Watching logs for $full_function_name (Press Ctrl+C to stop)..."
@@ -107,7 +122,7 @@ watch_logs() {
 # Function to test a Lambda function
 test_function() {
     local function_name=$1
-    local full_function_name="${function_name}-${ENVIRONMENT}"
+    local full_function_name=$(get_full_function_name "$function_name")
     
     print_status "Testing Lambda function: $full_function_name"
     
@@ -167,7 +182,7 @@ test_function() {
 # Function to show function environment variables
 show_env() {
     local function_name=$1
-    local full_function_name="${function_name}-${ENVIRONMENT}"
+    local full_function_name=$(get_full_function_name "$function_name")
     
     print_status "Environment variables for $full_function_name:"
     
@@ -208,7 +223,7 @@ show_status() {
     for lambda_dir in lambda/*/; do
         if [ -d "$lambda_dir" ] && [ "$(basename "$lambda_dir")" != "common_lib" ] && [ "$(basename "$lambda_dir")" != "tmp" ]; then
             local function_name=$(basename "$lambda_dir")
-            local full_function_name="${function_name}-${ENVIRONMENT}"
+            local full_function_name=$(get_full_function_name "$function_name")
             
             # Temporarily disable exit on error for AWS command
             set +e

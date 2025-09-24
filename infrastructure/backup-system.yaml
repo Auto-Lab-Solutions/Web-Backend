@@ -41,7 +41,7 @@ Resources:
   BackupLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub 'auto-lab-backup-${Environment}'
+      FunctionName: !Sub 'sys-backup-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt BackupLambdaRole.Arn
@@ -64,7 +64,7 @@ Resources:
   ManualBackupLambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
-      FunctionName: !Sub 'auto-lab-manual-backup-${Environment}'
+      FunctionName: !Sub 'sys-manual-backup-${Environment}'
       Runtime: python3.13
       Handler: main.lambda_handler
       Role: !GetAtt BackupApiLambdaRole.Arn
@@ -84,7 +84,7 @@ Resources:
   BackupLambdaRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub 'auto-lab-backup-lambda-role-${Environment}'
+      RoleName: !Sub 'sys-backup-lambda-role-${Environment}'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -141,7 +141,7 @@ Resources:
   BackupApiLambdaRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub 'auto-lab-backup-api-lambda-role-${Environment}'
+      RoleName: !Sub 'sys-backup-api-lambda-role-${Environment}'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -167,7 +167,7 @@ Resources:
   BackupScheduleRule:
     Type: AWS::Events::Rule
     Properties:
-      Name: !Sub 'auto-lab-backup-schedule-${Environment}'
+      Name: !Sub 'sys-backup-schedule-${Environment}'
       Description: !Sub 'Scheduled backup rule for Auto Lab Solutions ${Environment}'
       ScheduleExpression: !FindInMap [EnvironmentSettings, !Ref Environment, BackupFrequency]
       State: ENABLED
@@ -194,27 +194,27 @@ Resources:
   BackupLambdaLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub '/aws/lambda/auto-lab-backup-${Environment}'
+      LogGroupName: !Sub '/aws/lambda/sys-backup-${Environment}'
       RetentionInDays: 14
 
   ManualBackupLambdaLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub '/aws/lambda/auto-lab-manual-backup-${Environment}'
+      LogGroupName: !Sub '/aws/lambda/sys-manual-backup-${Environment}'
       RetentionInDays: 14
 
   # SNS Topic for Backup Notifications
   BackupNotificationsTopic:
     Type: AWS::SNS::Topic
     Properties:
-      TopicName: !Sub 'auto-lab-backup-notifications-${Environment}'
+      TopicName: !Sub 'sys-backup-notifications-${Environment}'
       DisplayName: !Sub 'Auto Lab Backup Notifications (${Environment})'
 
   # CloudWatch Alarm for Backup Failures
   BackupFailureAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
-      AlarmName: !Sub 'auto-lab-backup-failures-${Environment}'
+      AlarmName: !Sub 'sys-backup-failures-${Environment}'
       AlarmDescription: 'Alarm for backup function failures'
       MetricName: Errors
       Namespace: AWS/Lambda

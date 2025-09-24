@@ -11,7 +11,7 @@ Parameters:
     Type: String
     Default: auto-lab-reports
     Description: S3 bucket name for reports
-  
+
   CloudFormationBucket:
     Type: String
     Default: auto-lab-cloudformation-templates
@@ -102,6 +102,11 @@ Parameters:
     Description: The domain name for SES (e.g., autolabsolutions.com or dev.autolabsolutions.com)
     Default: "autolabsolutions.com"
 
+  SESMailFromDomain:
+    Type: String
+    Description: Custom MAIL FROM domain for SES (subdomain of SESDomainName, e.g., mail.autolabsolutions.com)
+    Default: ""
+
   # Email Storage Parameters
   MailReceivingAddress:
     Type: String
@@ -112,11 +117,6 @@ Parameters:
     Type: String
     Description: S3 bucket name for storing received emails
     Default: "auto-lab-email-storage"
-
-  EmailMetadataTableName:
-    Type: String
-    Description: DynamoDB table name for email metadata (including environment suffix)
-    Default: "EmailMetadata-production"
 
   # Frontend Website Parameters
   EnableFrontendWebsite:
@@ -173,7 +173,6 @@ Parameters:
     Description: ARN of the ACM certificate for API domains (must be in the same region)
     Default: ''
 
-  # Firebase Push Notification Parameters (Optional)
   EnableFirebaseNotifications:
     Type: String
     AllowedValues: ['true', 'false']
@@ -182,20 +181,20 @@ Parameters:
 
   FirebaseProjectId:
     Type: String
-    Description: Firebase project ID for push notifications (required if Firebase enabled)
-    Default: ""
+    Description: Firebase project ID for push notifications
+    Default: ''
 
   FirebaseServiceAccountKey:
     Type: String
     NoEcho: true
-    Description: Firebase service account key (JSON) for authentication (required if Firebase enabled)
-    Default: ""
+    Description: Firebase service account key JSON for push notifications
+    Default: ''
 
 Conditions:
   ShouldDeployFrontend: !Equals [!Ref EnableFrontendWebsite, 'true']
-  ShouldEnableFirebase: !Equals [!Ref EnableFirebaseNotifications, 'true']
   ShouldEnableApiCustomDomains: !Equals [!Ref EnableApiCustomDomains, 'true']
   ShouldEnableReportsCustomDomain: !Equals [!Ref EnableReportsCustomDomain, 'true']
+  ShouldEnableFirebase: !Equals [!Ref EnableFirebaseNotifications, 'true']
 
 Resources:
   # DynamoDB Tables
@@ -206,15 +205,16 @@ Resources:
       Parameters:
         Environment: !Ref Environment
 
-  # Lambda Functions (initial deployment without notification queues)
+  # Lambda Functions (simplified - email receiving only)
   LambdaStack:
     Type: AWS::CloudFormation::Stack
     DependsOn: 
       - DynamoDBStack
       - S3CloudFrontStack
       - InvoiceQueueStack
-      - SESBounceComplaintStack
       - SESEmailStorageStack
+      - SESBounceComplaintStack
+      - NotificationQueueStack
     Properties:
       TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/lambda-functions.yaml'
       Parameters:
@@ -241,17 +241,16 @@ Resources:
         FrontendRootUrl: !Ref FrontendRootUrl
         SharedKey: !Ref SharedKey
         InvoiceQueueUrl: !GetAtt InvoiceQueueStack.Outputs.InvoiceQueueUrl
-        EmailNotificationQueueUrl: ""
-        WebSocketNotificationQueueUrl: ""
-        FirebaseNotificationQueueUrl: ""
         InvoiceGenerationQueueUrl: !GetAtt InvoiceQueueStack.Outputs.InvoiceGenerationQueueUrl
         MailSendingAddress: !Ref MailSendingAddress
         SesRegion: !Ref SesRegion
-        EmailSuppressionTableName: !GetAtt SESBounceComplaintStack.Outputs.EmailSuppressionTableName
-        EmailAnalyticsTableName: !GetAtt SESBounceComplaintStack.Outputs.EmailAnalyticsTableName
         EmailStorageBucket: !GetAtt SESEmailStorageStack.Outputs.EmailStorageBucket
-        EmailMetadataTable: !GetAtt SESEmailStorageStack.Outputs.EmailMetadataTable
         MailReceivingAddress: !Ref MailReceivingAddress
+        EmailSuppressionTableName: !GetAtt SESBounceComplaintStack.Outputs.EmailSuppressionTableName
+        EmailMetadataTable: !GetAtt SESEmailStorageStack.Outputs.EmailMetadataTable
+        EmailNotificationQueueUrl: !GetAtt NotificationQueueStack.Outputs.EmailNotificationQueueUrl
+        WebSocketNotificationQueueUrl: !GetAtt NotificationQueueStack.Outputs.WebSocketNotificationQueueUrl
+        FirebaseNotificationQueueUrl: !If [ShouldEnableFirebase, !GetAtt NotificationQueueStack.Outputs.FirebaseNotificationQueueUrl, '']
 
   # API Gateway
   ApiGatewayStack:
@@ -341,37 +340,6 @@ Resources:
         CloudFrontDomain: !If [ShouldEnableReportsCustomDomain, !Ref ReportsDomainName, !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName]
         FrontendRootUrl: !Ref FrontendRootUrl
 
-  # Notification Queue Stack
-  NotificationQueueStack:
-    Type: AWS::CloudFormation::Stack
-    DependsOn: [DynamoDBStack, S3CloudFrontStack, WebSocketStack]
-    Properties:
-      TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/notification-queue.yaml'
-      Parameters:
-        EnvironmentName: !Ref Environment
-        CloudFormationBucket: !Ref CloudFormationBucket
-        StaffTable: !GetAtt DynamoDBStack.Outputs.StaffTable
-        UsersTable: !GetAtt DynamoDBStack.Outputs.UsersTable
-        ConnectionsTable: !GetAtt DynamoDBStack.Outputs.ConnectionsTable
-        MessagesTable: !GetAtt DynamoDBStack.Outputs.MessagesTable
-        UnavailableSlotsTable: !GetAtt DynamoDBStack.Outputs.UnavailableSlotsTable
-        AppointmentsTable: !GetAtt DynamoDBStack.Outputs.AppointmentsTable
-        ServicePricesTable: !GetAtt DynamoDBStack.Outputs.ServicePricesTable
-        OrdersTable: !GetAtt DynamoDBStack.Outputs.OrdersTable
-        ItemPricesTable: !GetAtt DynamoDBStack.Outputs.ItemPricesTable
-        InquiriesTable: !GetAtt DynamoDBStack.Outputs.InquiriesTable
-        PaymentsTable: !GetAtt DynamoDBStack.Outputs.PaymentsTable
-        InvoicesTable: !GetAtt DynamoDBStack.Outputs.InvoicesTable
-        EmailSuppressionTableName: !GetAtt SESBounceComplaintStack.Outputs.EmailSuppressionTableName
-        ReportsBucketName: !GetAtt S3CloudFrontStack.Outputs.ReportsBucketName
-        CloudFrontDomain: !If [ShouldEnableReportsCustomDomain, !Ref ReportsDomainName, !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName]
-        FrontendRootUrl: !Ref FrontendRootUrl
-        MailSendingAddress: !Ref MailSendingAddress
-        WebSocketApiId: !GetAtt WebSocketStack.Outputs.WebSocketApiId
-        EnableFirebaseNotifications: !Ref EnableFirebaseNotifications
-        FirebaseProjectId: !If [ShouldEnableFirebase, !Ref FirebaseProjectId, ""]
-        FirebaseServiceAccountKey: !If [ShouldEnableFirebase, !Ref FirebaseServiceAccountKey, ""]
-
   # S3 and CloudFront for Reports
   S3CloudFrontStack:
     Type: AWS::CloudFormation::Stack
@@ -421,12 +389,13 @@ Resources:
   SESIdentitiesStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/ses-identities-route53.yaml'
+      TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/ses-identities-with-route53-records.yaml'
       Parameters:
         EnvironmentName: !Ref Environment
         SesRegion: !Ref SesRegion
         HostedZoneId: !Ref SESHostedZoneId
         DomainName: !Ref SESDomainName
+        MailFromDomain: !Ref SESMailFromDomain
       Tags:
         - Key: Environment
           Value: !Ref Environment
@@ -445,47 +414,72 @@ Resources:
         SesRegion: !Ref SesRegion
         CloudFormationBucket: !Ref CloudFormationBucket
         MailReceivingAddress: !Ref MailReceivingAddress
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: SESBounceComplaint
 
-  # SES Email Storage System
+  # Notification Queue Stack for Email, WebSocket, and Firebase notifications
+  NotificationQueueStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: [DynamoDBStack, S3CloudFrontStack, SESBounceComplaintStack]
+    Properties:
+      TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/notification-queue.yaml'
+      Parameters:
+        EnvironmentName: !Ref Environment
+        CloudFormationBucket: !Ref CloudFormationBucket
+        StaffTable: !GetAtt DynamoDBStack.Outputs.StaffTable
+        UsersTable: !GetAtt DynamoDBStack.Outputs.UsersTable
+        ConnectionsTable: !GetAtt DynamoDBStack.Outputs.ConnectionsTable
+        MessagesTable: !GetAtt DynamoDBStack.Outputs.MessagesTable
+        UnavailableSlotsTable: !GetAtt DynamoDBStack.Outputs.UnavailableSlotsTable
+        AppointmentsTable: !GetAtt DynamoDBStack.Outputs.AppointmentsTable
+        ServicePricesTable: !GetAtt DynamoDBStack.Outputs.ServicePricesTable
+        OrdersTable: !GetAtt DynamoDBStack.Outputs.OrdersTable
+        ItemPricesTable: !GetAtt DynamoDBStack.Outputs.ItemPricesTable
+        InquiriesTable: !GetAtt DynamoDBStack.Outputs.InquiriesTable
+        PaymentsTable: !GetAtt DynamoDBStack.Outputs.PaymentsTable
+        InvoicesTable: !GetAtt DynamoDBStack.Outputs.InvoicesTable
+        EmailSuppressionTableName: !GetAtt SESBounceComplaintStack.Outputs.EmailSuppressionTableName
+        ReportsBucketName: !GetAtt S3CloudFrontStack.Outputs.ReportsBucketName
+        CloudFrontDomain: !GetAtt S3CloudFrontStack.Outputs.CloudFrontDomainName
+        FrontendRootUrl: !Ref FrontendRootUrl
+        MailSendingAddress: !Ref MailSendingAddress
+        WebSocketApiId: ""
+        EnableFirebaseNotifications: !Ref EnableFirebaseNotifications
+        FirebaseProjectId: !Ref FirebaseProjectId
+        FirebaseServiceAccountKey: !Ref FirebaseServiceAccountKey
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: NotificationQueue
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Component
+          Value: NotificationQueue
+
+  # SES Email Storage System - SIMPLE S3 STORAGE ONLY (deployed after notification queue for Firebase integration)
   SESEmailStorageStack:
     Type: AWS::CloudFormation::Stack
-    DependsOn: SESIdentitiesStack
+    DependsOn: [SESIdentitiesStack, NotificationQueueStack]
     Properties:
       TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/ses-email-storage.yaml'
       Parameters:
         EnvironmentName: !Ref Environment
         EmailStorageBucketName: !Ref EmailStorageBucketName
-        EmailMetadataTableName: !Ref EmailMetadataTableName
         SesRegion: !Ref SesRegion
-        CloudFormationBucket: !Ref CloudFormationBucket
         MailReceivingAddress: !Ref MailReceivingAddress
+        CloudFormationBucket: !Ref CloudFormationBucket
+        FirebaseNotificationQueueUrl: !If [ShouldEnableFirebase, !GetAtt NotificationQueueStack.Outputs.FirebaseNotificationQueueUrl, '']
+        EnableFirebaseNotifications: !Ref EnableFirebaseNotifications
       Tags:
         - Key: Environment
           Value: !Ref Environment
         - Key: Component
           Value: EmailStorage
-
-  # SES Identity Notification Configuration
-  SESNotificationConfigStack:
-    Type: AWS::CloudFormation::Stack
-    DependsOn: 
-      - SESIdentitiesStack
-      - SESBounceComplaintStack
-    Properties:
-      TemplateURL: !Sub 'https://${CloudFormationBucket}.s3.amazonaws.com/ses-notification-config.yaml'
-      Parameters:
-        EnvironmentName: !Ref Environment
-        SesRegion: !Ref SesRegion
-        SESDomainName: !Ref SESDomainName
-        SESBounceTopicArn: !GetAtt SESBounceComplaintStack.Outputs.SESBounceTopicArn
-        SESComplaintTopicArn: !GetAtt SESBounceComplaintStack.Outputs.SESComplaintTopicArn
-        SESDeliveryTopicArn: !GetAtt SESBounceComplaintStack.Outputs.SESDeliveryTopicArn
-      Tags:
-        - Key: Environment
-          Value: !Ref Environment
-        - Key: Component
-          Value: SESNotifications
-
 
 Outputs:
   RestApiId:
@@ -635,61 +629,12 @@ Outputs:
     Export:
       Name: !Sub '${AWS::StackName}-BackupInstructions'
 
-  # SES Bounce and Complaint System Outputs
-  SESBounceTopicArn:
-    Description: ARN of the SES Bounce Notification SNS Topic
-    Value: !GetAtt SESBounceComplaintStack.Outputs.SESBounceTopicArn
-    Export:
-      Name: !Sub '${AWS::StackName}-SESBounceTopicArn'
-
-  SESComplaintTopicArn:
-    Description: ARN of the SES Complaint Notification SNS Topic
-    Value: !GetAtt SESBounceComplaintStack.Outputs.SESComplaintTopicArn
-    Export:
-      Name: !Sub '${AWS::StackName}-SESComplaintTopicArn'
-
-  SESDeliveryTopicArn:
-    Description: ARN of the SES Delivery Notification SNS Topic
-    Value: !GetAtt SESBounceComplaintStack.Outputs.SESDeliveryTopicArn
-    Export:
-      Name: !Sub '${AWS::StackName}-SESDeliveryTopicArn'
-
-  EmailSuppressionTableName:
-    Description: Name of the Email Suppression DynamoDB Table
-    Value: !GetAtt SESBounceComplaintStack.Outputs.EmailSuppressionTableName
-    Export:
-      Name: !Sub '${AWS::StackName}-EmailSuppressionTableName'
-
-  EmailAnalyticsTableName:
-    Description: Name of the Email Analytics DynamoDB Table
-    Value: !GetAtt SESBounceComplaintStack.Outputs.EmailAnalyticsTableName
-    Export:
-      Name: !Sub '${AWS::StackName}-EmailAnalyticsTableName'
-
   # SES Email Storage System Outputs
   EmailStorageBucket:
     Description: S3 bucket for storing received emails
     Value: !GetAtt SESEmailStorageStack.Outputs.EmailStorageBucket
     Export:
       Name: !Sub '${AWS::StackName}-EmailStorageBucket'
-
-  EmailMetadataTable:
-    Description: DynamoDB table for email metadata
-    Value: !GetAtt SESEmailStorageStack.Outputs.EmailMetadataTable
-    Export:
-      Name: !Sub '${AWS::StackName}-EmailMetadataTable'
-
-  SESReceiptRuleSet:
-    Description: SES receipt rule set name
-    Value: !GetAtt SESEmailStorageStack.Outputs.SESReceiptRuleSet
-    Export:
-      Name: !Sub '${AWS::StackName}-SESReceiptRuleSet'
-
-  EmailProcessorFunctionArn:
-    Description: Email processor Lambda function ARN
-    Value: !GetAtt SESEmailStorageStack.Outputs.EmailProcessorFunctionArn
-    Export:
-      Name: !Sub '${AWS::StackName}-EmailProcessorFunctionArn'
 
   MailReceivingAddress:
     Description: Email address for receiving emails in this environment
@@ -699,19 +644,13 @@ Outputs:
 
   # SES Identity Outputs
   SESDomainIdentity:
-    Description: SES Domain Identity (includes MAIL FROM configuration)
+    Description: SES Domain Identity for email receiving
     Value: !GetAtt SESIdentitiesStack.Outputs.SESDomainIdentity
     Export:
       Name: !Sub '${AWS::StackName}-SESDomainIdentity'
 
-  SESConfigurationSet:
-    Description: SES Configuration Set
-    Value: !GetAtt SESIdentitiesStack.Outputs.SESConfigurationSet
-    Export:
-      Name: !Sub '${AWS::StackName}-SESConfigurationSet'
-
   SESDomainName:
-    Description: The domain name configured for SES
+    Description: The domain name configured for email receiving
     Value: !GetAtt SESIdentitiesStack.Outputs.DomainName
     Export:
       Name: !Sub '${AWS::StackName}-SESDomainName'

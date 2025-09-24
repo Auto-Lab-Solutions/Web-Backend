@@ -635,6 +635,66 @@ class NotificationManager:
         roles = target_roles or ['CUSTOMER_SUPPORT', 'CLERK', 'MECHANIC', 'ADMIN']
         return self.queue_firebase_notification(notification_type, title, body, data, 'broadcast', roles=roles)
 
+    def queue_email_received_firebase_notification(self, email_metadata):
+        """Queue Firebase notification for new email received to staff"""
+        if not email_metadata:
+            print("Warning: Missing email metadata for Firebase notification")
+            return False
+        
+        # Extract email information for notification
+        from_email = email_metadata.get('fromEmail', 'Unknown sender')
+        from_name = email_metadata.get('fromName', '')
+        subject = email_metadata.get('subject', 'No subject')
+        is_important = email_metadata.get('isImportant', False)
+        tags = email_metadata.get('tags', [])
+        
+        # Create notification title and body
+        sender_display = from_name if from_name else from_email
+        title = "New Email Received"
+        body = f"From: {sender_display}"
+        
+        if subject:
+            body += f"\nSubject: {subject}"
+        
+        # Add urgency indicator if marked as important
+        if is_important:
+            title = "🔥 Urgent Email Received"
+            body = f"⚠️ {body}"
+        
+        # Determine target roles based on email tags and importance
+        target_roles = ['CUSTOMER_SUPPORT', 'CLERK']
+        
+        # If it's an appointment-related email, also notify mechanics
+        if 'appointment' in tags:
+            target_roles.append('MECHANIC')
+        
+        # If it's urgent or complaint, notify admin too
+        if is_important or 'complaint' in tags or 'urgent' in tags:
+            target_roles.append('ADMIN')
+        
+        # Prepare notification data
+        notification_data = {
+            'type': 'email_received',
+            'messageId': email_metadata.get('messageId'),
+            'fromEmail': from_email,
+            'fromName': from_name,
+            'subject': subject,
+            'isImportant': is_important,
+            'tags': tags,
+            'receivedDate': email_metadata.get('receivedDate'),
+            'timestamp': int(time.time())
+        }
+        
+        # Queue Firebase notification
+        return self.queue_firebase_notification(
+            notification_type='email_received',
+            title=title,
+            body=body,
+            data=notification_data,
+            target_type='broadcast',
+            roles=target_roles
+        )
+
 
 class InvoiceManager:
     """Manages invoice generation queuing and SQS operations"""
@@ -985,6 +1045,7 @@ queue_inquiry_firebase_notification = notification_manager.queue_inquiry_firebas
 queue_message_firebase_notification = notification_manager.queue_message_firebase_notification
 queue_user_assignment_firebase_notification = notification_manager.queue_user_assignment_firebase_notification
 queue_system_notification_firebase = notification_manager.queue_system_notification_firebase
+queue_email_received_firebase_notification = notification_manager.queue_email_received_firebase_notification
 
 # Export individual invoice functions for backward compatibility
 queue_invoice_generation = invoice_manager.queue_invoice_generation

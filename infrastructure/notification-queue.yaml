@@ -87,6 +87,7 @@ Parameters:
   WebSocketApiId:
     Type: String
     Description: WebSocket API Gateway ID for sending WebSocket notifications
+    Default: ""
 
   # Firebase Parameters (Optional)
   EnableFirebaseNotifications:
@@ -108,6 +109,7 @@ Parameters:
 
 Conditions:
   ShouldEnableFirebase: !Equals [!Ref EnableFirebaseNotifications, 'true']
+  ShouldEnableWebSocket: !Not [!Equals [!Ref WebSocketApiId, '']]
 
 Resources:
   # SQS Queue for email notifications
