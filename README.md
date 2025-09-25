@@ -353,8 +353,7 @@ graph TD
     A[Customer Books Appointment] --> B[Validate Time Slot]
     B --> C{Slot Available?}
     C -->|No| D[Return Error]
-    C -->|Yes| E[Create Appointment Record]
-    E --> F[Mark Time Slot Unavailable]
+    C -->|Yes| F[Create Appointment Record]
     F --> G[Queue Confirmation Email]
     G --> H[Send WebSocket Notification]
     H --> I[Return Success]
@@ -389,14 +388,10 @@ graph TD
 ```mermaid
 graph TD
     A[Mechanic Updates Status] --> B[Status: In Progress]
-    B --> C[Work Completed]
-    C --> D[Status: Completed]
-    D --> E[Generate Service Report]
-    E --> F[Upload Report to S3]
-    F --> G[Send Completion Email]
-    G --> H[Trigger Payment Process]
-    H --> I[Generate Invoice]
-    I --> J[Customer Notification]
+    B --> C[Customer Notification]
+    C --> D[Work Completed]
+    D --> E[Status: Completed]
+    E --> F[Customer Notification]
 ```
 
 ### 💬 **Real-time Communication Workflow**
@@ -408,10 +403,7 @@ graph TD
     C --> D[Find Customer Connection]
     D --> E{Customer Online?}
     E -->|Yes| F[Send via WebSocket]
-    E -->|No| G[Queue Email Notification]
     F --> H[Mark as Delivered]
-    G --> I[Process Email Queue]
-    I --> J[Send Email Notification]
 ```
 
 ---
@@ -642,10 +634,7 @@ graph TD
     D --> E[Find Customer Connection]
     E --> F{Customer Online?}
     F -->|Yes| G[Send via WebSocket]
-    F -->|No| H[Queue Email Notification]
-    G --> I[Update Message Status]
-    H --> J[SQS Email Queue]
-    J --> K[Send Email Notification]
+    G --> H[Update Message Status]
 ```
 
 ### 📊 **Connection Monitoring**
